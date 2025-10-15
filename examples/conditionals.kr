@@ -1,0 +1,37 @@
+print "=== If/Else If/Else ==="
+
+set score to 85
+
+if score is greater than 90:
+    print "Grade: A"
+else if score is greater than 80:
+    print "Grade: B"
+else if score is greater than 70:
+    print "Grade: C"
+else if score is greater than 60:
+    print "Grade: D"
+else:
+    print "Grade: F"
+
+print "=== Simple If/Else ==="
+
+set age to 15
+
+if age is greater than 18:
+    print "You are an adult"
+else:
+    print "You are a minor"
+
+print "=== Nested Conditions ==="
+
+set x to 5
+set y to 10
+
+if x is less than y:
+    print "x is less than y"
+    if x is equal 5:
+        print "x is exactly 5"
+    else:
+        print "x is not 5"
+else:
+    print "x is not less than y"
