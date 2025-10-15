@@ -53,6 +53,10 @@ class Parser:
             return self.parse_call(indent)
         elif token[0] == 'RETURN':
             return self.parse_return(indent)
+        elif token[0] == 'TRY':
+            return self.parse_try(indent)
+        elif token[0] == 'RAISE':
+            return self.parse_raise(indent)
         return None
     
     def parse_assignment(self, indent: int) -> Tuple:
@@ -137,6 +141,63 @@ class Parser:
         value = self.parse_expression()
         self.consume('NEWLINE')
         return ('return', indent, value)
+    
+    def parse_try(self, indent: int) -> Tuple:
+        self.consume('TRY')
+        self.consume('COLON')
+        self.consume('NEWLINE')
+        try_block = self.parse_block(indent)
+        
+        # Parse error handlers
+        handlers = []
+        while self.pos < len(self.tokens):
+            if self.peek()[0] != 'INDENT':
+                break
+            next_indent = int(self.peek()[1])
+            if next_indent != indent:
+                break
+            
+            self.consume('INDENT')
+            if self.peek()[0] != 'ON':
+                self.pos -= 1  # Put indent back
+                break
+            
+            self.consume('ON')
+            
+            # Check for specific error type
+            error_type = None
+            if self.peek()[0] in ['MATH', 'NAME_ERROR', 'TYPE', 'VALUE']:
+                error_type = self.consume()[0].lower()
+                self.consume('ERROR')
+            else:
+                self.consume('ERROR')
+            
+            # Check for "as variable"
+            error_var = None
+            if self.peek()[0] == 'AS':
+                self.consume('AS')
+                error_var = self.consume('NAME')[1]
+            
+            self.consume('COLON')
+            self.consume('NEWLINE')
+            handler_block = self.parse_block(indent)
+            
+            handlers.append((error_type, error_var, handler_block))
+        
+        return ('try', indent, try_block, handlers)
+    
+    def parse_raise(self, indent: int) -> Tuple:
+        self.consume('RAISE')
+        
+        # Check for error type
+        error_type = 'error'
+        if self.peek()[0] in ['MATH', 'NAME_ERROR', 'TYPE', 'VALUE']:
+            error_type = self.consume()[0].lower()
+        
+        self.consume('ERROR')
+        message = self.parse_expression()
+        self.consume('NEWLINE')
+        return ('raise', indent, error_type, message)
     
     def parse_condition(self) -> Tuple:
         left = self.parse_expression()
