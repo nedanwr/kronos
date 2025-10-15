@@ -1,0 +1,37 @@
+print "=== Basic Error Handling ==="
+
+try:
+    set x to 10 divided by 0
+on error:
+    print "Caught an error!"
+
+print "=== Error with Message ==="
+
+try:
+    set y to unknown_var
+on error as msg:
+    print "Error occurred:"
+    print msg
+
+print "=== Specific Error Types ==="
+
+try:
+    set z to 5 divided by 0
+on math error:
+    print "Math error caught!"
+on error:
+    print "Other error"
+
+print "=== Raising Errors ==="
+
+function validate with age:
+    if age is less than 0:
+        raise value error "Age cannot be negative"
+    print "Valid age"
+
+try:
+    call validate with -5
+on value error as msg:
+    print msg
+
+print "Done!"
