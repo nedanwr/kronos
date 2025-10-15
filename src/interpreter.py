@@ -32,12 +32,32 @@ class Interpreter:
                 print(result)
             
             elif stmt_type == 'if':
-                _, _, condition, block = stmt
+                _, _, condition, if_block, elif_blocks, else_block = stmt
+                
+                # Check main condition
                 if self.eval_condition(condition):
-                    for block_stmt in block:
+                    for block_stmt in if_block:
                         result = self.execute(block_stmt)
                         if result == 'return':
                             return 'return'
+                else:
+                    # Check elif conditions
+                    executed = False
+                    for elif_condition, elif_block in elif_blocks:
+                        if self.eval_condition(elif_condition):
+                            for block_stmt in elif_block:
+                                result = self.execute(block_stmt)
+                                if result == 'return':
+                                    return 'return'
+                            executed = True
+                            break
+        
+                    # Execute else block if no conditions matched
+                    if not executed and else_block:
+                        for block_stmt in else_block:
+                            result = self.execute(block_stmt)
+                            if result == 'return':
+                                return 'return'
             
             elif stmt_type == 'for':
                 _, _, var, start, end, block = stmt
