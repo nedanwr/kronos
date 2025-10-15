@@ -78,8 +78,43 @@ class Parser:
         condition = self.parse_condition()
         self.consume('COLON')
         self.consume('NEWLINE')
-        block = self.parse_block(indent)
-        return ('if', indent, condition, block)
+        if_block = self.parse_block(indent)
+    
+        # Check for else if / else
+        elif_blocks = []
+        else_block = None
+    
+        while self.pos < len(self.tokens):
+            if self.peek()[0] != 'INDENT':
+                break
+            next_indent = int(self.peek()[1])
+            if next_indent != indent:
+                break
+            
+            self.consume('INDENT')
+            
+            if self.peek()[0] == 'ELSE':
+                self.consume('ELSE')
+                
+                # Check if it's "else if" or just "else"
+                if self.peek()[0] == 'IF':
+                    self.consume('IF')
+                    condition = self.parse_condition()
+                    self.consume('COLON')
+                    self.consume('NEWLINE')
+                    elif_block = self.parse_block(indent)
+                    elif_blocks.append((condition, elif_block))
+                else:
+                    # Just "else"
+                    self.consume('COLON')
+                    self.consume('NEWLINE')
+                    else_block = self.parse_block(indent)
+                    break  # else must be last
+            else:
+                self.pos -= 1  # Put indent back
+                break
+        
+        return ('if', indent, condition, if_block, elif_blocks, else_block)
     
     def parse_for(self, indent: int) -> Tuple:
         self.consume('FOR')
