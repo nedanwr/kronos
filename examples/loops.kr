@@ -1,0 +1,8 @@
+print "Counting to 5:"
+for i in range 1 to 5:
+    print i
+
+set x to 0
+while x is less than 3:
+    print x
+    set x to x plus 1
