@@ -1,0 +1,13 @@
+function greet with name:
+    print "Hello"
+    print name
+
+call greet with "Alice"
+
+function factorial with n:
+    set result to 1
+    for i in range 1 to n:
+        set result to result times i
+    return result
+
+call factorial with 5
