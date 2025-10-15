@@ -1,0 +1,4 @@
+print "Hello, Kronos!"
+
+set name to "World"
+print name
