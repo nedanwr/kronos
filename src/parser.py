@@ -291,6 +291,18 @@ class Parser:
             negated = True
         
         op_token = self.peek()[0]
+    
+        # Handle unary conditions (positive/negative)
+        if op_token == 'POSITIVE':
+            self.consume('POSITIVE')
+            op = 'not_positive' if negated else 'positive'
+            return ('condition', left, op, None)
+        elif op_token == 'NEGATIVE':
+            self.consume('NEGATIVE')
+            op = 'not_negative' if negated else 'negative'
+            return ('condition', left, op, None)
+        
+        # Handle binary conditions
         if op_token == 'EQUAL':
             self.consume('EQUAL')
             op = '!=' if negated else '=='
