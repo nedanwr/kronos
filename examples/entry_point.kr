@@ -1,0 +1,14 @@
+print "=== With __init__ Entry Point ==="
+
+function helper:
+    print "Helper function called"
+
+function greet with name:
+    print "Hello"
+    print name
+
+__init__:
+    print "Starting program..."
+    call helper
+    call greet with "Alice"
+    print "Program finished!"
