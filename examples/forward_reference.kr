@@ -1,0 +1,12 @@
+print "=== Forward Reference Test ==="
+
+__init__:
+    print "Calling main..."
+    call main
+
+function main:
+    print "Main function"
+    call helper
+
+function helper:
+    print "Helper called from main"
