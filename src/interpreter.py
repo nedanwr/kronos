@@ -14,6 +14,14 @@ class Interpreter:
         self.defined_variables: Set[str] = set()
         self.constants: Set[str] = set()
         self.variable_types: Dict[str, str] = {}
+        # Built-in mathematical constants
+        self.constants_values = {
+            'Pi':  3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
+        }
+        # Built-in function names
+        self.builtin_functions = {
+            'round', 'min', 'max', 'sum', 'positive', 'negative'
+        }
     
     def run(self, statements: List[Tuple]):
         # First pass: collect all function definitions
@@ -216,6 +224,10 @@ class Interpreter:
             raise
     
     def call_function(self, name: str, args: List[Tuple]) -> Any:
+        # Handle built-in functions
+        if name in self.builtin_functions:
+            return self.call_builtin(name, args)
+        
         if name not in self.functions:
             raise NameError(f"Function '{name}' not defined")
         
@@ -251,8 +263,67 @@ class Interpreter:
         
         return result
     
+    def call_builtin(self, name: str, args: List[Tuple]) -> Any:
+        """Handle built-in mathematical functions"""
+        evaluated_args = [self.eval_expression(arg) for arg in args]
+        
+        if name == 'round':
+            if len(evaluated_args) == 1:
+                return round(evaluated_args[0])
+            elif len(evaluated_args) == 2:
+                return round(evaluated_args[0], int(evaluated_args[1]))
+            else:
+                raise ValueError(
+                    f"round expects 1 or 2 arguments, got {len(evaluated_args)}"
+                )
+        
+        elif name == 'min':
+            if len(evaluated_args) == 0:
+                raise ValueError("min expects at least 1 argument")
+            return min(evaluated_args)
+        
+        elif name == 'max':
+            if len(evaluated_args) == 0:
+                raise ValueError("max expects at least 1 argument")
+            return max(evaluated_args)
+        
+        elif name == 'sum':
+            if len(evaluated_args) == 0:
+                raise ValueError("sum expects at least 1 argument")
+            return sum(evaluated_args)
+        
+        elif name == 'positive':
+            if len(evaluated_args) != 1:
+                raise ValueError(
+                    f"positive expects 1 argument, got {len(evaluated_args)}"
+                )
+            return abs(evaluated_args[0])
+        
+        elif name == 'negative':
+            if len(evaluated_args) != 1:
+                raise ValueError(
+                    f"negative expects 1 argument, got {len(evaluated_args)}"
+                )
+            return -abs(evaluated_args[0])
+    
     def eval_condition(self, condition: Tuple) -> bool:
         _, left, op, right = condition
+        
+        # Handle special unary conditions (is positive, is negative)
+        if right is None:
+            left_val = self.eval_expression(left)
+            if op == 'positive':
+                return left_val > 0
+            elif op == 'not_positive':
+                return left_val <= 0
+            elif op == 'negative':
+                return left_val < 0
+            elif op == 'not_negative':
+                return left_val >= 0
+            else:
+                raise ValueError(f"Unknown unary condition: {op}")
+        
+        # Handle binary conditions
         left_val = self.eval_expression(left)
         right_val = self.eval_expression(right)
         
@@ -278,11 +349,14 @@ class Interpreter:
             return expr[1]
         elif expr_type == 'var':
             var_name = expr[1]
+            
+            # Check for built-in constants
+            if var_name in self.constants_values:
+                return self.constants_values[var_name]
+
             # Check if variable is defined
             if var_name not in self.defined_variables:
-                raise NameError(
-                    f"Variable '{var_name}' used before assignment"
-                )
+                raise NameError(f"Variable '{var_name}' used before assignment")
             if var_name not in self.variables:
                 raise NameError(f"Variable '{var_name}' not defined")
             return self.variables[var_name]
