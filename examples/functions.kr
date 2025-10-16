@@ -4,6 +4,12 @@ function greet with name:
 
 call greet with "Alice"
 
+function add with a, b:
+    set sum to a plus b
+    return sum
+
+call add with 5, 3
+
 function factorial with n:
     set result to 1
     for i in range 1 to n:
