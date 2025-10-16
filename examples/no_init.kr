@@ -1,0 +1,12 @@
+print "=== Sequential Execution (No __init__) ==="
+
+set name to "Bob"
+print name
+
+function greet:
+    print "Hello from function"
+
+call greet
+
+for i in range 1 to 3:
+    print i
