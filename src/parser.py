@@ -37,7 +37,7 @@ class Parser:
         if not token:
             return None
             
-        if token[0] == 'SET':
+        if token[0] == 'SET' or token[0] == 'LET':
             return self.parse_assignment(indent)
         elif token[0] == 'PRINT':
             return self.parse_print(indent)
@@ -62,12 +62,40 @@ class Parser:
         return None
     
     def parse_assignment(self, indent: int) -> Tuple:
-        self.consume('SET')
+        # Check if it's let (immutable) or set (mutable)
+        is_const = False
+        if self.peek()[0] == 'LET':
+            self.consume('LET')
+            is_const = True
+        elif self.peek()[0] == 'SET':
+            self.consume('SET')
+            is_const = False
+        else:
+            raise SyntaxError("Expected 'let' or 'set'")
+        
         name = self.consume('NAME')[1]
         self.consume('TO')
         value = self.parse_expression()
+    
+        # Check for type annotation
+        var_type = None
+        if self.peek() and self.peek()[0] == 'AS':
+            self.consume('AS')
+            type_token = self.peek()
+            if type_token[0] == 'TYPE_NUMBER':
+                self.consume('TYPE_NUMBER')
+                var_type = 'number'
+            elif type_token[0] == 'TYPE_STRING':
+                self.consume('TYPE_STRING')
+                var_type = 'string'
+            elif type_token[0] == 'TYPE_BOOL':
+                self.consume('TYPE_BOOL')
+                var_type = 'bool'
+            else:
+                raise SyntaxError(f"Expected type (number, string, bool), got {type_token[0]}")
+        
         self.consume('NEWLINE')
-        return ('assign', indent, name, value)
+        return ('assign', indent, is_const, name, value, var_type)
     
     def parse_print(self, indent: int) -> Tuple:
         self.consume('PRINT')
