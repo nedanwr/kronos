@@ -12,6 +12,8 @@ class Interpreter:
         self.functions: Dict[str, Tuple[List[str], List]] = {}
         self.return_value = None
         self.defined_variables: Set[str] = set()
+        self.constants: Set[str] = set()
+        self.variable_types: Dict[str, str] = {}
     
     def run(self, statements: List[Tuple]):
         # First pass: collect all function definitions
@@ -56,10 +58,51 @@ class Interpreter:
         
         try:
             if stmt_type == 'assign':
-                _, _, name, value = stmt
-                self.variables[name] = self.eval_expression(value)
-                self.defined_variables.add(name)
+                _, _, is_const, name, value, var_type = stmt
+
+                # Check if trying to reassign a constant
+                if name in self.constants:
+                    raise KronosError(
+                        'value',
+                        f"Cannot reassign immutable variable '{name}'"
+                    )
+                
+                evaluated_value = self.eval_expression(value)
             
+                # Type checking if type annotation exists
+                if var_type:
+                    expected_type = var_type
+                    actual_type = self.get_type(evaluated_value)
+
+                    if actual_type != expected_type:
+                        raise KronosError(
+                            'type',
+                            f"Type mismatch: '{name}' expects {expected_type}, "
+                            f"got {actual_type}"
+                        )
+                    
+                    # Store type constraint for future assignments
+                    self.variable_types[name] = expected_type
+                
+                # If variable already has a type constraint, check if
+                elif name in self.variable_types:
+                    expected_type = self.variable_types[name]
+                    actual_type = self.get_type(evaluated_value)
+
+                    if actual_type != expected_type:
+                        raise KronosError(
+                            'type',
+                            f"Type mismatch: '{name}' expects {expected_type}, "
+                            f"got {actual_type}"
+                        )
+
+                self.variables[name] = evaluated_value
+                self.defined_variables.add(name)
+
+                # Mark as constant if using 'let'
+                if is_const:
+                    self.constants.add(name)
+
             elif stmt_type == 'print':
                 _, _, value = stmt
                 result = self.eval_expression(value)
@@ -256,3 +299,14 @@ class Interpreter:
                 return left_val * right_val
             elif op == '/':
                 return left_val / right_val
+
+    def get_type(self, value: Any) -> str:
+        """Get Kronos type name from Python value"""
+        if isinstance(value, bool):
+            return 'bool'
+        elif isinstance(value, (int, float)):
+            return 'number'
+        elif isinstance(value, str):
+            return 'string'
+        else:
+            return 'unknown'
