@@ -5,11 +5,15 @@ def run_file(filepath: str):
     with open(filepath, 'r') as f:
         code = f.read()
     
-    tokenizer = Tokenizer(code)
-    parser = Parser(tokenizer.tokens)
-    ast = parser.parse()
-    interpreter = Interpreter()
-    interpreter.run(ast)
+    try:
+        tokenizer = Tokenizer(code)
+        parser = Parser(tokenizer.tokens)
+        ast = parser.parse()
+        interpreter = Interpreter()
+        interpreter.run(ast)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 def repl():
     print("Kronos REPL - Type 'exit' to quit")
