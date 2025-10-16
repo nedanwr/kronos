@@ -1,0 +1,49 @@
+__init__:
+    print "=== Math Constants ==="
+    print "Value of Pi:"
+    print Pi
+    
+    let circle_area to Pi times 5 times 5
+    print "Area of circle with radius 5:"
+    print circle_area
+    
+    print "=== Rounding ==="
+    call round with 3.14159
+    call round with 3.14159, 2
+    
+    set value to 7.89
+    set rounded to call round with value
+    print "Rounded 7.89:"
+    print rounded
+    
+    print "=== Min/Max/Sum ==="
+    call min with 5, 2, 8, 1
+    call max with 5, 2, 8, 1
+    call sum with 1, 2, 3, 4, 5
+    
+    print "=== Positive/Negative ==="
+    set neg_num to -15
+    set pos_result to call positive with neg_num
+    print "Positive of -15:"
+    print pos_result
+    
+    set pos_num to 20
+    set neg_result to call negative with pos_num
+    print "Negative of 20:"
+    print neg_result
+    
+    print "=== Condition Checks ==="
+    set x to 10
+    if x is positive:
+        print "x is positive"
+    
+    set y to -5
+    if y is negative:
+        print "y is negative"
+    
+    set z to 0
+    if z is not positive:
+        print "z is not positive"
+    
+    if z is not negative:
+        print "z is not negative"
