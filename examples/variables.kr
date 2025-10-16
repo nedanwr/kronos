@@ -1,0 +1,71 @@
+# Test immutable and mutable variables with type annotations
+
+__init__:
+    print "=== Testing Let and Set ==="
+    
+    # Immutable variables
+    let pi to 3.14159 as number
+    let name to "Alice" as string
+    let max_count to 100 as number
+    
+    print "Pi:"
+    print pi
+    print "Name:"
+    print name
+    
+    # Mutable variables
+    set counter to 0 as number
+    set message to "Hello" as string
+    
+    print "Initial counter:"
+    print counter
+    
+    # This works - mutable variable
+    set counter to counter plus 1
+    print "Counter after increment:"
+    print counter
+    
+    set counter to counter plus 5
+    print "Counter after adding 5:"
+    print counter
+    
+    # Update message
+    set message to "World"
+    print "Updated message:"
+    print message
+    
+    # Variables without type annotations
+    let simple to 42
+    set flexible to "anything"
+    
+    print "Simple:"
+    print simple
+    print "Flexible:"
+    print flexible
+    
+    # Type checking in action
+    try:
+        set counter to "invalid"
+    on type error as msg:
+        print "Caught type error:"
+        print msg
+    
+    # Try to reassign immutable variable
+    try:
+        set pi to 3.14
+    on value error as msg:
+        print "Caught immutable error:"
+        print msg
+    
+    # Function with typed parameters
+    call test_function with 10, 20
+    
+    print "=== Tests Complete ==="
+
+function test_function with a, b:
+    let sum to a plus b as number
+    print "Sum in function:"
+    print sum
+    
+    # This would fail - can't reassign let
+    # set sum to 999
