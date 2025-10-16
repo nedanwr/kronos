@@ -1,0 +1,10 @@
+print "=== This will error ==="
+
+try:
+    print x
+on error as msg:
+    print "Caught error:"
+    print msg
+
+set x to 5
+print x
