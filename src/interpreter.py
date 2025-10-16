@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Set
 
 class KronosError(Exception):
     def __init__(self, error_type: str, message: str):
@@ -11,12 +11,45 @@ class Interpreter:
         self.variables: Dict[str, Any] = {}
         self.functions: Dict[str, Tuple[List[str], List]] = {}
         self.return_value = None
+        self.defined_variables: Set[str] = set()
     
     def run(self, statements: List[Tuple]):
+        # First pass: collect all function definitions
+        non_function_stmts = []
+        has_init = False
+        
         for stmt in statements:
-            result = self.execute(stmt)
-            if result == 'return':
-                break
+            if stmt[0] == 'function':
+                _, _, name, params, block = stmt
+                self.functions[name] = (params, block)
+                if name == '__init__':
+                    has_init = True
+            else:
+                non_function_stmts.append(stmt)
+        
+        # Second pass: execute
+        if has_init:
+            # Execute __init__ as entry point
+            if '__init__' not in self.functions:
+                raise KronosError('name_error', '__init__ function not found')
+            
+            params, block = self.functions['__init__']
+            if len(params) > 0:
+                raise KronosError(
+                    'value',
+                    '__init__ should not have parameters'
+                )
+            
+            for stmt in block:
+                result = self.execute(stmt)
+                if result == 'return':
+                    break
+        else:
+            # Execute statements sequentially
+            for stmt in non_function_stmts:
+                result = self.execute(stmt)
+                if result == 'return':
+                    break
     
     def execute(self, stmt: Tuple) -> str:
         stmt_type = stmt[0]
@@ -25,6 +58,7 @@ class Interpreter:
             if stmt_type == 'assign':
                 _, _, name, value = stmt
                 self.variables[name] = self.eval_expression(value)
+                self.defined_variables.add(name)
             
             elif stmt_type == 'print':
                 _, _, value = stmt
@@ -34,14 +68,12 @@ class Interpreter:
             elif stmt_type == 'if':
                 _, _, condition, if_block, elif_blocks, else_block = stmt
                 
-                # Check main condition
                 if self.eval_condition(condition):
                     for block_stmt in if_block:
                         result = self.execute(block_stmt)
                         if result == 'return':
                             return 'return'
                 else:
-                    # Check elif conditions
                     executed = False
                     for elif_condition, elif_block in elif_blocks:
                         if self.eval_condition(elif_condition):
@@ -51,8 +83,7 @@ class Interpreter:
                                     return 'return'
                             executed = True
                             break
-        
-                    # Execute else block if no conditions matched
+                    
                     if not executed and else_block:
                         for block_stmt in else_block:
                             result = self.execute(block_stmt)
@@ -66,6 +97,7 @@ class Interpreter:
                 
                 for i in range(start_val, end_val + 1):
                     self.variables[var] = i
+                    self.defined_variables.add(var)
                     for block_stmt in block:
                         result = self.execute(block_stmt)
                         if result == 'return':
@@ -80,8 +112,8 @@ class Interpreter:
                             return 'return'
             
             elif stmt_type == 'function':
-                _, _, name, params, block = stmt
-                self.functions[name] = (params, block)
+                # Already handled in first pass
+                pass
             
             elif stmt_type == 'call':
                 _, _, name, args = stmt
@@ -102,7 +134,7 @@ class Interpreter:
                 raise KronosError(error_type, str(msg))
         
         except KronosError:
-            raise  # Re-raise Kronos errors
+            raise
         except ZeroDivisionError as e:
             raise KronosError('math', 'Division by zero')
         except NameError as e:
@@ -119,28 +151,25 @@ class Interpreter:
                 if result == 'return':
                     return 'return'
         except KronosError as e:
-            # Find matching handler
             for error_type, error_var, handler_block in handlers:
                 if error_type is None or error_type == e.error_type:
-                    # Save error message to variable if specified
                     if error_var:
                         old_val = self.variables.get(error_var)
                         self.variables[error_var] = e.message
+                        self.defined_variables.add(error_var)
                     
-                    # Execute handler
                     for stmt in handler_block:
                         self.execute(stmt)
                     
-                    # Restore old variable value
                     if error_var:
                         if old_val is not None:
                             self.variables[error_var] = old_val
                         else:
                             del self.variables[error_var]
+                            self.defined_variables.discard(error_var)
                     
-                    return  # Error handled
+                    return
             
-            # No handler matched, re-raise
             raise
     
     def call_function(self, name: str, args: List[Tuple]) -> Any:
@@ -155,11 +184,16 @@ class Interpreter:
                 f"got {len(args)}"
             )
         
+        # Save state
         old_vars = self.variables.copy()
+        old_defined = self.defined_variables.copy()
         
+        # Bind parameters
         for param, arg in zip(params, args):
             self.variables[param] = self.eval_expression(arg)
+            self.defined_variables.add(param)
         
+        # Execute function
         self.return_value = None
         for stmt in block:
             result = self.execute(stmt)
@@ -167,7 +201,10 @@ class Interpreter:
                 break
         
         result = self.return_value
+        
+        # Restore state
         self.variables = old_vars
+        self.defined_variables = old_defined
         
         return result
     
@@ -198,6 +235,11 @@ class Interpreter:
             return expr[1]
         elif expr_type == 'var':
             var_name = expr[1]
+            # Check if variable is defined
+            if var_name not in self.defined_variables:
+                raise NameError(
+                    f"Variable '{var_name}' used before assignment"
+                )
             if var_name not in self.variables:
                 raise NameError(f"Variable '{var_name}' not defined")
             return self.variables[var_name]
