@@ -16,8 +16,9 @@ class Tokenizer:
             config = json.load(f)
         
         patterns = []
-        # Order matters: literals before identifiers, keywords before names
-        for category in ['literals', 'keywords', 'identifiers', 'punctuation', 'whitespace']:
+        # Order matters: literals before keywords, keywords before identifiers
+        for category in ['literals', 'keywords', 'identifiers', 
+                        'punctuation', 'whitespace']:
             if category in config:
                 patterns.extend(config[category])
         
