@@ -49,6 +49,8 @@ class Parser:
             return self.parse_while(indent)
         elif token[0] == 'FUNCTION':
             return self.parse_function(indent)
+        elif token[0] == 'NAME' and self.peek()[1] == '__init__':
+            return self.parse_init(indent)
         elif token[0] == 'CALL':
             return self.parse_call(indent)
         elif token[0] == 'RETURN':
@@ -79,11 +81,11 @@ class Parser:
         self.consume('COLON')
         self.consume('NEWLINE')
         if_block = self.parse_block(indent)
-    
+        
         # Check for else if / else
         elif_blocks = []
         else_block = None
-    
+        
         while self.pos < len(self.tokens):
             if self.peek()[0] != 'INDENT':
                 break
@@ -156,6 +158,14 @@ class Parser:
         block = self.parse_block(indent)
         return ('function', indent, name, params, block)
     
+    def parse_init(self, indent: int) -> Tuple:
+        # Parse __init__ special function
+        self.consume('NAME')  # consume __init__
+        self.consume('COLON')
+        self.consume('NEWLINE')
+        block = self.parse_block(indent)
+        return ('function', indent, '__init__', [], block)
+    
     def parse_call(self, indent: int) -> Tuple:
         self.consume('CALL')
         name = self.consume('NAME')[1]
@@ -199,13 +209,17 @@ class Parser:
             
             self.consume('ON')
             
-            # Check for specific error type
+            # Check for specific error type (NAME token with specific values)
             error_type = None
-            if self.peek()[0] in ['MATH', 'NAME_ERROR', 'TYPE', 'VALUE']:
-                error_type = self.consume()[0].lower()
-                self.consume('ERROR')
-            else:
-                self.consume('ERROR')
+            if self.peek()[0] == 'NAME':
+                error_name = self.peek()[1]
+                if error_name in ['math', 'name', 'type', 'value']:
+                    self.consume('NAME')
+                    error_type = error_name
+                    if error_name == 'name':
+                        error_type = 'name_error'
+            
+            self.consume('ERROR')
             
             # Check for "as variable"
             error_var = None
@@ -224,10 +238,15 @@ class Parser:
     def parse_raise(self, indent: int) -> Tuple:
         self.consume('RAISE')
         
-        # Check for error type
+        # Check for error type (NAME token with specific values)
         error_type = 'error'
-        if self.peek()[0] in ['MATH', 'NAME_ERROR', 'TYPE', 'VALUE']:
-            error_type = self.consume()[0].lower()
+        if self.peek()[0] == 'NAME':
+            error_name = self.peek()[1]
+            if error_name in ['math', 'name', 'type', 'value']:
+                self.consume('NAME')
+                error_type = error_name
+                if error_name == 'name':
+                    error_type = 'name_error'
         
         self.consume('ERROR')
         message = self.parse_expression()
