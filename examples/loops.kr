@@ -1,0 +1,10 @@
+print "Testing for loop:"
+for i in range 1 to 5:
+    print i
+
+print "Testing while loop:"
+set count to 1
+while count is less than 4:
+    print count
+    set count to count plus 1
+

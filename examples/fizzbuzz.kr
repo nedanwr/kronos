@@ -1,0 +1,20 @@
+print "FizzBuzz from 1 to 20:"
+
+for i in range 1 to 20:
+    set by3 to i divided by 3
+    set by5 to i divided by 5
+    set check3 to by3 times 3
+    set check5 to by5 times 5
+    
+    if check3 is equal i:
+        if check5 is equal i:
+            print "FizzBuzz"
+    
+    if check3 is equal i:
+        print "Fizz"
+    
+    if check5 is equal i:
+        print "Buzz"
+    
+    print i
+
