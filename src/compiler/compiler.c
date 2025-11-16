@@ -244,6 +244,73 @@ static void compile_statement(Compiler* c, ASTNode* node) {
             break;
         }
         
+        case AST_FUNCTION: {
+            // Store function name
+            KronosValue* func_name = value_new_string(node->as.function.name, strlen(node->as.function.name));
+            size_t name_idx = add_constant(c, func_name);
+            
+            // Store parameter count
+            emit_bytes(c, OP_DEFINE_FUNC, (uint8_t)name_idx);
+            emit_byte(c, (uint8_t)node->as.function.param_count);
+            
+            // Store parameter names as constants
+            for (size_t i = 0; i < node->as.function.param_count; i++) {
+                KronosValue* param_name = value_new_string(node->as.function.params[i], 
+                                                           strlen(node->as.function.params[i]));
+                size_t param_idx = add_constant(c, param_name);
+                emit_byte(c, (uint8_t)param_idx);
+            }
+            
+            // Store function body start position
+            size_t body_start = c->bytecode->count + 2; // +2 for jump instruction
+            emit_byte(c, (uint8_t)(body_start >> 8));   // High byte
+            emit_byte(c, (uint8_t)(body_start & 0xFF)); // Low byte
+            
+            // Emit jump over function body
+            emit_byte(c, OP_JUMP);
+            size_t skip_body_pos = c->bytecode->count;
+            emit_byte(c, 0); // Placeholder
+            
+            // Compile function body
+            size_t func_body_start = c->bytecode->count;
+            for (size_t i = 0; i < node->as.function.block_size; i++) {
+                compile_statement(c, node->as.function.block[i]);
+            }
+            
+            // Implicit return nil if no explicit return
+            KronosValue* nil_val = value_new_nil();
+            emit_constant(c, nil_val);
+            emit_byte(c, OP_RETURN_VAL);
+            
+            // Patch jump over body
+            size_t func_end = c->bytecode->count;
+            c->bytecode->code[skip_body_pos] = (uint8_t)(func_end - skip_body_pos - 1);
+            break;
+        }
+        
+        case AST_CALL: {
+            // Push arguments onto stack
+            for (size_t i = 0; i < node->as.call.arg_count; i++) {
+                compile_expression(c, node->as.call.args[i]);
+            }
+            
+            // Push function name
+            KronosValue* func_name = value_new_string(node->as.call.name, strlen(node->as.call.name));
+            size_t name_idx = add_constant(c, func_name);
+            
+            // Call function
+            emit_bytes(c, OP_CALL_FUNC, (uint8_t)name_idx);
+            emit_byte(c, (uint8_t)node->as.call.arg_count);
+            break;
+        }
+        
+        case AST_RETURN: {
+            // Compile return value
+            compile_expression(c, node->as.return_stmt.value);
+            emit_byte(c, OP_RETURN_VAL);
+            break;
+        }
+        
         default:
             fprintf(stderr, "Unknown statement node type: %d\n", node->type);
             break;
@@ -374,6 +441,22 @@ void bytecode_print(Bytecode* bytecode) {
             case OP_JUMP_IF_FALSE:
                 printf("JUMP_IF_FALSE %d\n", bytecode->code[offset + 1]);
                 offset += 2;
+                break;
+            case OP_DEFINE_FUNC: {
+                printf("DEFINE_FUNC %d (param_count=%d)\n", 
+                       bytecode->code[offset + 1], bytecode->code[offset + 2]);
+                size_t param_count = bytecode->code[offset + 2];
+                offset += 3 + param_count + 2; // Skip name, param_count, params, body_start
+                break;
+            }
+            case OP_CALL_FUNC:
+                printf("CALL_FUNC %d (arg_count=%d)\n", 
+                       bytecode->code[offset + 1], bytecode->code[offset + 2]);
+                offset += 3;
+                break;
+            case OP_RETURN_VAL:
+                printf("RETURN_VAL\n");
+                offset++;
                 break;
             case OP_HALT:
                 printf("HALT\n");

@@ -22,8 +22,9 @@ typedef enum {
     OP_LTE,             // Less than or equal
     OP_JUMP,            // Unconditional jump
     OP_JUMP_IF_FALSE,   // Jump if top of stack is false
-    OP_CALL,            // Call function
-    OP_RETURN,          // Return from function
+    OP_DEFINE_FUNC,     // Define function
+    OP_CALL_FUNC,       // Call function
+    OP_RETURN_VAL,      // Return from function with value
     OP_POP,             // Pop value from stack
     OP_HALT,            // End program
 } OpCode;
