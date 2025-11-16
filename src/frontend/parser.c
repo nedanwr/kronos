@@ -60,7 +60,7 @@ static ASTNode *ast_node_new(ASTNodeType type) {
   return node;
 }
 
-// Parse value (number, string, variable)
+// Parse value (number, string, variable, boolean, null)
 static ASTNode *parse_value(Parser *p) {
   Token *tok = peek(p, 0);
   if (!tok)
@@ -70,6 +70,26 @@ static ASTNode *parse_value(Parser *p) {
     consume_any(p);
     ASTNode *node = ast_node_new(AST_NUMBER);
     node->as.number = atof(tok->text);
+    return node;
+  }
+  
+  if (tok->type == TOK_TRUE) {
+    consume_any(p);
+    ASTNode *node = ast_node_new(AST_BOOL);
+    node->as.boolean = true;
+    return node;
+  }
+  
+  if (tok->type == TOK_FALSE) {
+    consume_any(p);
+    ASTNode *node = ast_node_new(AST_BOOL);
+    node->as.boolean = false;
+    return node;
+  }
+  
+  if (tok->type == TOK_NULL) {
+    consume_any(p);
+    ASTNode *node = ast_node_new(AST_NULL);
     return node;
   }
 
@@ -227,7 +247,18 @@ static ASTNode *parse_condition(Parser *p) {
 
 // Parse assignment
 static ASTNode *parse_assignment(Parser *p, int indent) {
-  consume(p, TOK_SET);
+  Token *first = peek(p, 0);
+  bool is_mutable = (first->type == TOK_LET);
+  
+  // Consume 'set' or 'let'
+  if (first->type == TOK_SET) {
+    consume(p, TOK_SET);
+  } else if (first->type == TOK_LET) {
+    consume(p, TOK_LET);
+  } else {
+    return NULL;
+  }
+  
   Token *name = consume(p, TOK_NAME);
   if (!name)
     return NULL;
@@ -239,8 +270,22 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   if (!value)
     return NULL;
 
+  // Optional type annotation: as <type>
+  char *type_name = NULL;
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_AS) {
+    consume(p, TOK_AS);
+    Token *type_tok = consume(p, TOK_NAME);
+    if (!type_tok) {
+      ast_node_free(value);
+      return NULL;
+    }
+    type_name = strdup(type_tok->text);
+  }
+
   if (!consume(p, TOK_NEWLINE)) {
     ast_node_free(value);
+    free(type_name);
     return NULL;
   }
 
@@ -248,6 +293,8 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   node->indent = indent;
   node->as.assign.name = strdup(name->text);
   node->as.assign.value = value;
+  node->as.assign.is_mutable = is_mutable;
+  node->as.assign.type_name = type_name;
 
   return node;
 }
@@ -606,6 +653,7 @@ static ASTNode *parse_statement(Parser *p) {
 
   switch (tok->type) {
   case TOK_SET:
+  case TOK_LET:
     return parse_assignment(p, indent);
   case TOK_PRINT:
     return parse_print(p, indent);
@@ -677,12 +725,17 @@ void ast_node_free(ASTNode *node) {
   case AST_STRING:
     free(node->as.string.value);
     break;
+  case AST_BOOL:
+  case AST_NULL:
+    // No allocated memory
+    break;
   case AST_VAR:
     free(node->as.var_name);
     break;
   case AST_ASSIGN:
     free(node->as.assign.name);
     ast_node_free(node->as.assign.value);
+    free(node->as.assign.type_name);
     break;
   case AST_PRINT:
     ast_node_free(node->as.print.value);
