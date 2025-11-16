@@ -4,7 +4,9 @@ A high-performance programming language built in C with human-readable syntax, f
 
 ## Features
 
-- **Human-Readable Syntax**: Natural language keywords like `set`, `to`, `print`, `is equal`, `greater than`, etc.
+- **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
+- **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
+- **Optional Type Annotations**: Enforce types with the `as` keyword
 - **Fast Execution**: Bytecode VM with optimized execution (Python/JS performance levels)
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
@@ -37,11 +39,30 @@ Start the REPL:
 Kronos uses human-readable syntax with natural language keywords. Here's a quick example:
 
 ```kronos
+# Immutable variable
 set x to 10
-set y to 20
-set sum to x plus y
-print sum
 
+# Mutable variable
+let counter to 0
+let counter to counter plus 1
+
+# Type-annotated variables
+let age to 25 as number
+set name to "Alice" as string
+
+# Booleans and null
+set isActive to true
+set result to null
+
+# Functions
+function greet with name:
+    print "Hello,"
+    print name
+    return name
+
+call greet with "World"
+
+# Loops
 for i in range 1 to 5:
     print i
 ```
@@ -57,15 +78,20 @@ for i in range 1 to 5:
 
 All examples are in the `examples/` directory:
 
-| File                 | Description                    |
-| -------------------- | ------------------------------ |
-| `hello.kr`           | Hello world and basic printing |
-| `test.kr`            | Variables and arithmetic       |
-| `arithmetic.kr`      | All arithmetic operations      |
-| `conditionals.kr`    | If statements                  |
-| `loops.kr`           | For and while loops            |
-| `fizzbuzz.kr`        | FizzBuzz implementation        |
-| `syntax_showcase.kr` | Feature demonstration          |
+| File                  | Description                      |
+| --------------------- | -------------------------------- |
+| `hello.kr`            | Hello world and basic printing   |
+| `test.kr`             | Variables and arithmetic         |
+| `arithmetic.kr`       | All arithmetic operations        |
+| `conditionals.kr`     | If statements                    |
+| `loops.kr`            | For and while loops              |
+| `fizzbuzz.kr`         | FizzBuzz implementation          |
+| `syntax_showcase.kr`  | Feature demonstration            |
+| `functions_simple.kr` | Simple function examples         |
+| `functions.kr`        | Comprehensive function demos     |
+| `builtins.kr`         | Built-in constants and functions |
+| `variables.kr`        | Variable mutability and types    |
+| `pi_constant.kr`      | Pi constant usage                |
 
 **Run an example:**
 
@@ -131,23 +157,25 @@ make clean
 
 ## Roadmap
 
-### Current Version (0.1.0)
+### Current Version (0.2.0)
 
 ✅ All core features working:
 
 - Variables, numbers, strings
 - Arithmetic and comparisons
 - If statements, for/while loops
+- **Functions with parameters and return values**
+- **Local variable scoping**
+- **Built-in Pi constant and math functions**
 - REPL and file execution
 
 ### Future Versions
 
-**v0.2.0 - Functions**
+**v0.3.0 - Enhanced Control Flow**
 
-- Function definitions and calls
-- Return values
-- Local variable scoping
 - Else/else-if statements
+- Break and continue
+- Multiple return values
 
 **v1.0.0 - Concurrency & Fault Tolerance**
 

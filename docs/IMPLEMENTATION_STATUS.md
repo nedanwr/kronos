@@ -2,9 +2,10 @@
 
 ## ✅ Fully Implemented and Tested
 
-All core features from the Python implementation (except functions) have been successfully ported to C and are production-ready:
+All core features from the Python implementation have been successfully ported to C and are production-ready:
 
 ### Working Features
+
 - ✅ **Variables & Assignment** - `set x to value`
 - ✅ **Numbers** - Integers and floating-point (double precision)
 - ✅ **Strings** - Text in double quotes with string interning
@@ -23,10 +24,13 @@ All core features from the Python implementation (except functions) have been su
 - ✅ **For Loops** - `for i in range start to end:` (inclusive)
 - ✅ **While Loops** - `while condition:`
 - ✅ **Nested Structures** - Unlimited nesting depth
+- ✅ **Functions** - Function definitions, calls, parameters, and return values
+- ✅ **Local Variable Scoping** - Function-local variables with proper isolation
 - ✅ **REPL Mode** - Interactive programming with state preservation
 - ✅ **File Execution** - Direct `.kr` file execution, instant startup
 
 ### Architecture Components
+
 - ✅ **Tokenizer** - Lexical analysis (`src/frontend/tokenizer.c`)
 - ✅ **Parser** - Syntax analysis & AST building (`src/frontend/parser.c`)
 - ✅ **Compiler** - AST to bytecode compilation (`src/compiler/compiler.c`)
@@ -34,29 +38,34 @@ All core features from the Python implementation (except functions) have been su
 - ✅ **Runtime System** - Value management & reference counting (`src/core/runtime.c`)
 - ✅ **Garbage Collector** - Memory management (`src/core/gc.c`)
 
-## ⏳ Planned for Version 0.2.0
+## ✅ Recently Completed (Version 0.2.0)
 
 ### Functions
-Functions require significant architectural changes to the bytecode VM and are planned for the next major version:
 
-**Design Considerations:**
-- Need proper call stack frames (not using global variables as parameters)
-- Require separate local variable storage per call frame
-- Need better bytecode structure for function bodies (possibly separate compilation units)
-- Return value handling needs stack frame context
+Functions are now fully implemented with proper call stack architecture:
 
-**Current State:**
-- ✅ Parser fully implemented for function syntax
-- ✅ AST nodes defined for functions, calls, returns
-- 🔄 Compiler partially implemented (basic bytecode generation)
-- 🔄 VM has function storage but needs proper execution model
+**Implemented Features:**
 
-**Workaround:**
-Currently, all functionality can be achieved without functions by using structured code blocks and variables. The language is Turing-complete without functions.
+- ✅ Function definitions with parameters: `function name with param1, param2:`
+- ✅ Function calls: `call name with arg1, arg2`
+- ✅ Return values: `return value`
+- ✅ Local variable scoping with proper isolation
+- ✅ Call stack with stack frames
+- ✅ Parameter passing by value
+- ✅ Implicit nil return when no explicit return
+
+**Architecture Highlights:**
+
+- Proper call stack frames (CallFrame structure)
+- Separate local variable storage per call frame
+- Function bytecode stored in Function structure
+- Return value handling with stack frame context
+- Variable lookup: local variables first, then globals
 
 ## Not Yet Implemented ⏳
 
 ### Planned for Future Versions
+
 - ⏳ **Else/Else If** statements
 - ⏳ **Logical Operators** (AND, OR)
 - ⏳ **Lists/Arrays**
@@ -65,11 +74,11 @@ Currently, all functionality can be achieved without functions by using structur
 - ⏳ **Break/Continue** in loops
 
 ### Future Phases (Per Roadmap)
+
 - ⏳ **Phase 5: Concurrency**
   - Goroutine-style threads
   - Channels for communication
   - Cooperative scheduler
-  
 - ⏳ **Phase 6: Fault Tolerance**
   - Exception handling (try/catch/finally)
   - Supervisor trees
@@ -78,7 +87,9 @@ Currently, all functionality can be achieved without functions by using structur
 ## Testing Status
 
 ### ✅ All Working Examples Verified
+
 Every example runs perfectly and produces correct output:
+
 - `hello.kr` - Basic printing and strings ✅
 - `test.kr` - Variables and arithmetic ✅
 - `arithmetic.kr` - All arithmetic operations ✅
@@ -86,7 +97,8 @@ Every example runs perfectly and produces correct output:
 - `loops.kr` - For and while loops ✅
 - `syntax_showcase.kr` - Comprehensive feature demo ✅
 - `fizzbuzz.kr` - Complex algorithmic logic ✅
-- `complete_showcase.kr` - **NEW!** Full feature demonstration ✅
+- `functions_simple.kr` - **NEW!** Simple function examples ✅
+- `functions.kr` - **NEW!** Comprehensive function demos ✅
 
 **Test Coverage:** 100% of implemented features
 **Known Bugs:** None in tested features
@@ -95,6 +107,7 @@ Every example runs perfectly and produces correct output:
 ## Performance Metrics
 
 ### Achieved Goals
+
 - ✅ Binary size: ~57KB (target: < 100KB)
 - ✅ Startup time: ~15ms (target: < 50ms)
 - ✅ Build time: ~2s (target: < 5s)
@@ -104,6 +117,7 @@ Every example runs perfectly and produces correct output:
 ## Code Quality
 
 ### Statistics
+
 - **Total C source lines**: ~2,700
 - **Documentation lines**: ~1,500
 - **Example programs**: 8 files
@@ -111,6 +125,7 @@ Every example runs perfectly and produces correct output:
 - **Memory leaks**: 0 (in tested features)
 
 ### Standards Compliance
+
 - ✅ C11 standard
 - ✅ Consistent naming conventions
 - ✅ Modular design
@@ -121,17 +136,20 @@ Every example runs perfectly and produces correct output:
 
 To complete the function implementation:
 
-1. **Debug Function Execution** 
+1. **Debug Function Execution**
+
    - Fix bytecode reading in function body execution
    - Ensure proper instruction pointer management
    - Test with simple no-parameter functions first
 
 2. **Add Local Variable Scope**
+
    - Implement proper stack frames
    - Separate local vs global variable storage
    - Handle parameter shadowing
 
 3. **Test Return Values**
+
    - Verify return value propagation
    - Test functions that return expressions
    - Test nested function calls
@@ -143,20 +161,20 @@ To complete the function implementation:
 
 ## Comparison with Python Implementation
 
-| Feature | Python | C Status | Notes |
-|---------|--------|----------|-------|
-| Variables | ✅ | ✅ | Identical behavior |
-| Numbers | ✅ | ✅ | Double precision |
-| Strings | ✅ | ✅ | With interning optimization |
-| Print | ✅ | ✅ | Identical behavior |
-| Arithmetic | ✅ | ✅ | All 4 operations |
-| Comparisons | ✅ | ✅ | All 4 operators |
-| If statements | ✅ | ✅ | Full support |
-| For loops | ✅ | ✅ | Inclusive ranges |
-| While loops | ✅ | ✅ | Full support |
-| Functions | ✅ | ⏳ | Deferred to v0.2.0 |
-| Function calls | ✅ | ⏳ | Deferred to v0.2.0 |
-| Return statements | ✅ | ⏳ | Deferred to v0.2.0 |
+| Feature           | Python | C Status | Notes                       |
+| ----------------- | ------ | -------- | --------------------------- |
+| Variables         | ✅     | ✅       | Identical behavior          |
+| Numbers           | ✅     | ✅       | Double precision            |
+| Strings           | ✅     | ✅       | With interning optimization |
+| Print             | ✅     | ✅       | Identical behavior          |
+| Arithmetic        | ✅     | ✅       | All 4 operations            |
+| Comparisons       | ✅     | ✅       | All 4 operators             |
+| If statements     | ✅     | ✅       | Full support                |
+| For loops         | ✅     | ✅       | Inclusive ranges            |
+| While loops       | ✅     | ✅       | Full support                |
+| Functions         | ✅     | ⏳       | Deferred to v0.2.0          |
+| Function calls    | ✅     | ⏳       | Deferred to v0.2.0          |
+| Return statements | ✅     | ⏳       | Deferred to v0.2.0          |
 
 **Core Language Parity**: 100% complete (9 of 9 core features working perfectly)
 **Advanced Features**: Functions planned for v0.2.0
@@ -175,6 +193,7 @@ The Kronos C implementation has successfully ported and **fully tested all core 
 ✅ Direct file execution
 
 **Performance Achieved:**
+
 - Binary size: 57KB (43% under target)
 - Startup time: <20ms (faster than Python by 10x+)
 - Execution speed: Comparable to CPython
@@ -187,7 +206,6 @@ The Kronos C implementation has successfully ported and **fully tested all core 
 
 ---
 
-*Last Updated: November 14, 2025*
-*Version: 0.1.0 - Core Features Complete*
-*Status: ✅ Production Ready (without functions)*
-
+_Last Updated: November 14, 2025_
+_Version: 0.1.0 - Core Features Complete_
+_Status: ✅ Production Ready (without functions)_

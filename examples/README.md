@@ -115,6 +115,54 @@ FizzBuzz implementation showing:
 ./kronos examples/fizzbuzz.kr
 ```
 
+### functions_simple.kr
+
+Simple function examples:
+
+- Function definitions with parameters
+- Function calls
+- Return values
+- Local variables
+
+**Run:**
+
+```bash
+./kronos examples/functions_simple.kr
+```
+
+### functions.kr
+
+Comprehensive function demonstrations:
+
+- Functions with one parameter
+- Functions with multiple statements
+- Functions with arithmetic
+- String parameters
+- Return value handling
+- Local variable scoping
+- Built-in Pi constant usage
+
+**Run:**
+
+```bash
+./kronos examples/functions.kr
+```
+
+### builtins.kr
+
+Built-in constants and functions:
+
+- Pi mathematical constant
+- Built-in math functions (add, subtract, multiply, divide)
+- Using built-ins within user functions
+- Demonstration of reserved function names
+
+**Run:**
+
+```bash
+./kronos examples/builtins.kr
+```
+
 ## Running Examples
 
 ### Run a specific example:
@@ -183,8 +231,11 @@ Recommended order for learning:
 3. **arithmetic.kr** - Learn arithmetic operations
 4. **conditionals.kr** - Understand if statements
 5. **loops.kr** - Master loops
-6. **syntax_showcase.kr** - See everything together
-7. **fizzbuzz.kr** - Apply your knowledge
+6. **functions_simple.kr** - Learn functions
+7. **builtins.kr** - Learn built-in constants and functions
+8. **syntax_showcase.kr** - See everything together
+9. **fizzbuzz.kr** - Apply your knowledge
+10. **functions.kr** - Advanced function examples
 
 ## Troubleshooting
 
