@@ -55,6 +55,7 @@ void value_release(KronosValue* val);
 void value_print(KronosValue* val);
 bool value_is_truthy(KronosValue* val);
 bool value_equals(KronosValue* a, KronosValue* b);
+bool value_is_type(KronosValue* val, const char* type_name);
 
 // String interning
 KronosValue* string_intern(const char* str, size_t len);

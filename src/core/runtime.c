@@ -137,7 +137,7 @@ void value_release(KronosValue* val) {
 // Print a value
 void value_print(KronosValue* val) {
     if (!val) {
-        printf("nil");
+        printf("null");
         return;
     }
     
@@ -157,7 +157,7 @@ void value_print(KronosValue* val) {
             printf("%s", val->as.boolean ? "true" : "false");
             break;
         case VAL_NIL:
-            printf("nil");
+            printf("null");
             break;
         case VAL_FUNCTION:
             printf("<function>");
@@ -246,5 +246,22 @@ KronosValue* string_intern(const char* str, size_t len) {
     
     // Table full, fallback to non-interned string
     return value_new_string(str, len);
+}
+
+// Check if a value matches a type name
+bool value_is_type(KronosValue* val, const char* type_name) {
+    if (!val || !type_name) return false;
+    
+    if (strcmp(type_name, "number") == 0) {
+        return val->type == VAL_NUMBER;
+    } else if (strcmp(type_name, "string") == 0) {
+        return val->type == VAL_STRING;
+    } else if (strcmp(type_name, "boolean") == 0) {
+        return val->type == VAL_BOOL;
+    } else if (strcmp(type_name, "null") == 0) {
+        return val->type == VAL_NIL;
+    }
+    
+    return false;
 }
 
