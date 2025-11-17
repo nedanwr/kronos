@@ -2,88 +2,65 @@
 
 Complete documentation for the Kronos programming language.
 
-## Documentation Files
+## Getting Started
 
-### For Users
+- **[../README.md](../README.md)** - Main project overview and quick start
 
-- **[SYNTAX.md](SYNTAX.md)** - Complete language syntax reference
+## Language Reference
 
+- **[SYNTAX.md](SYNTAX.md)** - Complete syntax guide with examples
   - Variables, data types, operators
-  - Control flow structures
-  - Examples and best practices
-  - 600+ lines of detailed documentation
+  - Control flow (if, for, while)
+  - Functions
+  - Built-in constants and functions
 
 - **[QUICKREF.md](QUICKREF.md)** - Quick reference card
-  - Fast syntax lookup
+  - One-page syntax summary
   - Common patterns
-  - Cheat sheet format
 
-### For Developers
+## Development
 
-- **[PROJECT.md](PROJECT.md)** - Architecture and internals
-
-  - System design
+- **[PROJECT.md](PROJECT.md)** - Architecture, internals, and project structure
   - Component breakdown
-  - VM architecture
-  - Performance details
+  - Bytecode VM design
+  - Memory management
+  - Pipeline overview
+  - Directory structure
+  - File organization
 
-- **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** - Implementation status
-  - Feature completion status
-  - Roadmap and plans
-  - Known limitations
-  - Performance metrics
+- **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** - Feature status
+  - Implemented features
+  - In-progress features
+  - Planned features
+  - Testing status
 
-## Quick Links
+## Editor Integration
 
-### Getting Started
+- **[EDITOR_SETUP.md](EDITOR_SETUP.md)** - Complete editor setup guide
+  - Quick installation for VSCode/Cursor/Windsurf
+  - Setup for Vim, Sublime, Emacs
+  - Troubleshooting
+  - LSP debugging
 
-- [Main README](../README.md) - Project overview
-- [Examples](../examples/README.md) - Sample programs
+- **[LSP_SETUP.md](LSP_SETUP.md)** - Language Server Protocol guide
+  - Quick start (one command)
+  - Detailed setup instructions
+  - Architecture overview
+  - Advanced configuration
 
-### Building & Running
+- **[PACKAGING.md](PACKAGING.md)** - Extension packaging
+  - VSCode extension setup
+  - Publishing to marketplace
+  - Local installation
 
-```bash
-# Build
-make
+## Examples
 
-# Run a program
-./kronos examples/hello.kr
+See the [examples/](../examples/) directory for sample Kronos programs.
 
-# Start REPL
-./kronos
-```
+## Contributing
 
-## Documentation Organization
-
-```
-kronos/
-├── README.md              # Main project readme (you are here reference)
-├── LICENSE                # MIT License
-├── docs/                  # All documentation
-│   ├── README.md         # This file
-│   ├── SYNTAX.md         # Language reference
-│   ├── QUICKREF.md       # Quick reference
-│   ├── PROJECT.md        # Architecture
-│   └── IMPLEMENTATION_STATUS.md  # Status & roadmap
-├── examples/             # Example programs
-│   ├── README.md         # Example guide
-│   └── *.kr              # Kronos programs
-└── src/                  # Source code
-    ├── core/             # Runtime & GC
-    ├── frontend/         # Tokenizer & parser
-    ├── compiler/         # Bytecode compiler
-    └── vm/               # Virtual machine
-```
-
-## Contributing to Documentation
-
-When updating documentation:
-
-1. Keep examples practical and tested
-2. Update cross-references if moving files
-3. Maintain consistent formatting
-4. Add to this index when creating new docs
-
----
-
-_For the latest information, see the individual documentation files._
+When adding new features:
+1. Update relevant documentation
+2. Add examples
+3. Update IMPLEMENTATION_STATUS.md
+4. Test thoroughly
