@@ -3,8 +3,6 @@
 kronos
 kronos-lsp
 *.dSYM/
-*.dSYM
-**/*.dSYM
 
 # OS files
 .DS_Store
@@ -31,3 +29,6 @@ vscode-extension/package-lock.json
 
 # LSP logs
 *.log
+
+# Test output
+test_output.txt
