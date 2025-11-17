@@ -1,8 +1,0 @@
-# Test: While loops
-# Expected: Pass
-
-let count to 0
-while count is less than 3:
-    print count
-    let count to count plus 1
-

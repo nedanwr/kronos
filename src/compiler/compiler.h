@@ -34,7 +34,7 @@ typedef struct {
     uint8_t* code;
     size_t count;
     size_t capacity;
-    
+
     // Constant pool
     KronosValue** constants;
     size_t const_count;

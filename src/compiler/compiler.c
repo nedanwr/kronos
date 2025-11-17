@@ -61,13 +61,13 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     emit_constant(c, val);
     break;
   }
-  
+
   case AST_BOOL: {
     KronosValue *val = value_new_bool(node->as.boolean);
     emit_constant(c, val);
     break;
   }
-  
+
   case AST_NULL: {
     KronosValue *val = value_new_nil();
     emit_constant(c, val);
@@ -159,13 +159,13 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         value_new_string(node->as.assign.name, strlen(node->as.assign.name));
     size_t idx = add_constant(c, name);
     emit_bytes(c, OP_STORE_VAR, (uint8_t)idx);
-    
+
     // Emit mutability flag (1 byte: 1 for mutable, 0 for immutable)
     emit_byte(c, node->as.assign.is_mutable ? 1 : 0);
-    
+
     // Emit type name if specified
     if (node->as.assign.type_name) {
-      KronosValue *type_val = value_new_string(node->as.assign.type_name, 
+      KronosValue *type_val = value_new_string(node->as.assign.type_name,
                                                 strlen(node->as.assign.type_name));
       size_t type_idx = add_constant(c, type_val);
       emit_byte(c, (uint8_t)type_idx);

@@ -42,18 +42,18 @@ INSTALLED=false
 install_to_editor() {
     local EXT_DIR=$1
     local EDITOR_NAME=$2
-    
+
     if [ -d "$EXT_DIR" ]; then
         echo "2️⃣  Installing to $EDITOR_NAME..."
-        
+
         TARGET="$EXT_DIR/kronos-lsp-0.1.0"
-        
+
         # Remove old version if exists
         rm -rf "$TARGET"
-        
+
         # Copy extension
         cp -r vscode-extension "$TARGET"
-        
+
         echo "✅ Installed to $TARGET"
         INSTALLED=true
     fi

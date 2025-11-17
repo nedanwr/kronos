@@ -151,7 +151,7 @@ void vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
       if (!vm->globals[i].is_mutable) {
         fprintf(stderr, "Error: Cannot reassign immutable variable '%s'\n",
                 name);
-        return;
+        exit(1);
       }
 
       // Check type if specified
@@ -160,7 +160,7 @@ void vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
         fprintf(stderr,
                 "Error: Type mismatch for variable '%s': expected '%s'\n", name,
                 vm->globals[i].type_name);
-        return;
+        exit(1);
       }
 
       value_release(vm->globals[i].value);
@@ -195,7 +195,7 @@ KronosValue *vm_get_global(KronosVM *vm, const char *name) {
   }
 
   fprintf(stderr, "Error: Undefined variable '%s'\n", name);
-  return value_new_nil();
+  exit(1);
 }
 
 // Set local variable in current frame
@@ -211,7 +211,7 @@ void vm_set_local(CallFrame *frame, const char *name, KronosValue *value,
       if (!frame->locals[i].is_mutable) {
         fprintf(stderr,
                 "Error: Cannot reassign immutable local variable '%s'\n", name);
-        return;
+        exit(1);
       }
 
       // Check type if specified
@@ -220,7 +220,7 @@ void vm_set_local(CallFrame *frame, const char *name, KronosValue *value,
         fprintf(stderr,
                 "Error: Type mismatch for local variable '%s': expected '%s'\n",
                 name, frame->locals[i].type_name);
-        return;
+        exit(1);
       }
 
       value_release(frame->locals[i].value);
@@ -658,7 +658,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           fprintf(
               stderr,
               "Error: Function 'add' requires both arguments to be numbers\n");
-          push(vm, value_new_nil());
+          value_release(a);
+          value_release(b);
+          return -1;
         }
         value_release(a);
         value_release(b);
@@ -683,7 +685,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         } else {
           fprintf(stderr, "Error: Function 'subtract' requires both arguments "
                           "to be numbers\n");
-          push(vm, value_new_nil());
+          value_release(a);
+          value_release(b);
+          return -1;
         }
         value_release(a);
         value_release(b);
@@ -708,7 +712,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         } else {
           fprintf(stderr, "Error: Function 'multiply' requires both arguments "
                           "to be numbers\n");
-          push(vm, value_new_nil());
+          value_release(a);
+          value_release(b);
+          return -1;
         }
         value_release(a);
         value_release(b);
@@ -728,7 +734,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
           if (b->as.number == 0) {
             fprintf(stderr, "Error: Cannot divide by zero\n");
-            push(vm, value_new_nil());
+            value_release(a);
+            value_release(b);
+            return -1;
           } else {
             KronosValue *result = value_new_number(a->as.number / b->as.number);
             push(vm, result);
@@ -737,7 +745,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         } else {
           fprintf(stderr, "Error: Function 'divide' requires both arguments to "
                           "be numbers\n");
-          push(vm, value_new_nil());
+          value_release(a);
+          value_release(b);
+          return -1;
         }
         value_release(a);
         value_release(b);
@@ -780,6 +790,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         args[i] = pop(vm);
       }
 
+      // Set current frame before setting locals
+      vm->current_frame = frame;
+
       // Set parameters as local variables in the new frame
       // Parameters are mutable by default
       for (size_t i = 0; i < arg_count; i++) {
@@ -787,9 +800,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         value_release(args[i]);
       }
       free(args);
-
-      // Set current frame
-      vm->current_frame = frame;
 
       // Switch to function bytecode
       vm->bytecode = &func->bytecode;

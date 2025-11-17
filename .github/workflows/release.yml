@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
-    
+
     steps:
     - name: Create Release
       id: create_release
@@ -23,12 +23,12 @@ jobs:
         release_name: Release ${{ github.ref }}
         draft: false
         prerelease: false
-        
+
   build-binaries:
     name: Build Release Binary
     needs: create-release
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -37,17 +37,17 @@ jobs:
             artifact_name: kronos-linux-x64
           - os: macos-latest
             artifact_name: kronos-macos-arm64
-            
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      
+
     - name: Build Kronos
       run: make clean && make
-      
+
     - name: Run tests
       run: ./run_tests.sh
-      
+
     - name: Package binary
       run: |
         mkdir -p dist
@@ -55,7 +55,7 @@ jobs:
         cp LICENSE dist/
         cp README.md dist/
         tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
-        
+
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
       env:

@@ -41,11 +41,11 @@ void runtime_cleanup(void) {
 KronosValue* value_new_number(double num) {
     KronosValue* val = malloc(sizeof(KronosValue));
     if (!val) return NULL;
-    
+
     val->type = VAL_NUMBER;
     val->refcount = 1;
     val->as.number = num;
-    
+
     gc_track(val);
     return val;
 }
@@ -54,7 +54,7 @@ KronosValue* value_new_number(double num) {
 KronosValue* value_new_string(const char* str, size_t len) {
     KronosValue* val = malloc(sizeof(KronosValue));
     if (!val) return NULL;
-    
+
     val->type = VAL_STRING;
     val->refcount = 1;
     val->as.string.data = malloc(len + 1);
@@ -62,12 +62,12 @@ KronosValue* value_new_string(const char* str, size_t len) {
         free(val);
         return NULL;
     }
-    
+
     memcpy(val->as.string.data, str, len);
     val->as.string.data[len] = '\0';
     val->as.string.length = len;
     val->as.string.hash = hash_string(str, len);
-    
+
     gc_track(val);
     return val;
 }
@@ -76,11 +76,11 @@ KronosValue* value_new_string(const char* str, size_t len) {
 KronosValue* value_new_bool(bool val) {
     KronosValue* v = malloc(sizeof(KronosValue));
     if (!v) return NULL;
-    
+
     v->type = VAL_BOOL;
     v->refcount = 1;
     v->as.boolean = val;
-    
+
     gc_track(v);
     return v;
 }
@@ -89,10 +89,10 @@ KronosValue* value_new_bool(bool val) {
 KronosValue* value_new_nil(void) {
     KronosValue* val = malloc(sizeof(KronosValue));
     if (!val) return NULL;
-    
+
     val->type = VAL_NIL;
     val->refcount = 1;
-    
+
     gc_track(val);
     return val;
 }
@@ -107,11 +107,11 @@ void value_retain(KronosValue* val) {
 // Release a value (decrement refcount, free if 0)
 void value_release(KronosValue* val) {
     if (!val) return;
-    
+
     val->refcount--;
     if (val->refcount == 0) {
         gc_untrack(val);
-        
+
         // Free any owned memory
         switch (val->type) {
             case VAL_STRING:
@@ -129,7 +129,7 @@ void value_release(KronosValue* val) {
             default:
                 break;
         }
-        
+
         free(val);
     }
 }
@@ -140,7 +140,7 @@ void value_print(KronosValue* val) {
         printf("null");
         return;
     }
-    
+
     switch (val->type) {
         case VAL_NUMBER:
             // Print integer if it's a whole number
@@ -179,7 +179,7 @@ void value_print(KronosValue* val) {
 // Check if a value is truthy
 bool value_is_truthy(KronosValue* val) {
     if (!val) return false;
-    
+
     switch (val->type) {
         case VAL_NIL:
             return false;
@@ -199,7 +199,7 @@ bool value_equals(KronosValue* a, KronosValue* b) {
     if (a == b) return true;
     if (!a || !b) return false;
     if (a->type != b->type) return false;
-    
+
     switch (a->type) {
         case VAL_NUMBER:
             return a->as.number == b->as.number;
@@ -219,12 +219,12 @@ bool value_equals(KronosValue* a, KronosValue* b) {
 KronosValue* string_intern(const char* str, size_t len) {
     uint32_t hash = hash_string(str, len);
     size_t index = hash % INTERN_TABLE_SIZE;
-    
+
     // Linear probing
     for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
         size_t probe = (index + i) % INTERN_TABLE_SIZE;
         KronosValue* entry = intern_table[probe];
-        
+
         if (entry == NULL) {
             // Not found, create new interned string
             KronosValue* val = value_new_string(str, len);
@@ -234,7 +234,7 @@ KronosValue* string_intern(const char* str, size_t len) {
             }
             return val;
         }
-        
+
         if (entry->type == VAL_STRING &&
             entry->as.string.hash == hash &&
             entry->as.string.length == len &&
@@ -243,7 +243,7 @@ KronosValue* string_intern(const char* str, size_t len) {
             return entry;
         }
     }
-    
+
     // Table full, fallback to non-interned string
     return value_new_string(str, len);
 }
@@ -251,7 +251,7 @@ KronosValue* string_intern(const char* str, size_t len) {
 // Check if a value matches a type name
 bool value_is_type(KronosValue* val, const char* type_name) {
     if (!val || !type_name) return false;
-    
+
     if (strcmp(type_name, "number") == 0) {
         return val->type == VAL_NUMBER;
     } else if (strcmp(type_name, "string") == 0) {
@@ -261,7 +261,7 @@ bool value_is_type(KronosValue* val, const char* type_name) {
     } else if (strcmp(type_name, "null") == 0) {
         return val->type == VAL_NIL;
     }
-    
+
     return false;
 }
 

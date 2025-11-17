@@ -2,8 +2,8 @@
 # Expected: Pass
 
 function calculate with x:
-    let result to x times 2
-    let result to result plus 10
+    set temp to x times 2
+    set result to temp plus 10
     return result
 
 call calculate with 5

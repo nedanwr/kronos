@@ -35,11 +35,11 @@ void gc_cleanup(void) {
 // Track a new object
 void gc_track(KronosValue* val) {
     if (!val) return;
-    
+
     if (gc_state.count < MAX_TRACKED_OBJECTS) {
         gc_state.objects[gc_state.count++] = val;
         gc_state.allocated_bytes += sizeof(KronosValue);
-        
+
         // Add size of string data if applicable
         if (val->type == VAL_STRING) {
             gc_state.allocated_bytes += val->as.string.length + 1;
@@ -50,7 +50,7 @@ void gc_track(KronosValue* val) {
 // Untrack an object (when it's being freed)
 void gc_untrack(KronosValue* val) {
     if (!val) return;
-    
+
     for (size_t i = 0; i < gc_state.count; i++) {
         if (gc_state.objects[i] == val) {
             // Subtract from allocated bytes
@@ -58,7 +58,7 @@ void gc_untrack(KronosValue* val) {
             if (val->type == VAL_STRING) {
                 gc_state.allocated_bytes -= val->as.string.length + 1;
             }
-            
+
             // Remove from array by shifting
             for (size_t j = i; j < gc_state.count - 1; j++) {
                 gc_state.objects[j] = gc_state.objects[j + 1];
@@ -76,7 +76,7 @@ void gc_collect_cycles(void) {
     // TODO: Implement mark-and-sweep for cycles
     // This will be needed when we have circular references
     // (e.g., lists containing themselves, closures with circular refs)
-    
+
     // For now, we rely on pure reference counting
 }
 
