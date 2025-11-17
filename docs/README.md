@@ -2,65 +2,67 @@
 
 Complete documentation for the Kronos programming language.
 
-## Getting Started
+## Quick Links
 
-- **[../README.md](../README.md)** - Main project overview and quick start
+- **[../README.md](../README.md)** - Main project overview
+- **[SYNTAX.md](SYNTAX.md)** - Complete language reference
+- **[QUICKREF.md](QUICKREF.md)** - Quick reference card
+- **[PROJECT.md](PROJECT.md)** - Architecture & implementation
+- **[EDITOR.md](EDITOR.md)** - Editor setup guide
+- **[../tests/README.md](../tests/README.md)** - Test suite documentation
 
 ## Language Reference
 
-- **[SYNTAX.md](SYNTAX.md)** - Complete syntax guide with examples
-  - Variables, data types, operators
-  - Control flow (if, for, while)
-  - Functions
-  - Built-in constants and functions
+### [SYNTAX.md](SYNTAX.md)
+Complete syntax guide with examples:
+- Variables (immutable/mutable/typed)
+- Data types & operators
+- Control flow (if, for, while)
+- Functions
+- Built-in constants & functions
+- Safety & error handling
 
-- **[QUICKREF.md](QUICKREF.md)** - Quick reference card
-  - One-page syntax summary
-  - Common patterns
+### [QUICKREF.md](QUICKREF.md)
+One-page quick reference for fast lookup.
 
 ## Development
 
-- **[PROJECT.md](PROJECT.md)** - Architecture, internals, and project structure
-  - Component breakdown
-  - Bytecode VM design
-  - Memory management
-  - Pipeline overview
-  - Directory structure
-  - File organization
+### [PROJECT.md](PROJECT.md)
+Architecture and implementation details:
+- Component breakdown
+- Bytecode VM design
+- Memory management
+- Pipeline overview
+- Project structure
+- Feature status
 
-- **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** - Feature status
-  - Implemented features
-  - In-progress features
-  - Planned features
-  - Testing status
+## Editor Setup
 
-## Editor Integration
+### [EDITOR.md](EDITOR.md)
+Full IDE support:
+- Quick install (one command)
+- Syntax highlighting
+- Real-time error detection
+- Autocomplete
+- Setup for VSCode, Vim, Sublime
 
-- **[EDITOR_SETUP.md](EDITOR_SETUP.md)** - Complete editor setup guide
-  - Quick installation for VSCode/Cursor/Windsurf
-  - Setup for Vim, Sublime, Emacs
-  - Troubleshooting
-  - LSP debugging
+## Testing
 
-- **[LSP_SETUP.md](LSP_SETUP.md)** - Language Server Protocol guide
-  - Quick start (one command)
-  - Detailed setup instructions
-  - Architecture overview
-  - Advanced configuration
-
-- **[PACKAGING.md](PACKAGING.md)** - Extension packaging
-  - VSCode extension setup
-  - Publishing to marketplace
-  - Local installation
+### [../tests/README.md](../tests/README.md)
+Test suite documentation:
+- 28 comprehensive tests
+- Test runner usage
+- CI/CD integration
 
 ## Examples
 
-See the [examples/](../examples/) directory for sample Kronos programs.
+See [../examples/](../examples/) for sample programs.
 
 ## Contributing
 
-When adding new features:
-1. Update relevant documentation
-2. Add examples
-3. Update IMPLEMENTATION_STATUS.md
-4. Test thoroughly
+When adding features:
+1. Update SYNTAX.md with new syntax
+2. Add examples to examples/
+3. Create tests in tests/pass/ or tests/fail/
+4. Run `./run_tests.sh` to verify
+5. Update PROJECT.md if architecture changes
