@@ -1,0 +1,15 @@
+# Test: If statements
+# Expected: Pass
+
+set x to 10
+
+if x is greater than 5:
+    print "x is big"
+
+if x is less than 20:
+    print "x is small"
+
+set y to 3
+if y is equal 3:
+    print "y is three"
+

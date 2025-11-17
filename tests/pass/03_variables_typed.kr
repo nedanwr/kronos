@@ -1,0 +1,12 @@
+# Test: Type-annotated variables
+# Expected: Pass
+
+let age to 25 as number
+print age
+
+let age to 30 as number
+print age
+
+set name to "Bob" as string
+print name
+

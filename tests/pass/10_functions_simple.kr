@@ -1,0 +1,11 @@
+# Test: Simple function definition and call
+# Expected: Pass
+
+function greet with name:
+    print "Hello"
+    print name
+    return name
+
+call greet with "Alice"
+call greet with "Bob"
+

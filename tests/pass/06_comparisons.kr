@@ -1,0 +1,11 @@
+# Test: Comparison operations
+# Expected: Pass
+
+set a to 10
+set b to 20
+
+print a is equal b
+print a is not equal b
+print a is less than b
+print a is greater than b
+

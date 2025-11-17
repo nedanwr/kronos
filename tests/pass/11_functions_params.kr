@@ -1,0 +1,12 @@
+# Test: Functions with multiple parameters
+# Expected: Pass
+
+function add_numbers with a, b:
+    return a plus b
+
+function multiply_three with x, y, z:
+    return x times y times z
+
+call add_numbers with 10, 20
+call multiply_three with 2, 3, 4
+

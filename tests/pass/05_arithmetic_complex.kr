@@ -1,0 +1,11 @@
+# Test: Complex arithmetic expressions
+# Expected: Pass
+
+set x to 10
+set y to 3
+set z to 2
+
+print x plus y times z
+print x times y plus z
+print x divided by z minus y
+

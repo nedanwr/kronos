@@ -1,0 +1,11 @@
+# Test: Functions with local variables
+# Expected: Pass
+
+function calculate with x:
+    let result to x times 2
+    let result to result plus 10
+    return result
+
+call calculate with 5
+call calculate with 10
+

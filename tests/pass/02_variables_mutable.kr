@@ -1,0 +1,12 @@
+# Test: Mutable variables with let
+# Expected: Pass
+
+let counter to 0
+print counter
+
+let counter to counter plus 1
+print counter
+
+let counter to 100
+print counter
+
