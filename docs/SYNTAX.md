@@ -13,8 +13,9 @@ Complete syntax guide for the Kronos programming language - a human-readable lan
 7. [Loops](#loops)
 8. [Built-in Constants and Functions](#built-in-constants-and-functions)
 9. [Functions](#functions)
-10. [Comments](#comments)
-11. [Indentation](#indentation)
+10. [Safety & Error Handling](#safety--error-handling)
+11. [Comments](#comments)
+12. [Indentation](#indentation)
 
 ---
 
@@ -695,9 +696,36 @@ print "=== Done ==="
 
 ---
 
+## Safety & Error Handling
+
+Kronos provides comprehensive safety checks with human-readable error messages.
+
+### Error Format
+
+All errors start with `Error:` followed by a clear description:
+```
+Error: Cannot reassign immutable variable 'x'
+Error: Function 'greet' expects 1 argument, but got 2
+Error: Cannot divide by zero
+```
+
+### Key Safety Features
+
+✅ **Type Safety** - Operations check types before executing  
+✅ **Immutability** - `set` variables cannot be reassigned  
+✅ **Type Annotations** - Optional `as <type>` enforces types  
+✅ **Function Validation** - Argument count and types checked  
+✅ **Undefined Detection** - Variables and functions must exist  
+✅ **Division by Zero** - Caught before execution  
+✅ **Protected Constants** - Pi cannot be modified  
+
+See examples in `tests/fail/` directory for all error cases.
+
+---
+
 ## Comments
 
-Currently, Kronos does not support comments in the language. This is planned for a future release.
+Comments start with `#` and continue to the end of the line.
 
 **Planned syntax:**
 
