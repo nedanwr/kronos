@@ -1,0 +1,68 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+        
+  build-binaries:
+    name: Build Release Binary
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: kronos-linux-x64
+          - os: macos-latest
+            artifact_name: kronos-macos-arm64
+            
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Build Kronos
+      run: make clean && make
+      
+    - name: Run tests
+      run: ./run_tests.sh
+      
+    - name: Package binary
+      run: |
+        mkdir -p dist
+        cp kronos dist/${{ matrix.artifact_name }}
+        cp LICENSE dist/
+        cp README.md dist/
+        tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
+        
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./${{ matrix.artifact_name }}.tar.gz
+        asset_name: ${{ matrix.artifact_name }}.tar.gz
+        asset_content_type: application/gzip
+
