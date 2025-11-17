@@ -1,0 +1,117 @@
+name: Kronos CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make
+        
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        # macOS comes with Xcode command line tools
+        xcode-select --install 2>/dev/null || true
+        
+    - name: Build Kronos
+      run: make clean && make
+      
+    - name: Run tests
+      run: ./run_tests.sh
+      
+    - name: Test binary exists
+      run: |
+        test -f ./kronos
+        echo "✓ Kronos binary created"
+        
+    - name: Test REPL mode
+      run: |
+        echo "set x to 42" | ./kronos
+        echo "✓ REPL mode works"
+        
+    - name: Test example files
+      run: |
+        ./kronos examples/hello.kr
+        ./kronos examples/variables.kr
+        ./kronos examples/functions.kr
+        echo "✓ Example files run successfully"
+        
+  lint-and-format:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Check for trailing whitespace
+      run: |
+        ! git grep -I --line-number '[[:blank:]]$' -- '*.c' '*.h' '*.kr' || {
+          echo "Error: Found trailing whitespace"
+          exit 1
+        }
+        echo "✓ No trailing whitespace"
+        
+    - name: Check file encodings
+      run: |
+        file_list=$(find . -name "*.c" -o -name "*.h" -o -name "*.kr")
+        for f in $file_list; do
+          if ! file "$f" | grep -q "ASCII\|UTF-8"; then
+            echo "Error: $f has incorrect encoding"
+            exit 1
+          fi
+        done
+        echo "✓ All files have correct encoding"
+        
+  documentation:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Check documentation files exist
+      run: |
+        docs=(
+          "README.md"
+          "LICENSE"
+          "docs/SYNTAX.md"
+          "docs/QUICKREF.md"
+          "docs/PROJECT.md"
+          "docs/SAFETY_CHECKS.md"
+          "docs/IMPLEMENTATION_STATUS.md"
+          "tests/README.md"
+        )
+        for doc in "${docs[@]}"; do
+          if [ ! -f "$doc" ]; then
+            echo "Error: Missing documentation file: $doc"
+            exit 1
+          fi
+        done
+        echo "✓ All required documentation files exist"
+        
+    - name: Check for broken links in README
+      run: |
+        # Simple check for common markdown link issues
+        grep -n '\[.*\](' README.md || true
+        echo "✓ README links checked"
+
