@@ -1,0 +1,8 @@
+# Test: Comparison with wrong types
+# Expected: Error: Cannot compare - both values must be numbers
+
+set x to 10
+set name to "Alice"
+if x is greater than name:
+    print "invalid"
+

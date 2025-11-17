@@ -1,0 +1,8 @@
+# Test: Function called with too few arguments
+# Expected: Error: Function 'add_nums' expects 2 arguments, but got 1
+
+function add_nums with a, b:
+    return a plus b
+
+call add_nums with 10
+

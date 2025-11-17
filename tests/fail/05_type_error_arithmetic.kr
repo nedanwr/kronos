@@ -1,0 +1,7 @@
+# Test: Type error in arithmetic
+# Expected: Error: Cannot add - both values must be numbers
+
+set x to 10
+set name to "Alice"
+print x plus name
+

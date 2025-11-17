@@ -1,0 +1,6 @@
+# Test: Cannot reassign immutable variable
+# Expected: Error: Cannot reassign immutable variable 'x'
+
+set x to 10
+set x to 20
+

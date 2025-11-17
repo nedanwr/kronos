@@ -1,0 +1,5 @@
+# Test: Built-in function with wrong argument count
+# Expected: Error: Function 'add' expects 2 arguments, but got 1
+
+call add with 5
+

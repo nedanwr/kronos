@@ -1,0 +1,6 @@
+# Test: Type annotation violation
+# Expected: Error: Type mismatch for variable 'age': expected 'number'
+
+let age to 25 as number
+let age to "twenty-five"
+

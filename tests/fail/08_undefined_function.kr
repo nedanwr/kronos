@@ -1,0 +1,5 @@
+# Test: Calling undefined function
+# Expected: Error: Undefined function 'doesNotExist'
+
+call doesNotExist with "hello"
+

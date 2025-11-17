@@ -1,0 +1,5 @@
+# Test: Built-in function with wrong types
+# Expected: Error: Function 'add' requires both arguments to be numbers
+
+call add with "hello", "world"
+

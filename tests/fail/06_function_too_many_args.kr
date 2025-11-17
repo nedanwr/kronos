@@ -1,0 +1,8 @@
+# Test: Function called with too many arguments
+# Expected: Error: Function 'greet' expects 1 argument, but got 2
+
+function greet with name:
+    print name
+
+call greet with "Alice", 24
+
