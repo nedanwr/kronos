@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,8 +11,33 @@ typedef struct {
 // Helper to emit byte
 static void emit_byte(Compiler *c, uint8_t byte) {
   if (c->bytecode->count >= c->bytecode->capacity) {
-    c->bytecode->capacity *= 2;
-    c->bytecode->code = realloc(c->bytecode->code, c->bytecode->capacity);
+    // Determine new capacity (minimum 256 if starting from 0)
+    size_t new_capacity;
+    if (c->bytecode->capacity == 0) {
+      new_capacity = 256; // Sane minimum initial capacity for bytecode
+    } else {
+      // Check for overflow before doubling capacity
+      if (c->bytecode->capacity > SIZE_MAX / 2) {
+        fprintf(stderr, "Error: Bytecode capacity overflow\n");
+        exit(1);
+      }
+      new_capacity = c->bytecode->capacity * 2;
+    }
+
+    // Calculate byte size safely (overflow already checked above)
+    size_t new_size = new_capacity * sizeof(uint8_t);
+
+    // Attempt reallocation using temporary pointer
+    uint8_t *new_code = realloc(c->bytecode->code, new_size);
+
+    if (!new_code) {
+      fprintf(stderr, "Error: Failed to allocate memory for bytecode\n");
+      exit(1);
+    }
+
+    // Only update after successful reallocation
+    c->bytecode->code = new_code;
+    c->bytecode->capacity = new_capacity;
   }
   c->bytecode->code[c->bytecode->count++] = byte;
 }
@@ -25,10 +51,33 @@ static void emit_bytes(Compiler *c, uint8_t byte1, uint8_t byte2) {
 // Helper to add constant to pool
 static size_t add_constant(Compiler *c, KronosValue *value) {
   if (c->bytecode->const_count >= c->bytecode->const_capacity) {
-    c->bytecode->const_capacity *= 2;
-    c->bytecode->constants =
-        realloc(c->bytecode->constants,
-                sizeof(KronosValue *) * c->bytecode->const_capacity);
+    // Determine new capacity (minimum 8 if starting from 0)
+    size_t new_capacity;
+    if (c->bytecode->const_capacity == 0) {
+      new_capacity = 8; // Sane minimum initial capacity
+    } else {
+      // Check for overflow before doubling capacity
+      if (c->bytecode->const_capacity > SIZE_MAX / 2 / sizeof(KronosValue *)) {
+        fprintf(stderr, "Error: Constant pool capacity overflow\n");
+        exit(1);
+      }
+      new_capacity = c->bytecode->const_capacity * 2;
+    }
+
+    // Calculate byte size safely (overflow already checked above)
+    size_t new_size = new_capacity * sizeof(KronosValue *);
+
+    // Attempt reallocation using temporary pointer
+    KronosValue **new_constants = realloc(c->bytecode->constants, new_size);
+
+    if (!new_constants) {
+      fprintf(stderr, "Error: Failed to allocate memory for constant pool\n");
+      exit(1);
+    }
+
+    // Only update after successful reallocation
+    c->bytecode->constants = new_constants;
+    c->bytecode->const_capacity = new_capacity;
   }
   c->bytecode->constants[c->bytecode->const_count] = value;
   return c->bytecode->const_count++;
@@ -165,8 +214,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
 
     // Emit type name if specified
     if (node->as.assign.type_name) {
-      KronosValue *type_val = value_new_string(node->as.assign.type_name,
-                                                strlen(node->as.assign.type_name));
+      KronosValue *type_val = value_new_string(
+          node->as.assign.type_name, strlen(node->as.assign.type_name));
       size_t type_idx = add_constant(c, type_val);
       emit_byte(c, (uint8_t)type_idx);
     } else {
@@ -372,11 +421,20 @@ Bytecode *compile(AST *ast) {
   c.bytecode->capacity = 256;
   c.bytecode->count = 0;
   c.bytecode->code = malloc(c.bytecode->capacity);
+  if (!c.bytecode->code) {
+    free(c.bytecode);
+    return NULL;
+  }
 
   c.bytecode->const_capacity = 32;
   c.bytecode->const_count = 0;
   c.bytecode->constants =
       malloc(sizeof(KronosValue *) * c.bytecode->const_capacity);
+  if (!c.bytecode->constants) {
+    free(c.bytecode->code);
+    free(c.bytecode);
+    return NULL;
+  }
 
   // Compile all statements
   for (size_t i = 0; i < ast->count; i++) {
