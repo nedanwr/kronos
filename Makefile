@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc
+CFLAGS = -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
 LDFLAGS = -lm
 
 # Source files
@@ -13,6 +13,9 @@ ALL_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC) $(MAIN_SRC)
 
 # Object files
 OBJ = $(ALL_SRC:.c=.o)
+
+# Dependency files (auto-generated)
+DEP = $(OBJ:.o=.d)
 
 # Output binary
 TARGET = kronos
@@ -34,8 +37,9 @@ lsp: src/lsp/lsp_server.c src/core/runtime.o src/core/gc.o src/frontend/tokenize
 		src/compiler/compiler.o $(LDFLAGS)
 
 clean:
-	rm -f $(OBJ) $(TARGET) kronos-lsp
-	rm -f src/core/*.o src/frontend/*.o src/compiler/*.o src/vm/*.o src/lsp/*.o
+	rm -f $(OBJ) $(DEP) $(TARGET) kronos-lsp
+	rm -f src/core/*.o src/core/*.d src/frontend/*.o src/frontend/*.d
+	rm -f src/compiler/*.o src/compiler/*.d src/vm/*.o src/vm/*.d src/lsp/*.o src/lsp/*.d
 
 run: $(TARGET)
 	./$(TARGET)
@@ -49,3 +53,5 @@ install: $(TARGET)
 
 .PHONY: all clean run test install lsp
 
+# Include auto-generated dependency files (if they exist)
+-include $(DEP)
