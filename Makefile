@@ -17,7 +17,7 @@ OBJ = $(ALL_SRC:.c=.o)
 # Output binary
 TARGET = kronos
 
-.PHONY: all clean run
+.PHONY: all clean run lsp
 
 all: $(TARGET)
 
@@ -27,9 +27,15 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
+lsp: src/lsp/lsp_server.c src/core/runtime.o src/core/gc.o src/frontend/tokenizer.o src/frontend/parser.o src/compiler/compiler.o
+	$(CC) $(CFLAGS) -o kronos-lsp src/lsp/lsp_server.c \
+		src/core/runtime.o src/core/gc.o \
+		src/frontend/tokenizer.o src/frontend/parser.o \
+		src/compiler/compiler.o $(LDFLAGS)
+
 clean:
-	rm -f $(OBJ) $(TARGET)
-	rm -f src/core/*.o src/frontend/*.o src/compiler/*.o src/vm/*.o
+	rm -f $(OBJ) $(TARGET) kronos-lsp
+	rm -f src/core/*.o src/frontend/*.o src/compiler/*.o src/vm/*.o src/lsp/*.o
 
 run: $(TARGET)
 	./$(TARGET)
@@ -41,5 +47,5 @@ test: $(TARGET)
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
 
-.PHONY: all clean run test install
+.PHONY: all clean run test install lsp
 
