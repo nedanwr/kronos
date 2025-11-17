@@ -36,6 +36,16 @@ Start the REPL:
 ./kronos
 ```
 
+### Testing
+
+Run the comprehensive test suite:
+
+```bash
+./run_tests.sh
+```
+
+This runs 28 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
+
 ### Editor Setup (Optional)
 
 Get full IDE features (syntax highlighting, error checking, autocomplete):
@@ -44,7 +54,7 @@ Get full IDE features (syntax highlighting, error checking, autocomplete):
 ./install_extension.sh
 ```
 
-Then restart VSCode/Cursor/Windsurf. See [LSP_SETUP.md](docs/LSP_SETUP.md) for details.
+Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details.
 
 ## Language Syntax
 
@@ -81,13 +91,11 @@ for i in range 1 to 5:
 
 ## Documentation
 
-- 📖 **[SYNTAX.md](docs/SYNTAX.md)** - Complete syntax reference
+- 📖 **[SYNTAX.md](docs/SYNTAX.md)** - Complete language reference
 - ⚡ **[QUICKREF.md](docs/QUICKREF.md)** - Quick reference card
-- 🏗️ **[PROJECT.md](docs/PROJECT.md)** - Architecture, internals, and structure
-- 📊 **[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)** - Feature status
-- 🎨 **[EDITOR_SETUP.md](docs/EDITOR_SETUP.md)** - Editor support guide
-- 🔧 **[LSP_SETUP.md](docs/LSP_SETUP.md)** - Language Server setup
-- 📦 **[All Documentation](docs/README.md)** - Documentation index
+- 🏗️ **[PROJECT.md](docs/PROJECT.md)** - Architecture & implementation
+- 🎨 **[EDITOR.md](docs/EDITOR.md)** - Editor setup & LSP
+- 📦 **[All Docs](docs/README.md)** - Documentation index
 
 ## Examples
 
