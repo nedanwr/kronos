@@ -3,7 +3,7 @@
 # Kronos Test Runner
 # Runs all tests in tests/pass/ and tests/fail/ directories
 
-set -e  # Exit on any error during build
+set -e  # Exit on any error during build (disabled after build)
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -30,6 +30,9 @@ else
     echo "${RED}✗${NC} Build failed"
     exit 1
 fi
+
+# Disable exit-on-error for test runs (we handle errors explicitly)
+set +e
 echo ""
 
 # Function to run a single test
@@ -37,13 +40,13 @@ run_test() {
     local test_file=$1
     local should_pass=$2
     local test_name=$(basename "$test_file" .kr)
-    
+
     total_tests=$((total_tests + 1))
-    
+
     # Run the test and capture output and exit code
     output=$(./kronos "$test_file" 2>&1)
     exit_code=$?
-    
+
     if [ "$should_pass" = "true" ]; then
         # Test should succeed (exit code 0)
         if [ $exit_code -eq 0 ]; then
@@ -78,7 +81,7 @@ echo "${BLUE}Running passing tests...${NC}"
 echo "────────────────────────────────────────────────────────────"
 for test_file in tests/pass/*.kr; do
     if [ -f "$test_file" ]; then
-        run_test "$test_file" "true"
+        run_test "$test_file" "true" || true
     fi
 done
 echo ""
@@ -88,7 +91,7 @@ echo "${BLUE}Running error tests...${NC}"
 echo "────────────────────────────────────────────────────────────"
 for test_file in tests/fail/*.kr; do
     if [ -f "$test_file" ]; then
-        run_test "$test_file" "false"
+        run_test "$test_file" "false" || true
     fi
 done
 echo ""
