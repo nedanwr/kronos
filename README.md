@@ -11,6 +11,8 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
 - **Interactive REPL**: Test code snippets interactively
+- **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
+- **LSP Support**: Real-time error checking (in development)
 
 ## Quick Start
 
@@ -33,6 +35,16 @@ Start the REPL:
 ```bash
 ./kronos
 ```
+
+### Editor Setup (Optional)
+
+Get full IDE features (syntax highlighting, error checking, autocomplete):
+
+```bash
+./install_extension.sh
+```
+
+Then restart VSCode/Cursor/Windsurf. See [LSP_SETUP.md](docs/LSP_SETUP.md) for details.
 
 ## Language Syntax
 
@@ -69,10 +81,13 @@ for i in range 1 to 5:
 
 ## Documentation
 
-- **[SYNTAX.md](docs/SYNTAX.md)** - Complete syntax reference with detailed examples
-- **[QUICKREF.md](docs/QUICKREF.md)** - Quick reference card for fast lookup
-- **[PROJECT.md](docs/PROJECT.md)** - Architecture and internals
-- **[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)** - Feature status and roadmap
+- 📖 **[SYNTAX.md](docs/SYNTAX.md)** - Complete syntax reference
+- ⚡ **[QUICKREF.md](docs/QUICKREF.md)** - Quick reference card
+- 🏗️ **[PROJECT.md](docs/PROJECT.md)** - Architecture, internals, and structure
+- 📊 **[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)** - Feature status
+- 🎨 **[EDITOR_SETUP.md](docs/EDITOR_SETUP.md)** - Editor support guide
+- 🔧 **[LSP_SETUP.md](docs/LSP_SETUP.md)** - Language Server setup
+- 📦 **[All Documentation](docs/README.md)** - Documentation index
 
 ## Examples
 
