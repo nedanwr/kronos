@@ -59,7 +59,7 @@
         {
           "name": "string.quoted.double.kronos",
           "begin": "\"",
-          "end": "\"",
+          "end": "(?<!\\\\)\"",
           "patterns": [
             {
               "name": "constant.character.escape.kronos",
