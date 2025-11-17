@@ -28,7 +28,7 @@ KronosVM *vm_new(void) {
     vm->globals[vm->global_count].value = pi_value;
     vm->globals[vm->global_count].is_mutable = false; // Immutable!
     vm->globals[vm->global_count].type_name = strdup("number");
-    value_retain(pi_value);
+    // No value_retain needed - globals array owns the single reference
     vm->global_count++;
   }
 
@@ -456,7 +456,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       KronosValue *b = pop(vm);
       KronosValue *a = pop(vm);
       bool result = value_equals(a, b);
-      push(vm, value_new_bool(result));
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
       value_release(a);
       value_release(b);
       break;
@@ -466,7 +468,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       KronosValue *b = pop(vm);
       KronosValue *a = pop(vm);
       bool result = !value_equals(a, b);
-      push(vm, value_new_bool(result));
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
       value_release(a);
       value_release(b);
       break;
@@ -478,7 +482,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number > b->as.number;
-        push(vm, value_new_bool(result));
+        KronosValue *res = value_new_bool(result);
+        push(vm, res);
+        value_release(res);
       } else {
         fprintf(stderr,
                 "Error: Cannot compare - both values must be numbers\n");
@@ -498,7 +504,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number < b->as.number;
-        push(vm, value_new_bool(result));
+        KronosValue *res = value_new_bool(result);
+        push(vm, res);
+        value_release(res);
       } else {
         fprintf(stderr,
                 "Error: Cannot compare - both values must be numbers\n");
@@ -518,7 +526,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number >= b->as.number;
-        push(vm, value_new_bool(result));
+        KronosValue *res = value_new_bool(result);
+        push(vm, res);
+        value_release(res);
       } else {
         fprintf(stderr,
                 "Error: Cannot compare - both values must be numbers\n");
@@ -538,7 +548,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number <= b->as.number;
-        push(vm, value_new_bool(result));
+        KronosValue *res = value_new_bool(result);
+        push(vm, res);
+        value_release(res);
       } else {
         fprintf(stderr,
                 "Error: Cannot compare - both values must be numbers\n");
@@ -826,6 +838,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         for (size_t i = 0; i < frame->local_count; i++) {
           free(frame->locals[i].name);
           value_release(frame->locals[i].value);
+          free(frame->locals[i].type_name);
         }
 
         // Restore VM state
