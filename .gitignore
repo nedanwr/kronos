@@ -1,114 +1,33 @@
-# Kronos Build Artifacts
-
-# Compiled binary
-kronos
-
-# Object files
+# Build artifacts
 *.o
-*.ko
-*.obj
-*.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Debug files
+kronos
+kronos-lsp
 *.dSYM/
-*.su
-*.idb
-*.pdb
+*.dSYM
+**/*.dSYM
 
-# Static analysis
-*.gcda
-*.gcno
-*.gcov
+# OS files
+.DS_Store
+Thumbs.db
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-
-# Core dumps
-core
-core.*
-
-# Editor and IDE files
+# Editor temp files
 *.swp
 *.swo
 *~
+
+# .vscode/ is kept for immediate syntax highlighting when opening project
+# The vscode-extension/ directory is the actual installable extension
 .vscode/
-.idea/
-*.sublime-*
-.DS_Store
+!.vscode/kronos.tmLanguage.json
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
 
-# OS-specific
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
 
-# Temporary files
-*.tmp
-*.bak
+# Node/npm (extension dependencies)
+vscode-extension/node_modules/
+vscode-extension/package-lock.json
+
+# LSP logs
 *.log
-*.cache
-
-# Dependency directories
-.deps/
-.libs/
-
-# Build directories
-build/
-dist/
-bin/
-obj/
-
-# Archive/backup files
-*.zip
-*.tar.gz
-*.rar
-
-# Python (for archived implementation)
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.Python
-venv/
-env/
-
-# Tags and indexing
-tags
-TAGS
-.tags
-.TAGS
-cscope.out
-
-# Valgrind
-vgcore.*
-*.valgrind
-
-# Test outputs
-test_output/
-*.test
-
