@@ -27,6 +27,11 @@ echo ""
 
 # Install npm dependencies
 echo "1️⃣  Installing extension dependencies..."
+if [ ! -d "$SCRIPT_DIR/vscode-extension" ]; then
+    echo "❌ Error: vscode-extension directory not found at $SCRIPT_DIR/vscode-extension"
+    exit 1
+fi
+
 cd "$SCRIPT_DIR/vscode-extension"
 
 if ! command -v npm &> /dev/null; then
@@ -59,6 +64,11 @@ install_to_editor() {
 
         # Remove old version if exists
         rm -rf "$TARGET"
+
+        if [ ! -d "$SCRIPT_DIR/vscode-extension" ]; then
+            echo "❌ Error: vscode-extension directory not found at $SCRIPT_DIR/vscode-extension"
+            exit 1
+        fi
 
         # Copy extension
         cp -r "$SCRIPT_DIR/vscode-extension" "$TARGET"
