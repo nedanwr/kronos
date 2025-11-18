@@ -29,16 +29,36 @@ void kronos_vm_free(KronosVM *vm) {
   runtime_cleanup();
 }
 
+const char *kronos_get_last_error(KronosVM *vm) {
+  if (!vm)
+    return NULL;
+  return vm->last_error_message;
+}
+
+KronosErrorCode kronos_get_last_error_code(KronosVM *vm) {
+  if (!vm)
+    return KRONOS_ERR_INVALID_ARGUMENT;
+  return vm->last_error_code;
+}
+
+void kronos_set_error_callback(KronosVM *vm, KronosErrorCallback callback) {
+  if (!vm)
+    return;
+  vm->error_callback = callback;
+}
+
 // Run a Kronos source string
 int kronos_run_string(KronosVM *vm, const char *source) {
   if (!vm || !source)
-    return -1;
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "VM and source must be non-null");
+
+  vm_clear_error(vm);
 
   // Tokenize
   TokenArray *tokens = tokenize(source);
   if (!tokens) {
-    fprintf(stderr, "Tokenization failed\n");
-    return -1;
+    return vm_error(vm, KRONOS_ERR_TOKENIZE, "Tokenization failed");
   }
 
   // Parse
@@ -46,22 +66,27 @@ int kronos_run_string(KronosVM *vm, const char *source) {
   token_array_free(tokens);
 
   if (!ast) {
-    fprintf(stderr, "Parsing failed\n");
-    return -1;
+    return vm_error(vm, KRONOS_ERR_PARSE, "Parsing failed");
   }
 
   // Compile
-  Bytecode *bytecode = compile(ast);
+  const char *compile_err = NULL;
+  Bytecode *bytecode = compile(ast, &compile_err);
   ast_free(ast);
 
   if (!bytecode) {
-    fprintf(stderr, "Compilation failed\n");
-    return -1;
+    return vm_errorf(
+        vm, KRONOS_ERR_COMPILE, "Compilation failed%s%s",
+        compile_err ? ": " : "", compile_err ? compile_err : "");
   }
 
   // Execute
   int result = vm_execute(vm, bytecode);
   bytecode_free(bytecode);
+
+  if (result < 0 && vm->last_error_code == KRONOS_OK) {
+    vm_set_error(vm, KRONOS_ERR_RUNTIME, "Runtime execution failed");
+  }
 
   return result;
 }
@@ -69,67 +94,78 @@ int kronos_run_string(KronosVM *vm, const char *source) {
 // Run a Kronos file
 int kronos_run_file(KronosVM *vm, const char *filepath) {
   if (!vm || !filepath)
-    return -1;
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "VM and filepath must be non-null");
+
+  vm_clear_error(vm);
 
   // Read file
   FILE *file = fopen(filepath, "r");
   if (!file) {
-    fprintf(stderr, "Failed to open file: %s\n", filepath);
-    return -1;
+    return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open file: %s",
+                     filepath);
   }
 
   // Get file size
   if (fseek(file, 0, SEEK_END) != 0) {
-    fprintf(stderr, "Error: Failed to seek to end of file: %s\n", filepath);
+    int err = vm_errorf(vm, KRONOS_ERR_IO,
+                        "Failed to seek to end of file: %s", filepath);
     fclose(file);
-    return -1;
+    return err;
   }
 
   long size = ftell(file);
   if (size < 0) {
-    fprintf(stderr, "Error: Failed to determine file size: %s\n", filepath);
+    int err =
+        vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s",
+                  filepath);
     fclose(file);
-    return -1;
+    return err;
   }
 
   // Check for unreasonably large files (protect against overflow)
   if ((uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
-    fprintf(stderr, "Error: File too large to read: %s\n", filepath);
+    int err =
+        vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s", filepath);
     fclose(file);
-    return -1;
+    return err;
   }
 
   if (fseek(file, 0, SEEK_SET) != 0) {
-    fprintf(stderr, "Error: Failed to seek to start of file: %s\n", filepath);
+    int err = vm_errorf(vm, KRONOS_ERR_IO,
+                        "Failed to seek to start of file: %s", filepath);
     fclose(file);
-    return -1;
+    return err;
   }
 
   // Read contents - safe to cast after size validation
   size_t length = (size_t)size;
   char *source = malloc(length + 1);
   if (!source) {
-    fprintf(stderr, "Error: Failed to allocate memory for file contents\n");
+    int err = vm_error(vm, KRONOS_ERR_INTERNAL,
+                       "Failed to allocate memory for file contents");
     fclose(file);
-    return -1;
+    return err;
   }
 
   size_t read_size = fread(source, 1, length, file);
 
   // Check for read errors
   if (ferror(file)) {
-    fprintf(stderr, "Error: Failed to read file: %s\n", filepath);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to read file: %s",
+                        filepath);
     free(source);
     fclose(file);
-    return -1;
+    return err;
   }
 
   // Check for unexpected partial read (not EOF)
   if (read_size < length && !feof(file)) {
-    fprintf(stderr, "Error: Incomplete read from file: %s\n", filepath);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Incomplete read from file: %s",
+                        filepath);
     free(source);
     fclose(file);
-    return -1;
+    return err;
   }
 
   // Safe to write NUL terminator (buffer is length+1, read_size <= length)
@@ -189,7 +225,12 @@ void kronos_repl(void) {
     }
 
     // Execute line
-    kronos_run_string(vm, line);
+    if (kronos_run_string(vm, line) < 0) {
+      const char *err = kronos_get_last_error(vm);
+      if (err && *err) {
+        fprintf(stderr, "Error: %s\n", err);
+      }
+    }
   }
 
   kronos_vm_free(vm);
@@ -205,10 +246,16 @@ int main(int argc, char **argv) {
     }
 
     int result = kronos_run_file(vm, argv[1]);
+    if (result < 0) {
+      const char *err = kronos_get_last_error(vm);
+      if (err && *err) {
+        fprintf(stderr, "Error: %s\n", err);
+      }
+    }
     kronos_vm_free(vm);
 
-    // Normalize exit code: -1 becomes 1, 0 stays 0
-    return (result == -1) ? 1 : result;
+    // Normalize exit code: any negative error becomes 1
+    return (result < 0) ? 1 : result;
   } else {
     // Run REPL
     kronos_repl();
