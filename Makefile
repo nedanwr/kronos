@@ -14,6 +14,10 @@ ALL_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC) $(MAIN_SRC)
 # Object files
 OBJ = $(ALL_SRC:.c=.o)
 
+# LSP server excludes main.c and vm (only needs compiler/frontend)
+LSP_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC)
+LSP_OBJ = $(LSP_SRC:.c=.o)
+
 # Dependency files (auto-generated)
 DEP = $(OBJ:.o=.d)
 
@@ -30,11 +34,8 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-lsp: src/lsp/lsp_server.c src/core/runtime.o src/core/gc.o src/frontend/tokenizer.o src/frontend/parser.o src/compiler/compiler.o
-	$(CC) $(CFLAGS) -o kronos-lsp src/lsp/lsp_server.c \
-		src/core/runtime.o src/core/gc.o \
-		src/frontend/tokenizer.o src/frontend/parser.o \
-		src/compiler/compiler.o $(LDFLAGS)
+lsp: src/lsp/lsp_server.c $(LSP_OBJ)
+	$(CC) $(CFLAGS) -o kronos-lsp $^ $(LDFLAGS)
 
 clean:
 	rm -f $(OBJ) $(DEP) $(TARGET) kronos-lsp
