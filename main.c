@@ -1,10 +1,10 @@
 #include "include/kronos.h"
 #include "src/compiler/compiler.h"
-#include "src/core/gc.h"
 #include "src/core/runtime.h"
 #include "src/frontend/parser.h"
 #include "src/frontend/tokenizer.h"
 #include "src/vm/vm.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +22,9 @@ KronosVM *kronos_vm_new(void) {
 
 // Free VM instance
 void kronos_vm_free(KronosVM *vm) {
+  if (!vm)
+    return;
+
   vm_free(vm);
   runtime_cleanup();
 }
@@ -90,7 +93,7 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
   }
 
   // Check for unreasonably large files (protect against overflow)
-  if (size > SIZE_MAX - 1) {
+  if ((uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
     fprintf(stderr, "Error: File too large to read: %s\n", filepath);
     fclose(file);
     return -1;
@@ -160,8 +163,17 @@ void kronos_repl(void) {
       break;
     }
 
-    // Remove newline
+    // Detect truncated input (no newline and not EOF)
     size_t len = strlen(line);
+    if (len > 0 && line[len - 1] != '\n' && !feof(stdin)) {
+      fprintf(stderr, "Warning: Input line truncated (max %zu chars)\n",
+              sizeof(line) - 1);
+      int c;
+      while ((c = getchar()) != '\n' && c != EOF)
+        ;
+    }
+
+    // Remove newline
     if (len > 0 && line[len - 1] == '\n') {
       line[len - 1] = '\0';
     }
