@@ -20,7 +20,7 @@ DEP = $(OBJ:.o=.d)
 # Output binary
 TARGET = kronos
 
-.PHONY: all clean run lsp
+.PHONY: all clean run test install lsp
 
 all: $(TARGET)
 
@@ -50,8 +50,5 @@ test: $(TARGET)
 # Install target (optional)
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
-
-.PHONY: all clean run test install lsp
-
 # Include auto-generated dependency files (if they exist)
 -include $(DEP)
