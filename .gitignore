@@ -1,5 +1,6 @@
 # Build artifacts
 *.o
+*.d
 kronos
 kronos-lsp
 *.dSYM/
