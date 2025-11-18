@@ -1,5 +1,5 @@
 version: 1
 
-review:
-  ignore:
-    - "archive/**"
+reviews:
+  path_filters:
+    - "!archive/**"
