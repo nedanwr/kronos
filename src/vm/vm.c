@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "vm.h"
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,16 +106,37 @@ KronosVM *vm_new(void) {
   vm->last_error_code = KRONOS_OK;
   vm->error_callback = NULL;
 
-  // Initialize Pi constant (100 decimal places) - immutable
-  KronosValue *pi_value = value_new_number(
-      3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679);
+  // Initialize Pi constant - immutable
+  // Note: double precision provides ~15-17 decimal digits of precision
+  KronosValue *pi_value = value_new_number(3.1415926535897932);
+  if (!pi_value) {
+    free(vm);
+    return NULL;
+  }
 
   // Manually add Pi as immutable global
   if (vm->global_count < GLOBALS_MAX) {
-    vm->globals[vm->global_count].name = strdup("Pi");
+    // Allocate into temporary pointers first
+    char *name_copy = strdup("Pi");
+    if (!name_copy) {
+      value_release(pi_value);
+      free(vm);
+      return NULL;
+    }
+
+    char *type_copy = strdup("number");
+    if (!type_copy) {
+      free(name_copy);
+      value_release(pi_value);
+      free(vm);
+      return NULL;
+    }
+
+    // Only assign to vm->globals after both allocations succeed
+    vm->globals[vm->global_count].name = name_copy;
     vm->globals[vm->global_count].value = pi_value;
     vm->globals[vm->global_count].is_mutable = false; // Immutable!
-    vm->globals[vm->global_count].type_name = strdup("number");
+    vm->globals[vm->global_count].type_name = type_copy;
     // No value_retain needed - globals array owns the single reference
     vm->global_count++;
   }
@@ -221,9 +243,9 @@ static void push(KronosVM *vm, KronosValue *value) {
 
 static KronosValue *pop(KronosVM *vm) {
   if (vm->stack_top <= vm->stack) {
-    vm_set_errorf(vm, KRONOS_ERR_INTERNAL,
-                  "Internal stack error (underflow) - please report this bug");
-    return value_new_nil();
+    vm_set_error(vm, KRONOS_ERR_RUNTIME,
+                 "Stack underflow (internal error - please report this bug)");
+    return NULL;
   }
   vm->stack_top--;
   KronosValue *val = *vm->stack_top;
@@ -231,6 +253,27 @@ static KronosValue *pop(KronosVM *vm) {
 }
 
 static KronosValue *peek(KronosVM *vm, int distance) {
+  // Bounds checking: ensure distance is valid
+  // Guard: distance must be >= 0 and < stack size
+  if (distance < 0) {
+    fprintf(stderr,
+            "Fatal error: peek: distance must be non-negative (got %d)\n",
+            distance);
+    fflush(stderr);
+    abort();
+  }
+
+  // Compute current stack size
+  size_t stack_size = vm->stack_top - vm->stack;
+
+  // Guard: distance must be < stack size to access valid memory
+  if ((size_t)distance >= stack_size) {
+    fprintf(stderr, "Fatal error: peek: distance %d exceeds stack size %zu\n",
+            distance, stack_size);
+    fflush(stderr);
+    abort();
+  }
+
   return vm->stack_top[-1 - distance];
 }
 
@@ -268,11 +311,15 @@ int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
 
   // Add new global
   if (vm->global_count >= GLOBALS_MAX) {
-    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                     "Maximum number of global variables exceeded (%d allowed)",
-                     GLOBALS_MAX);
+    fprintf(stderr,
+            "Fatal error: Maximum number of global variables exceeded (%d "
+            "allowed)\n",
+            GLOBALS_MAX);
+    fflush(stderr);
+    exit(1);
   }
 
+  // Allocate into temporary pointers first, check each for NULL
   char *name_copy = strdup(name);
   if (!name_copy) {
     return vm_error(vm, KRONOS_ERR_INTERNAL,
@@ -283,17 +330,23 @@ int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
   if (type_name) {
     type_copy = strdup(type_name);
     if (!type_copy) {
+      // Free already-allocated name_copy on failure
       free(name_copy);
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "Failed to allocate memory for type name");
     }
   }
 
+  // Call value_retain before modifying vm->globals
+  value_retain(value);
+
+  // Only assign to vm->globals after all allocations succeed
   vm->globals[vm->global_count].name = name_copy;
   vm->globals[vm->global_count].value = value;
   vm->globals[vm->global_count].is_mutable = is_mutable;
   vm->globals[vm->global_count].type_name = type_copy;
-  value_retain(value);
+
+  // Only increment global_count after everything succeeds
   vm->global_count++;
   return 0;
 }
@@ -345,8 +398,12 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
                      LOCALS_MAX);
   }
 
+  // Allocate into temporary pointers first, check each for NULL
   char *name_copy = strdup(name);
   if (!name_copy) {
+    // Allocation failure: release value and return error without modifying
+    // frame state
+    value_release(value);
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Failed to allocate memory for local name");
   }
@@ -355,17 +412,24 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
   if (type_name) {
     type_copy = strdup(type_name);
     if (!type_copy) {
+      // Allocation failure: free already-allocated name_copy, release value,
+      // and return error
       free(name_copy);
+      value_release(value);
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "Failed to allocate memory for local type");
     }
   }
 
+  // Only assign to frame->locals[...] after all allocations succeed
   frame->locals[frame->local_count].name = name_copy;
   frame->locals[frame->local_count].value = value;
   frame->locals[frame->local_count].is_mutable = is_mutable;
   frame->locals[frame->local_count].type_name = type_copy;
+
+  // Only call value_retain after all allocations and assignments succeed
   value_retain(value);
+  // Only increment frame->local_count after everything succeeds
   frame->local_count++;
   return 0;
 }
@@ -403,7 +467,21 @@ KronosValue *vm_get_variable(KronosVM *vm, const char *name) {
 }
 
 // Read byte from bytecode
-static uint8_t read_byte(KronosVM *vm) { return *vm->ip++; }
+static uint8_t read_byte(KronosVM *vm) {
+  // Compute current offset and compare against bytecode count
+  size_t offset = vm->ip - vm->bytecode->code;
+  if (offset >= vm->bytecode->count) {
+    // Out of bounds: set error state and return sentinel value
+    // Do not increment vm->ip when out of range
+    vm_set_error(
+        vm, KRONOS_ERR_RUNTIME,
+        "Bytecode read out of bounds (truncated or malformed bytecode)");
+    // Return OP_HALT to stop execution gracefully
+    return OP_HALT;
+  }
+  // Safe to dereference and increment
+  return *vm->ip++;
+}
 
 // Read 16-bit value (big-endian)
 static uint16_t read_uint16(KronosVM *vm) {
@@ -415,9 +493,12 @@ static uint16_t read_uint16(KronosVM *vm) {
 // Read constant from pool
 static KronosValue *read_constant(KronosVM *vm) {
   uint16_t idx = read_uint16(vm);
+  // Validate index is within bounds of constants array
   if (idx >= vm->bytecode->const_count) {
-    vm_set_errorf(vm, KRONOS_ERR_INTERNAL, "Constant index out of range (%u)",
-                  idx);
+    vm_set_errorf(vm, KRONOS_ERR_RUNTIME,
+                  "Constant index out of bounds: %u (valid range: 0-%zu)", idx,
+                  vm->bytecode->const_count > 0 ? vm->bytecode->const_count - 1
+                                                : 0);
     return NULL;
   }
   return vm->bytecode->constants[idx];
@@ -425,8 +506,13 @@ static KronosValue *read_constant(KronosVM *vm) {
 
 // Execute bytecode
 int vm_execute(KronosVM *vm, Bytecode *bytecode) {
-  if (!vm || !bytecode)
-    return -1;
+  if (!vm) {
+    return -(int)KRONOS_ERR_INVALID_ARGUMENT;
+  }
+  if (!bytecode) {
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "vm_execute: bytecode must not be NULL");
+  }
 
   vm->bytecode = bytecode;
   vm->ip = bytecode->code;
@@ -471,6 +557,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
                         "Variable name constant is not a string");
       }
       KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       // Read mutability flag
       uint8_t is_mutable_byte = read_byte(vm);
@@ -513,6 +602,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_PRINT: {
       KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       value_print(value);
       printf("\n");
       value_release(value);
@@ -521,7 +613,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_ADD: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         KronosValue *result = value_new_number(a->as.number + b->as.number);
@@ -542,7 +641,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_SUB: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         KronosValue *result = value_new_number(a->as.number - b->as.number);
@@ -563,7 +669,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_MUL: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         KronosValue *result = value_new_number(a->as.number * b->as.number);
@@ -584,7 +697,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_DIV: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         if (b->as.number == 0) {
@@ -611,7 +731,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_EQ: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       bool result = value_equals(a, b);
       KronosValue *res = value_new_bool(result);
       push(vm, res);
@@ -623,7 +750,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_NEQ: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       bool result = !value_equals(a, b);
       KronosValue *res = value_new_bool(result);
       push(vm, res);
@@ -635,7 +769,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_GT: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number > b->as.number;
@@ -657,7 +798,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_LT: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number < b->as.number;
@@ -679,7 +827,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_GTE: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number >= b->as.number;
@@ -701,7 +856,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     case OP_LTE: {
       KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
         bool result = a->as.number <= b->as.number;
@@ -733,7 +895,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       if (!value_is_truthy(condition)) {
         vm->ip += offset;
       }
-      value_release(pop(vm)); // Pop condition
+      KronosValue *condition_val = pop(vm);
+      if (!condition_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(condition_val); // Pop condition
       break;
     }
 
@@ -755,16 +921,21 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         return vm_error(vm, KRONOS_ERR_INTERNAL,
                         "Failed to allocate function structure");
       }
+
+      // Allocate function name - check for NULL immediately after strdup
       func->name = strdup(name_val->as.string.data);
       if (!func->name) {
+        // Allocation failure: free func and return error
         free(func);
         return vm_error(vm, KRONOS_ERR_INTERNAL,
                         "Failed to copy function name");
       }
+
       func->param_count = param_count;
       func->params =
           param_count > 0 ? malloc(sizeof(char *) * param_count) : NULL;
       if (param_count > 0 && !func->params) {
+        // Allocation failure: free func->name and func, then return error
         free(func->name);
         free(func);
         return vm_error(vm, KRONOS_ERR_INTERNAL,
@@ -787,6 +958,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
 
         // Check if parameter name is a reserved constant
+        // Note: This check happens before strdup, so no cleanup needed here
         if (strcmp(param_val->as.string.data, "Pi") == 0) {
           param_error =
               vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -794,32 +966,44 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           break;
         }
 
+        // Allocate parameter name - check for NULL immediately after strdup
         func->params[i] = strdup(param_val->as.string.data);
         if (!func->params[i]) {
+          // Allocation failure: set error and break (cleanup happens below)
           param_error = vm_error(vm, KRONOS_ERR_INTERNAL,
                                  "Failed to copy parameter name");
           break;
         }
+        // Only increment filled_params after successful allocation
         filled_params++;
       }
+
+      // Cleanup on any error: free all allocated resources
       if (param_error != 0) {
+        // Free all successfully allocated parameter names (0..filled_params-1)
         for (size_t j = 0; j < filled_params; j++) {
           free(func->params[j]);
         }
+        // Free parameter array if allocated
         free(func->params);
+        // Free function name
         free(func->name);
+        // Free function structure
         free(func);
         return param_error;
       }
 
-      // Read function body start position
-      read_byte(vm);
+      // Consume function body start position (2 bytes) - part of bytecode
+      // format but not used at runtime; we just need to advance the instruction
+      // pointer Format:
+      // [OP_DEFINE_FUNC][name_idx:2][param_count:1][params:2*N][body_start:2][OP_JUMP][skip_offset:1]
+      read_byte(vm); // body_start high byte
+      read_byte(vm); // body_start low byte
+
+      // Consume OP_JUMP instruction byte (part of bytecode format)
       read_byte(vm);
 
-      // Skip the OP_JUMP instruction
-      read_byte(vm);
-
-      // Read jump offset (skip body)
+      // Read jump offset to skip function body
       uint8_t skip_offset = read_byte(vm);
 
       // Calculate body end (before the jump we just read)
@@ -828,6 +1012,13 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       // Copy function body bytecode
       size_t bytecode_size = body_end_ptr - vm->ip;
       func->bytecode.code = malloc(bytecode_size);
+      if (!func->bytecode.code) {
+        // Allocation failure: clean up func (name, params, etc.) and return
+        // error
+        function_free(func);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to allocate memory for function bytecode");
+      }
       func->bytecode.count = bytecode_size;
       func->bytecode.capacity = bytecode_size;
       memcpy(func->bytecode.code, vm->ip, bytecode_size);
@@ -837,6 +1028,17 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       func->bytecode.const_capacity = vm->bytecode->const_count;
       func->bytecode.constants =
           malloc(sizeof(KronosValue *) * func->bytecode.const_count);
+      if (!func->bytecode.constants) {
+        // Allocation failure: free func->bytecode.code, then clean up func and
+        // return error
+        free(func->bytecode.code);
+        func->bytecode.code = NULL;
+        func->bytecode.count = 0;
+        func->bytecode.capacity = 0;
+        function_free(func);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to allocate memory for function constants");
+      }
       for (size_t i = 0; i < func->bytecode.const_count; i++) {
         func->bytecode.constants[i] = vm->bytecode->constants[i];
         value_retain(func->bytecode.constants[i]);
@@ -876,7 +1078,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
                            arg_count);
         }
         KronosValue *b = pop(vm);
+        if (!b) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         KronosValue *a = pop(vm);
+        if (!a) {
+          value_release(b);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
           KronosValue *result = value_new_number(a->as.number + b->as.number);
           push(vm, result);
@@ -902,7 +1111,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
                            arg_count);
         }
         KronosValue *b = pop(vm);
+        if (!b) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         KronosValue *a = pop(vm);
+        if (!a) {
+          value_release(b);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
           KronosValue *result = value_new_number(a->as.number - b->as.number);
           push(vm, result);
@@ -928,7 +1144,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
                            arg_count);
         }
         KronosValue *b = pop(vm);
+        if (!b) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         KronosValue *a = pop(vm);
+        if (!a) {
+          value_release(b);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
           KronosValue *result = value_new_number(a->as.number * b->as.number);
           push(vm, result);
@@ -954,7 +1177,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
                            arg_count);
         }
         KronosValue *b = pop(vm);
+        if (!b) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         KronosValue *a = pop(vm);
+        if (!a) {
+          value_release(b);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
         if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
           if (b->as.number == 0) {
             int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1011,11 +1241,22 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       KronosValue **args =
           arg_count > 0 ? malloc(sizeof(KronosValue *) * arg_count) : NULL;
       if (arg_count > 0 && !args) {
+        // Allocation failure: restore VM state and abort call setup
+        // Decrement call stack size to undo the increment above
+        vm->call_stack_size--;
         return vm_error(vm, KRONOS_ERR_INTERNAL,
                         "Failed to allocate argument buffer");
       }
       for (int i = arg_count - 1; i >= 0; i--) {
         args[i] = pop(vm);
+        if (!args[i]) {
+          // Free already-popped arguments
+          for (int j = i + 1; j < arg_count; j++) {
+            value_release(args[j]);
+          }
+          free(args);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
       }
 
       // Set current frame before setting locals
@@ -1061,6 +1302,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     case OP_RETURN_VAL: {
       // Pop return value from stack
       KronosValue *return_value = pop(vm);
+      if (!return_value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
 
       // If we're in a function call, return from it
       if (vm->call_stack_size > 0) {
@@ -1098,7 +1342,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     }
 
     case OP_POP: {
-      value_release(pop(vm));
+      KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(value);
       break;
     }
 

@@ -74,6 +74,13 @@ typedef struct KronosVM {
   KronosErrorCallback error_callback;
 } KronosVM;
 
+// VM API Error Handling Strategy:
+// - All functions return 0 on success, negative KronosErrorCode on failure
+// - Error details are stored in vm->last_error_code and vm->last_error_message
+// - Use kronos_get_last_error_code() and kronos_get_last_error() (from
+//   include/kronos.h) to retrieve error information
+// - No functions call exit() - all errors are returned to the caller
+
 /**
  * @brief Create a new Kronos virtual machine instance.
  *
@@ -106,7 +113,9 @@ void vm_free(KronosVM *vm);
  * @param vm VM instance to execute on (must not be NULL).
  * @param bytecode Compiled bytecode to execute (must not be NULL, caller
  * retains ownership).
- * @return 0 on successful execution, negative KronosErrorCode on runtime error.
+ * @return 0 on successful execution, negative KronosErrorCode on error.
+ * @note On error, use kronos_get_last_error_code() and kronos_get_last_error()
+ * (from include/kronos.h) to retrieve detailed error information.
  * @note Thread-safety: VM is NOT thread-safe. Caller must synchronize access.
  */
 int vm_execute(KronosVM *vm, Bytecode *bytecode);
@@ -237,10 +246,100 @@ Function *vm_get_function(KronosVM *vm, const char *name);
 void function_free(Function *func);
 
 // Error helpers
+
+/**
+ * @brief Set an error state on the VM without returning a value.
+ *
+ * Stores an error code and message in the VM's error tracking fields. The
+ * message string is copied internally via strdup(), so the caller retains
+ * ownership of the original message parameter.
+ *
+ * @param vm VM instance (may be NULL, in which case this is a no-op).
+ * @param code Error code to store.
+ * @param message Error message string (may be NULL). Copied internally; caller
+ * retains ownership of the original.
+ * @note If a previous error message exists, it is freed before storing the new
+ * one.
+ * @note If an error callback is registered and code != KRONOS_OK, the callback
+ * is invoked with the error details.
+ * @note Thread-safety: NOT thread-safe. Caller must synchronize access.
+ */
 void vm_set_error(KronosVM *vm, KronosErrorCode code, const char *message);
+
+/**
+ * @brief Set an error state using a printf-style format string.
+ *
+ * Formats an error message using vsnprintf() and stores it along with the error
+ * code. The formatted message is allocated internally and owned by the VM.
+ *
+ * @param vm VM instance (may be NULL, in which case this is a no-op).
+ * @param code Error code to store.
+ * @param fmt printf-style format string (must not be NULL). Format specifiers
+ * must match the provided arguments.
+ * @param ... Variable arguments matching the format string.
+ * @note The formatted message is allocated via malloc() and owned by the VM.
+ * @note If formatting fails (e.g., invalid format string), the error code is
+ * still stored but the message may be NULL or a fallback.
+ * @note If a previous error message exists, it is freed before storing the new
+ * one.
+ * @note If an error callback is registered and code != KRONOS_OK, the callback
+ * is invoked with the error details.
+ * @note Thread-safety: NOT thread-safe. Caller must synchronize access.
+ */
 void vm_set_errorf(KronosVM *vm, KronosErrorCode code, const char *fmt, ...);
+
+/**
+ * @brief Set an error state and return an integer error code.
+ *
+ * Convenience function that sets the VM error state and returns a value
+ * suitable for direct return from functions. Returns 0 for KRONOS_OK, negative
+ * error code otherwise.
+ *
+ * @param vm VM instance (may be NULL, in which case error is not stored but
+ * return value is still computed).
+ * @param code Error code to store.
+ * @param message Error message string (may be NULL). Copied internally via
+ * strdup(); caller retains ownership of the original.
+ * @return 0 if code == KRONOS_OK, otherwise -(int)code.
+ * @note Useful for returning errors directly: `return vm_error(vm, code, msg);`
+ * @note The message is copied internally and owned by the VM.
+ * @note Thread-safety: NOT thread-safe. Caller must synchronize access.
+ */
 int vm_error(KronosVM *vm, KronosErrorCode code, const char *message);
+
+/**
+ * @brief Set an error state using printf-style formatting and return an error
+ * code.
+ *
+ * Formats an error message and stores it along with the error code, then
+ * returns a value suitable for direct return from functions.
+ *
+ * @param vm VM instance (may be NULL, in which case error is not stored but
+ * return value is still computed).
+ * @param code Error code to store.
+ * @param fmt printf-style format string (must not be NULL). Format specifiers
+ * must match the provided arguments.
+ * @param ... Variable arguments matching the format string.
+ * @return 0 if code == KRONOS_OK, otherwise -(int)code.
+ * @note Useful for returning formatted errors: `return vm_errorf(vm, code,
+ * "Failed: %s", reason);`
+ * @note The formatted message is allocated internally and owned by the VM.
+ * @note Thread-safety: NOT thread-safe. Caller must synchronize access.
+ */
 int vm_errorf(KronosVM *vm, KronosErrorCode code, const char *fmt, ...);
+
+/**
+ * @brief Clear the VM's error state.
+ *
+ * Frees any stored error message and resets the error code to KRONOS_OK. After
+ * calling, the VM has no recorded error.
+ *
+ * @param vm VM instance (may be NULL, in which case this is a no-op).
+ * @note Frees the stored error message (if any) via free().
+ * @note Resets vm->last_error_code to KRONOS_OK.
+ * @note Does not invoke the error callback.
+ * @note Thread-safety: NOT thread-safe. Caller must synchronize access.
+ */
 void vm_clear_error(KronosVM *vm);
 
 #endif // KRONOS_VM_H
