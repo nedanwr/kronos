@@ -6,8 +6,17 @@ set -e
 echo "📦 Installing Kronos VSCode Extension..."
 echo ""
 
+# Determine script directory and switch to project root
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$SCRIPT_DIR" ]; then
+    echo "❌ Error: Failed to resolve script directory."
+    exit 1
+fi
+
+cd "$SCRIPT_DIR"
+
 # Check if LSP binary exists
-if [ ! -f "kronos-lsp" ]; then
+if [ ! -f "$SCRIPT_DIR/kronos-lsp" ]; then
     echo "⚠️  LSP server not found. Building it first..."
     make lsp
     echo ""
@@ -18,7 +27,7 @@ echo ""
 
 # Install npm dependencies
 echo "1️⃣  Installing extension dependencies..."
-cd vscode-extension
+cd "$SCRIPT_DIR/vscode-extension"
 
 if ! command -v npm &> /dev/null; then
     echo "❌ Error: npm not found. Please install Node.js first."
@@ -29,7 +38,7 @@ npm install --silent
 echo "✅ Dependencies installed"
 echo ""
 
-cd ..
+cd "$SCRIPT_DIR"
 
 # Get extension directory for each editor
 VSCODE_EXT="$HOME/.vscode/extensions"
@@ -52,7 +61,7 @@ install_to_editor() {
         rm -rf "$TARGET"
 
         # Copy extension
-        cp -r vscode-extension "$TARGET"
+        cp -r "$SCRIPT_DIR/vscode-extension" "$TARGET"
 
         echo "✅ Installed to $TARGET"
         INSTALLED=true
