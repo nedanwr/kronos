@@ -65,11 +65,6 @@ install_to_editor() {
         # Remove old version if exists
         rm -rf "$TARGET"
 
-        if [ ! -d "$SCRIPT_DIR/vscode-extension" ]; then
-            echo "❌ Error: vscode-extension directory not found at $SCRIPT_DIR/vscode-extension"
-            exit 1
-        fi
-
         # Copy extension
         cp -r "$SCRIPT_DIR/vscode-extension" "$TARGET"
 
