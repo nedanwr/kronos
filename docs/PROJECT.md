@@ -159,7 +159,6 @@ kronos/
 │
 ├── install_extension.sh         # Install VSCode extension
 ├── test_lsp_manually.sh         # Test LSP server manually
-├── language-configuration.json  # Editor behavior rules
 │
 ├── main.c                       # Entry point
 ├── kronos                       # Compiled binary (gitignored)
@@ -249,7 +248,6 @@ examples/
 | `main.c` | CLI entry point (file execution & REPL) |
 | `Makefile` | Build system with targets: `all`, `lsp`, `clean`, `install` |
 | `install_extension.sh` | One-command LSP installation |
-| `language-configuration.json` | Editor behavior (brackets, indentation) |
 
 ### Build Artifacts (Gitignored)
 
@@ -378,14 +376,14 @@ value_release(val);
 
 ### 🚧 Planned (Future Phases)
 
-#### Phase 4: Complete Language Features
+#### Phase 4: Enhanced Language Features
 
-- [ ] Functions & return values
-- [ ] Function calls with arguments
 - [ ] Else/else if statements
-- [ ] Logical operators (AND, OR)
+- [ ] Logical operators (AND, OR, NOT)
+- [ ] String data type
 - [ ] Lists/arrays
 - [ ] Comments
+- [ ] String concatenation and operations
 
 #### Phase 5: Concurrency
 
@@ -497,20 +495,22 @@ for f in examples/*.kr; do ./kronos "$f"; done
 
 ## Future Roadmap
 
-### Version 0.2.0 (Next Release)
+### Version 0.3.0 (Next Release)
 
-- Complete function implementation
+- String data type with operations
+- Lists/arrays and indexing
+- Logical operators (AND, OR, NOT)
 - Else/else if statements
-- Logical operators (AND, OR)
 - Comments support
-- Basic standard library
+- Enhanced LSP (proper JSON-RPC, diagnostics, go-to-definition)
 
-### Version 0.3.0
+### Version 0.4.0
 
-- Lists and indexing
-- String operations
+- Error handling (try/catch)
+- Module system
 - File I/O
-- More data types
+- Standard library expansion
+- Advanced LSP features (rename, code actions, formatting)
 
 ### Version 1.0.0
 
@@ -585,6 +585,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Production Ready (Core Features)
-**Last Updated:** November 2025
-**Version:** 0.1.0
+**Project Status:** ✅ Production Ready (Core Features)  
+**Last Updated:** November 2025  
+**Version:** 0.2.0
