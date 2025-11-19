@@ -15,8 +15,8 @@ set a to 10
 set b to 3
 
 print "Addition:"
-set sum to a plus b
-print sum
+set addition_result to a plus b
+print addition_result
 
 print "Subtraction:"
 set diff to a minus b
@@ -58,17 +58,17 @@ print ""
 
 print "5. While Loops"
 print "Count down from 5:"
-set counter to 5
+let counter to 5
 while counter is greater than 0:
     print counter
-    set counter to counter minus 1
+    let counter to counter minus 1
 print ""
 
 print "6. Nested Structures"
 print "Nested loops example:"
 for i in range 1 to 3:
     for j in range 1 to 3:
-        set result to i times j
+        let result to i times j
         print result
 print ""
 
@@ -98,9 +98,9 @@ if score is less than 71:
 print ""
 
 print "9. Loop with Condition"
-set sum to 0
+let sum to 0
 for n in range 1 to 10:
-    set sum to sum plus n
+    let sum to sum plus n
     if sum is greater than 30:
         print "Sum exceeded 30"
 
