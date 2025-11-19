@@ -50,7 +50,7 @@ Full IDE support:
 
 ### [../tests/README.md](../tests/README.md)
 Test suite documentation:
-- 28 comprehensive tests
+- 26 comprehensive tests
 - Test runner usage
 - CI/CD integration
 

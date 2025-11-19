@@ -23,7 +23,7 @@ Binary Size:     ~57KB
 LOC (Source):    ~3,500 lines
 File Extension:  .kr
 Standards:       C11
-Test Coverage:   28 tests (16 pass, 12 error)
+Test Coverage:   26 tests (14 pass, 12 error)
 ```
 
 ## Implemented Features
@@ -201,10 +201,7 @@ docs/
 ├── PROJECT.md                   # This file (architecture & internals)
 ├── SYNTAX.md                    # Language syntax reference
 ├── QUICKREF.md                  # Quick reference card
-├── IMPLEMENTATION_STATUS.md     # Feature status & roadmap
-├── EDITOR_SETUP.md              # Multi-editor setup guide
-├── LSP_SETUP.md                 # Complete LSP guide
-└── PACKAGING.md                 # Extension packaging
+└── EDITOR.md                    # Editor setup & LSP
 ```
 
 ### VSCode Extension (`vscode-extension/`)
@@ -243,11 +240,11 @@ examples/
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `main.c` | CLI entry point (file execution & REPL) |
-| `Makefile` | Build system with targets: `all`, `lsp`, `clean`, `install` |
-| `install_extension.sh` | One-command LSP installation |
+| File                   | Purpose                                                     |
+| ---------------------- | ----------------------------------------------------------- |
+| `main.c`               | CLI entry point (file execution & REPL)                     |
+| `Makefile`             | Build system with targets: `all`, `lsp`, `clean`, `install` |
+| `install_extension.sh` | One-command LSP installation                                |
 
 ### Build Artifacts (Gitignored)
 
@@ -451,7 +448,6 @@ for f in examples/*.kr; do ./kronos "$f"; done
 ### Developer Documentation
 
 - **docs/PROJECT.md** - This file (architecture & internals)
-- **docs/IMPLEMENTATION_STATUS.md** - Implementation details
 - **Header files** - Inline API documentation
 - **Code comments** - Implementation details
 

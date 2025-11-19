@@ -32,43 +32,41 @@ tests/
 
 ### Passing Tests (`tests/pass/`)
 
-| Test File                    | Description                        |
-| ---------------------------- | ---------------------------------- |
-| `01_variables_immutable.kr`  | Immutable variables with `set`     |
-| `02_variables_mutable.kr`    | Mutable variables with `let`       |
-| `03_variables_typed.kr`      | Type-annotated variables           |
-| `04_arithmetic_basic.kr`     | Basic arithmetic operations        |
-| `05_arithmetic_complex.kr`   | Complex arithmetic expressions     |
-| `06_comparisons.kr`          | Comparison operations              |
-| `07_conditionals.kr`         | If statements                      |
-| `08_loops_for.kr`            | For loops with ranges              |
-| `09_loops_while.kr`          | While loops                        |
-| `10_functions_simple.kr`     | Simple function definitions        |
-| `11_functions_params.kr`     | Functions with multiple parameters |
-| `12_functions_local_vars.kr` | Functions with local variables     |
-| `13_builtins_pi.kr`          | Pi constant usage                  |
-| `14_builtins_math.kr`        | Built-in math functions            |
-| `15_booleans.kr`             | Boolean literals                   |
-| `16_null_values.kr`          | Null values                        |
+| Test File                 | Description                        |
+| ------------------------- | ---------------------------------- |
+| `variables_immutable.kr`  | Immutable variables with `set`     |
+| `variables_mutable.kr`    | Mutable variables with `let`       |
+| `variables_typed.kr`      | Type-annotated variables           |
+| `arithmetic_basic.kr`     | Basic arithmetic operations        |
+| `arithmetic_complex.kr`   | Complex arithmetic expressions     |
+| `comparisons.kr`          | Comparison operations              |
+| `conditionals.kr`         | If statements                      |
+| `functions_simple.kr`     | Simple function definitions        |
+| `functions_params.kr`     | Functions with multiple parameters |
+| `functions_local_vars.kr` | Functions with local variables     |
+| `builtins_pi.kr`          | Pi constant usage                  |
+| `builtins_math.kr`        | Built-in math functions            |
+| `booleans.kr`             | Boolean literals                   |
+| `null_values.kr`          | Null values                        |
 
 ### Error Tests (`tests/fail/`)
 
-| Test File                      | Expected Error                     |
-| ------------------------------ | ---------------------------------- |
-| `01_immutable_reassign.kr`     | Cannot reassign immutable variable |
-| `02_type_mismatch.kr`          | Type mismatch for typed variable   |
-| `03_undefined_variable.kr`     | Undefined variable                 |
-| `04_division_by_zero.kr`       | Cannot divide by zero              |
-| `05_type_error_arithmetic.kr`  | Type error in arithmetic           |
-| `06_function_too_many_args.kr` | Function called with too many args |
-| `07_function_too_few_args.kr`  | Function called with too few args  |
-| `08_undefined_function.kr`     | Undefined function                 |
-| `09_pi_reassign.kr`            | Cannot reassign Pi constant        |
-| `10_builtin_wrong_args.kr`     | Built-in with wrong arg count      |
-| `11_builtin_wrong_types.kr`    | Built-in with wrong arg types      |
-| `12_comparison_type_error.kr`  | Comparison type error              |
+| Test File                   | Expected Error                     |
+| --------------------------- | ---------------------------------- |
+| `immutable_reassign.kr`     | Cannot reassign immutable variable |
+| `type_mismatch.kr`          | Type mismatch for typed variable   |
+| `undefined_variable.kr`     | Undefined variable                 |
+| `division_by_zero.kr`       | Cannot divide by zero              |
+| `type_error_arithmetic.kr`  | Type error in arithmetic           |
+| `function_too_many_args.kr` | Function called with too many args |
+| `function_too_few_args.kr`  | Function called with too few args  |
+| `undefined_function.kr`     | Undefined function                 |
+| `pi_reassign.kr`            | Cannot reassign Pi constant        |
+| `builtin_wrong_args.kr`     | Built-in with wrong arg count      |
+| `builtin_wrong_types.kr`    | Built-in with wrong arg types      |
+| `comparison_type_error.kr`  | Comparison type error              |
 
-Together these cover 28 comprehensive tests (16 passing + 12 error cases).
+Together these cover 26 comprehensive tests (14 passing + 12 error cases).
 
 ## Test Coverage
 
@@ -200,11 +198,11 @@ Running error tests...
                     TEST RESULTS
 ════════════════════════════════════════════════════════════
 
-Total tests:  28
-Passed:       16
+Total tests:  26
+Passed:       14
 Failed:       12
 
-Success rate: 57%
+Success rate: 54%
 
 ✓ TESTS COMPLETED
 ```
@@ -233,4 +231,4 @@ For performance testing, use the dedicated `benchmarks/` directory (future).
 
 - [SAFETY_CHECKS.md](../docs/SAFETY_CHECKS.md) - All safety checks and error messages
 - [SYNTAX.md](../docs/SYNTAX.md) - Language syntax reference
-- [IMPLEMENTATION_STATUS.md](../docs/IMPLEMENTATION_STATUS.md) - Feature implementation status
+- [PROJECT.md](../docs/PROJECT.md) - Feature implementation status and roadmap

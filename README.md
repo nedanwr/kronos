@@ -44,7 +44,7 @@ Run the comprehensive test suite:
 ./run_tests.sh
 ```
 
-This runs 28 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs 26 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
@@ -207,7 +207,7 @@ make clean
 - Exception handling (try/catch/finally)
 - Supervisor trees (Erlang-style)
 
-See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for detailed status.
+See [docs/PROJECT.md](docs/PROJECT.md) for detailed status and roadmap.
 
 ## Contributing
 
