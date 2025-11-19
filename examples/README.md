@@ -18,18 +18,20 @@ Simple hello world program demonstrating:
 ./kronos examples/hello.kr
 ```
 
-### test.kr
+### variables.kr
 
-Basic demonstration of:
+Demonstration of variable features:
 
-- Variables and assignment
-- Arithmetic operations
-- Print statements
+- Mutable variables (`let`)
+- Immutable variables (`set`)
+- Type annotations (`as <type>`)
+- Boolean literals (`true`, `false`)
+- Null values
 
 **Run:**
 
 ```bash
-./kronos examples/test.kr
+./kronos examples/variables.kr
 ```
 
 ## Feature Examples
@@ -227,7 +229,7 @@ Testing arithmetic operations:
 Recommended order for learning:
 
 1. **hello.kr** - Start here for basics
-2. **test.kr** - Simple variables and operations
+2. **variables.kr** - Learn variables (mutable/immutable, types)
 3. **arithmetic.kr** - Learn arithmetic operations
 4. **conditionals.kr** - Understand if statements
 5. **loops.kr** - Master loops
