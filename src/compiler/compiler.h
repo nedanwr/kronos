@@ -51,6 +51,8 @@ typedef struct {
  * Error handling:
  * - Returns NULL for all failure modes (invalid AST, allocation failures,
  *   or internal compiler errors such as buffer growth failures).
+ * - Never calls exit() or terminates the process; all errors are returned
+ *   to the caller for graceful handling.
  * - When @p out_err is non-NULL, it is set to a static, human-readable
  *   error string on failure; the pointer remains valid for the lifetime
  *   of the process and must not be freed. On success, *out_err is set to NULL.

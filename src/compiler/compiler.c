@@ -200,7 +200,7 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     if (compiler_has_error(c))
       return;
 
-    // Emit operator
+    // Emit operator (arithmetic or comparison)
     switch (node->as.binop.op) {
     case BINOP_ADD:
       emit_byte(c, OP_ADD);
@@ -214,23 +214,6 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     case BINOP_DIV:
       emit_byte(c, OP_DIV);
       break;
-    default:
-      break;
-    }
-    break;
-  }
-
-  case AST_CONDITION: {
-    // Compile left and right operands
-    compile_expression(c, node->as.condition.left);
-    if (compiler_has_error(c))
-      return;
-    compile_expression(c, node->as.condition.right);
-    if (compiler_has_error(c))
-      return;
-
-    // Emit comparison operator
-    switch (node->as.condition.op) {
     case BINOP_EQ:
       emit_byte(c, OP_EQ);
       break;
@@ -249,8 +232,15 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     case BINOP_LTE:
       emit_byte(c, OP_LTE);
       break;
-    default:
-      break;
+    default: {
+      // Report error for unsupported/unknown binary operator
+      static char error_buf[128];
+      snprintf(error_buf, sizeof(error_buf),
+               "Unsupported binary operator (enum value: %d)",
+               node->as.binop.op);
+      compiler_set_error(c, error_buf);
+      return; // Return early to avoid stack imbalance
+    }
     }
     break;
   }
