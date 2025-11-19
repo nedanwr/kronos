@@ -33,13 +33,12 @@ void gc_cleanup(void);
  * When to call:
  * - Immediately after allocating a new KronosValue (via value_new_*)
  * - Before the object is used or referenced anywhere
- * - Only called once per object lifetime
+ * - Must be called exactly once per object lifetime
  *
  * Behavior:
- * - NOT idempotent: must be called exactly once per object lifetime
- * - Calling twice on the same object results in undefined behavior
- * - NULL-safe: Passing NULL is a no-op
- * - Updates memory statistics (allocated bytes count)
+ * - NOT idempotent: each call increments allocation statistics and must be
+ *   paired with a matching gc_untrack() to keep memory accounting correct.
+ * - NULL-safe: Passing NULL is a no-op and does not affect statistics.
  * - Adds object to cycle detection tracking list
  *
  * Example usage:
@@ -62,16 +61,13 @@ void gc_track(KronosValue *val);
  * When to call:
  * - Only during object destruction (when refcount reaches 0)
  * - Called by value_release() before freeing the object
- * - Must be called before the object is freed to update statistics
+ * - Must be called before the object is freed to keep statistics accurate
  * - Safe to call on untracked objects (no-op if not found)
  * - NULL-safe: Passing NULL is a no-op
+ * - Balanced with gc_track(): exactly one gc_untrack() per successful
+ *   gc_track(); extra calls after removal are ignored.
  * - Updates memory statistics (subtracts allocated bytes)
  * - Removes object from cycle detection tracking list
- * - Call must be balanced with gc_track (one untrack per object, regardless of
- * gc_track calls)
- * - Updates memory statistics (subtracts allocated bytes)
- * - Removes object from cycle detection tracking list
- * - Calls must be balanced with gc_track (one untrack per track)
  *
  * Example usage:
  *   void value_release(KronosValue *val) {

@@ -19,7 +19,11 @@ static GCState gc_state = {0};
 static pthread_mutex_t gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void gc_abort_allocation(void) {
-  fprintf(stderr, "Fatal: Failed to grow GC tracking table\n");
+  fprintf(stderr,
+          "Fatal: Failed to grow GC tracking table (current count: %zu, "
+          "capacity: %zu)\n",
+          gc_state.count, gc_state.capacity);
+  fflush(stderr);
   abort();
 }
 
@@ -53,6 +57,11 @@ static void gc_ensure_capacity_locked(size_t min_capacity) {
 // Initialize GC
 void gc_init(void) {
   pthread_mutex_lock(&gc_mutex);
+  // Free any previously allocated memory if gc_init is called multiple times
+  if (gc_state.objects) {
+    free(gc_state.objects);
+    gc_state.objects = NULL;
+  }
   memset(&gc_state, 0, sizeof(GCState));
   gc_ensure_capacity_locked(INITIAL_TRACKED_CAPACITY);
   pthread_mutex_unlock(&gc_mutex);
@@ -98,6 +107,16 @@ void gc_track(KronosValue *val) {
     return;
 
   pthread_mutex_lock(&gc_mutex);
+  // Check if object is already tracked to prevent duplicates
+  for (size_t i = 0; i < gc_state.count; i++) {
+    if (gc_state.objects[i] == val) {
+      // Already tracked, skip
+      pthread_mutex_unlock(&gc_mutex);
+      return;
+    }
+  }
+
+  // Object not found, add it
   gc_ensure_capacity_locked(gc_state.count + 1);
   gc_state.objects[gc_state.count++] = val;
   gc_state.allocated_bytes += sizeof(KronosValue);
