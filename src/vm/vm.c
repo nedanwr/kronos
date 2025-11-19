@@ -605,7 +605,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       if (!value) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
-      value_print(value);
+      value_fprint(stdout, value);
       printf("\n");
       value_release(value);
       break;
