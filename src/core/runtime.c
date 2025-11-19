@@ -263,52 +263,58 @@ void value_release(KronosValue *val) {
   free(stack);
 }
 
-// Print a value
-void value_print(KronosValue *val) {
+// Print a value to a stream
+void value_fprint(FILE *out, KronosValue *val) {
+  if (!out)
+    out = stdout;
+
   if (!val) {
-    printf("null");
+    fprintf(out, "null");
     return;
   }
 
   switch (val->type) {
-  case VAL_NUMBER:
-    // Print integer if it's a whole number without casting to long
-    {
-      double intpart;
-      double frac = modf(val->as.number, &intpart);
-      if (frac == 0.0) {
-        printf("%.0f", val->as.number);
-      } else {
-        printf("%g", val->as.number);
-      }
+  case VAL_NUMBER: {
+    double intpart;
+    double frac = modf(val->as.number, &intpart);
+    if (frac == 0.0) {
+      fprintf(out, "%.0f", val->as.number);
+    } else {
+      fprintf(out, "%g", val->as.number);
     }
     break;
+  }
   case VAL_STRING:
-    printf("%s", val->as.string.data);
+    fprintf(out, "%s", val->as.string.data);
     break;
   case VAL_BOOL:
-    printf("%s", val->as.boolean ? "true" : "false");
+    fprintf(out, "%s", val->as.boolean ? "true" : "false");
     break;
   case VAL_NIL:
-    printf("null");
+    fprintf(out, "null");
     break;
   case VAL_FUNCTION:
-    printf("<function>");
+    fprintf(out, "<function>");
     break;
   case VAL_LIST:
-    printf("[");
+    fprintf(out, "[");
     for (size_t i = 0; i < val->as.list.count; i++) {
       if (i > 0)
-        printf(", ");
-      value_print(val->as.list.items[i]);
+        fprintf(out, ", ");
+      value_fprint(out, val->as.list.items[i]);
     }
-    printf("]");
+    fprintf(out, "]");
     break;
   case VAL_CHANNEL:
-    printf("<channel>");
+    fprintf(out, "<channel>");
+    break;
+  default:
+    fprintf(out, "<unknown>");
     break;
   }
 }
+
+void value_print(KronosValue *val) { value_fprint(stdout, val); }
 
 // Check if a value is truthy
 bool value_is_truthy(KronosValue *val) {
