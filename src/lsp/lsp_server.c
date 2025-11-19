@@ -167,7 +167,7 @@ static void send_notification(const char *method, const char *params) {
 // Diagnostic checking - parse file and return errors
 static void check_diagnostics(const char *uri, const char *text) {
   // Tokenize
-  TokenArray *tokens = tokenize(text);
+  TokenArray *tokens = tokenize(text, NULL);
   if (!tokens) {
     // Tokenization failed - build diagnostics JSON safely
     char diagnostics[4096];
