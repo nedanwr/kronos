@@ -1,0 +1,18 @@
+# Pi Constant Example
+# Demonstrates that Pi is a protected constant
+
+# Reading Pi constant
+print Pi
+
+# Using Pi in calculations
+set diameter to 10
+set circumference to Pi times diameter
+print circumference
+
+set radius to 5
+set area to Pi times radius times radius
+print area
+
+# Pi is accurate to 100 decimal places!
+# This will show the first ~16 digits (standard double precision)
+

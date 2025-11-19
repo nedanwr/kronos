@@ -1,0 +1,11 @@
+print "Testing functions"
+print ""
+
+function greet with name:
+    print "Hello,"
+    print name
+    return name
+
+call greet with "Alice"
+
+print "Done"

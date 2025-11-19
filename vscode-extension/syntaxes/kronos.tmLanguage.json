@@ -1,0 +1,114 @@
+{
+  "name": "Kronos",
+  "scopeName": "source.kronos",
+  "fileTypes": ["kr"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.kronos",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kronos",
+          "match": "\\b(if|for|while|in|range|function|call|return|with)\\b"
+        },
+        {
+          "name": "keyword.other.kronos",
+          "match": "\\b(print|to|as|is|than|by)\\b"
+        },
+        {
+          "name": "storage.type.kronos",
+          "match": "\\b(let|set)\\b"
+        },
+        {
+          "name": "storage.modifier.kronos",
+          "match": "\\b(number|string|boolean|null)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.kronos",
+          "begin": "\"",
+          "end": "(?<!\\\\)\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.kronos",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.kronos",
+          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.kronos",
+          "match": "\\b(true|false|null|Pi)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.kronos",
+          "match": "\\b(add|subtract|multiply|divide)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.kronos",
+          "match": "\\b(plus|minus|times|divided)\\b"
+        },
+        {
+          "name": "keyword.operator.comparison.kronos",
+          "match": "\\b(equal|not|greater|less)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.kronos",
+          "match": "\\b(and|or)\\b"
+        }
+      ]
+    }
+  }
+}
+

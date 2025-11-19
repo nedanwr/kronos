@@ -1,0 +1,13 @@
+# Test: Boolean literals
+# Expected: Pass
+
+set isActive to true
+print isActive
+
+set isComplete to false
+print isComplete
+
+let flag to true
+let flag to false
+print flag
+

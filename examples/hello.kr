@@ -1,0 +1,6 @@
+print "Hello, World!"
+print "Welcome to Kronos programming language!"
+
+set greeting to "Nice to meet you!"
+print greeting
+

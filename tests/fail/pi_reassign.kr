@@ -1,0 +1,6 @@
+# Test: Cannot reassign Pi constant
+# Expected: Error: Cannot reassign immutable variable 'Pi'
+
+print Pi
+set Pi to 3.14
+

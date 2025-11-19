@@ -1,0 +1,10 @@
+# Test: Null values
+# Expected: Pass
+
+set empty to null
+print empty
+
+let value to null
+let value to 42
+print value
+

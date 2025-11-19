@@ -1,0 +1,17 @@
+print "Testing arithmetic operations:"
+
+set a to 10
+set b to 3
+
+set sum to a plus b
+print sum
+
+set diff to a minus b
+print diff
+
+set prod to a times b
+print prod
+
+set quot to a divided by b
+print quot
+

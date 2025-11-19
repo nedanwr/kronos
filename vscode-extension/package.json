@@ -1,0 +1,59 @@
+{
+  "name": "kronos-lsp",
+  "displayName": "Kronos Language Support",
+  "description": "Language support for Kronos (.kr) with LSP integration",
+  "version": "0.1.0",
+  "publisher": "kronos",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:kronos"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "kronos",
+        "aliases": ["Kronos", "kronos"],
+        "extensions": [".kr"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kronos",
+        "scopeName": "source.kronos",
+        "path": "./syntaxes/kronos.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Kronos",
+      "properties": {
+        "kronos.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Kronos Language Server"
+        },
+        "kronos.lsp.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.60.0",
+    "@types/node": "^18.0.0"
+  }
+}
+

@@ -1,0 +1,41 @@
+print "=== Testing Built-in Constants and Functions ==="
+print ""
+
+print "1. Pi constant (100 decimal places):"
+print Pi
+print ""
+
+print "2. Built-in math functions:"
+print "Note: Results are returned but can't be captured yet"
+print ""
+
+print "Testing add(10, 5):"
+call add with 10, 5
+print ""
+
+print "Testing subtract(10, 5):"
+call subtract with 10, 5
+print ""
+
+print "Testing multiply(10, 5):"
+call multiply with 10, 5
+print ""
+
+print "Testing divide(10, 5):"
+call divide with 10, 5
+print ""
+
+print "3. User-defined function can call built-ins:"
+function demonstrate_builtins with x, y:
+    print "Demonstrating built-in usage:"
+    print x
+    print "and"
+    print y
+    print "Calling built-in add function..."
+    call add with x, y
+    return x
+
+call demonstrate_builtins with 15, 25
+print ""
+
+print "=== All built-in tests complete! ==="

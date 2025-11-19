@@ -1,0 +1,35 @@
+# Build artifacts
+*.o
+*.d
+kronos
+kronos-lsp
+*.dSYM/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor temp files
+*.swp
+*.swo
+*~
+
+# .vscode/ is kept for immediate syntax highlighting when opening project
+# The vscode-extension/ directory is the actual installable extension
+.vscode/
+!.vscode/kronos.tmLanguage.json
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+
+# Node/npm (extension dependencies)
+vscode-extension/node_modules/
+vscode-extension/package-lock.json
+
+# LSP logs
+*.log
+
+# Test output
+test_output.txt

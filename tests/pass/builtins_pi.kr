@@ -1,0 +1,9 @@
+# Test: Pi constant
+# Expected: Pass
+
+print Pi
+
+set radius to 5
+set circumference to 2 times Pi times radius
+print circumference
+

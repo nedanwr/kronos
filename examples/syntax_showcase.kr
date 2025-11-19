@@ -1,0 +1,112 @@
+print "=== Kronos Syntax Showcase ==="
+print ""
+
+print "1. Variables and Assignment"
+set myNumber to 42
+set myName to "Kronos"
+set myDecimal to 3.14
+print myNumber
+print myName
+print myDecimal
+print ""
+
+print "2. Arithmetic Operations"
+set a to 10
+set b to 3
+
+print "Addition:"
+set addition_result to a plus b
+print addition_result
+
+print "Subtraction:"
+set diff to a minus b
+print diff
+
+print "Multiplication:"
+set prod to a times b
+print prod
+
+print "Division:"
+set quot to a divided by b
+print quot
+print ""
+
+print "3. Comparison Operators"
+set x to 15
+set y to 10
+
+if x is greater than y:
+    print "x is greater than y"
+
+if y is less than x:
+    print "y is less than x"
+
+set c to 5
+set d to 5
+if c is equal d:
+    print "c equals d"
+
+if x is not equal y:
+    print "x is not equal to y"
+print ""
+
+print "4. For Loops"
+print "Count from 1 to 5:"
+for i in range 1 to 5:
+    print i
+print ""
+
+print "5. While Loops"
+print "Count down from 5:"
+let counter to 5
+while counter is greater than 0:
+    print counter
+    let counter to counter minus 1
+print ""
+
+print "6. Nested Structures"
+print "Nested loops example:"
+for i in range 1 to 3:
+    for j in range 1 to 3:
+        let result to i times j
+        print result
+print ""
+
+print "7. Complex Expressions"
+set step1 to 5 plus 3
+set step2 to step1 times 2
+set step3 to step2 minus 4
+set final to step3 divided by 3
+print "Result of ((5 + 3) * 2 - 4) / 3:"
+print final
+print ""
+
+print "8. Conditional Logic"
+set score to 85
+
+if score is greater than 90:
+    print "Grade: A"
+
+if score is greater than 80:
+    print "Grade: B"
+
+if score is greater than 70:
+    print "Grade: C"
+
+if score is less than 71:
+    print "Grade: D or F"
+print ""
+
+print "9. Loop with Condition"
+let sum to 0
+for n in range 1 to 10:
+    let sum to sum plus n
+    if sum is greater than 30:
+        print "Sum exceeded 30"
+
+print "Final sum:"
+print sum
+print ""
+
+print "=== End of Showcase ==="
+

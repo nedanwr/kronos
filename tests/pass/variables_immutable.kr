@@ -1,0 +1,15 @@
+# Test: Immutable variables with set
+# Expected: Pass
+
+set x to 10
+print x
+
+set name to "Alice"
+print name
+
+set isValid to true
+print isValid
+
+set nothing to null
+print nothing
+

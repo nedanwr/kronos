@@ -1,0 +1,7 @@
+# Test: Division by zero
+# Expected: Error: Cannot divide by zero
+
+set x to 10
+set y to 0
+print x divided by y
+

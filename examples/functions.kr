@@ -1,0 +1,48 @@
+print "=== Kronos Functions Demo ==="
+print ""
+
+print "1. Simple function with one parameter:"
+function greet with name:
+    print "Hello,"
+    print name
+    return name
+
+call greet with "Alice"
+print ""
+
+print "2. Function with arithmetic:"
+function doubleValue with x:
+    set result to x times 2
+    return result
+
+call doubleValue with 5
+print ""
+
+print "3. Function with multiple statements:"
+function countDown with n:
+    print "Counting down from:"
+    print n
+    set x to n minus 1
+    print x
+    set y to x minus 1
+    print y
+    return y
+
+call countDown with 5
+print ""
+
+print "4. Function with string parameter:"
+function showWelcome with msg:
+    print "Welcome message:"
+    print msg
+    return msg
+
+call showWelcome with "Kronos Programming!"
+print ""
+
+print "5. Testing built-in Pi constant:"
+print "Pi constant (double-precision):"
+print Pi
+print ""
+
+print "=== All tests passed! ==="

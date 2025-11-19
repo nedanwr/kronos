@@ -1,0 +1,51 @@
+# Variable Examples: let vs set, type annotations
+
+print "=== Kronos Variables ==="
+
+# Mutable variables with 'let'
+print "1. Mutable variables (let):"
+let counter to 0
+print counter
+let counter to counter plus 1
+print counter
+let counter to 10
+print counter
+
+# Immutable variables with 'set'
+print "2. Immutable variables (set):"
+set pi_approx to 3.14159
+print pi_approx
+
+# Type annotations
+print "3. Type-annotated variables:"
+let age to 25 as number
+print age
+let age to 26 as number
+print age
+
+set name to "Alice" as string
+print name
+
+let is_active to true as boolean
+print is_active
+let is_active to false as boolean
+print is_active
+
+# Null values
+print "4. Null values:"
+set empty to null
+print empty
+
+# Mixed usage
+print "5. Practical example:"
+set MAX_RETRIES to 3 as number
+let attempt to 0 as number
+let success to false as boolean
+
+print "Maximum retries:"
+print MAX_RETRIES
+print "Current attempt:"
+print attempt
+print "Success status:"
+print success
+
