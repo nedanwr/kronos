@@ -214,5 +214,5 @@ while count is less than 10:
 
 ---
 
-For detailed explanations, see [SYNTAX.md](docs/SYNTAX.md)
+For detailed explanations, see [SYNTAX.md](SYNTAX.md)
 
