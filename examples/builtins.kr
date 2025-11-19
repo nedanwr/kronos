@@ -25,16 +25,17 @@ print "Testing divide(10, 5):"
 call divide with 10, 5
 print ""
 
-print "3. User-defined function can use built-ins:"
-function calculate with x, y:
-    print "Calculating with"
+print "3. User-defined function can call built-ins:"
+function demonstrate_builtins with x, y:
+    print "Demonstrating built-in usage:"
     print x
     print "and"
     print y
+    print "Calling built-in add function..."
     call add with x, y
     return x
 
-call calculate with 15, 25
+call demonstrate_builtins with 15, 25
 print ""
 
 print "=== All built-in tests complete! ==="
