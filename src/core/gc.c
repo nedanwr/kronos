@@ -69,36 +69,24 @@ void gc_init(void) {
 
 // Cleanup GC
 void gc_cleanup(void) {
-  // All objects should have been freed by now
-  // This is just a safety check
   pthread_mutex_lock(&gc_mutex);
-  for (size_t i = 0; i < gc_state.count; i++) {
-    KronosValue *obj = gc_state.objects[i];
-    if (!obj)
-      continue;
-
-    gc_state.allocated_bytes -= sizeof(KronosValue);
-
-    if (obj->type == VAL_STRING) {
-      size_t payload = obj->as.string.length + 1;
-      char *data = obj->as.string.data;
-      if (data) {
-        gc_state.allocated_bytes -= payload;
-        free(data);
-        obj->as.string.data = NULL;
-      }
-    }
-
-    // Force free leaked objects
-    free(obj);
-    gc_state.objects[i] = NULL;
-  }
-  gc_state.count = 0;
-  gc_state.allocated_bytes = 0;
-  free(gc_state.objects);
+  KronosValue **objects = gc_state.objects;
+  size_t count = gc_state.count;
   gc_state.objects = NULL;
+  gc_state.count = 0;
   gc_state.capacity = 0;
+  gc_state.allocated_bytes = 0;
   pthread_mutex_unlock(&gc_mutex);
+
+  if (!objects)
+    return;
+
+  for (size_t i = 0; i < count; i++) {
+    KronosValue *obj = objects[i];
+    if (obj)
+      value_release(obj);
+  }
+  free(objects);
 }
 
 // Track a new object
