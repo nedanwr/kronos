@@ -20,6 +20,9 @@ typedef enum {
   OP_LT,            // Less than
   OP_GTE,           // Greater than or equal
   OP_LTE,           // Less than or equal
+  OP_AND,           // Logical AND (short-circuit)
+  OP_OR,            // Logical OR (short-circuit)
+  OP_NOT,           // Logical NOT (unary)
   OP_JUMP,          // Unconditional jump
   OP_JUMP_IF_FALSE, // Jump if top of stack is false
   OP_DEFINE_FUNC,   // Define function

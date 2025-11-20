@@ -192,7 +192,16 @@ static void compile_expression(Compiler *c, ASTNode *node) {
   }
 
   case AST_BINOP: {
-    // Compile left and right operands
+    // Handle unary NOT operator (right is NULL)
+    if (node->as.binop.op == BINOP_NOT) {
+      compile_expression(c, node->as.binop.left);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_NOT);
+      break;
+    }
+
+    // Compile left and right operands for binary operators
     compile_expression(c, node->as.binop.left);
     if (compiler_has_error(c))
       return;
@@ -200,7 +209,7 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     if (compiler_has_error(c))
       return;
 
-    // Emit operator (arithmetic or comparison)
+    // Emit operator (arithmetic, comparison, or logical)
     switch (node->as.binop.op) {
     case BINOP_ADD:
       emit_byte(c, OP_ADD);
@@ -231,6 +240,12 @@ static void compile_expression(Compiler *c, ASTNode *node) {
       break;
     case BINOP_LTE:
       emit_byte(c, OP_LTE);
+      break;
+    case BINOP_AND:
+      emit_byte(c, OP_AND);
+      break;
+    case BINOP_OR:
+      emit_byte(c, OP_OR);
       break;
     default: {
       // Report error for unsupported/unknown binary operator
@@ -530,7 +545,6 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
 
     // Compile function body
-    size_t func_body_start = c->bytecode->count;
     for (size_t i = 0; i < node->as.function.block_size; i++) {
       compile_statement(c, node->as.function.block[i]);
       if (compiler_has_error(c))
@@ -788,6 +802,18 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     case OP_LTE:
       printf("LTE\n");
+      offset++;
+      break;
+    case OP_AND:
+      printf("AND\n");
+      offset++;
+      break;
+    case OP_OR:
+      printf("OR\n");
+      offset++;
+      break;
+    case OP_NOT:
+      printf("NOT\n");
       offset++;
       break;
     case OP_JUMP:

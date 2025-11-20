@@ -883,6 +883,68 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_AND: {
+      KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // Both operands must be truthy for AND to be true
+      bool a_truthy = value_is_truthy(a);
+      bool b_truthy = value_is_truthy(b);
+      bool result = a_truthy && b_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      value_release(b);
+      break;
+    }
+
+    case OP_OR: {
+      KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // At least one operand must be truthy for OR to be true
+      bool a_truthy = value_is_truthy(a);
+      bool b_truthy = value_is_truthy(b);
+      bool result = a_truthy || b_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      value_release(b);
+      break;
+    }
+
+    case OP_NOT: {
+      KronosValue *a = pop(vm);
+      if (!a) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // NOT returns the opposite of the truthiness
+      bool a_truthy = value_is_truthy(a);
+      bool result = !a_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      break;
+    }
+
     case OP_JUMP: {
       int8_t offset = (int8_t)read_byte(vm);
       uint8_t *new_ip = vm->ip + offset;

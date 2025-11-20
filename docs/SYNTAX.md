@@ -9,13 +9,14 @@ Complete syntax guide for the Kronos programming language - a human-readable lan
 3. [Printing](#printing)
 4. [Arithmetic Operations](#arithmetic-operations)
 5. [Comparison Operators](#comparison-operators)
-6. [Conditional Statements](#conditional-statements)
-7. [Loops](#loops)
-8. [Built-in Constants and Functions](#built-in-constants-and-functions)
-9. [Functions](#functions)
-10. [Safety & Error Handling](#safety--error-handling)
-11. [Comments](#comments)
-12. [Indentation](#indentation)
+6. [Logical Operators](#logical-operators)
+7. [Conditional Statements](#conditional-statements)
+8. [Loops](#loops)
+9. [Built-in Constants and Functions](#built-in-constants-and-functions)
+10. [Functions](#functions)
+11. [Safety & Error Handling](#safety--error-handling)
+12. [Comments](#comments)
+13. [Indentation](#indentation)
 
 ---
 
@@ -328,6 +329,96 @@ if temperature is less than 50:
 ```
 <value> is less than or equal <value>
 ```
+
+---
+
+## Logical Operators
+
+Kronos supports logical operators for combining boolean expressions: `and`, `or`, and `not`.
+
+### AND Operator
+
+The `and` operator returns `true` only if both operands are `true`.
+
+**Syntax:**
+```
+<expression> and <expression>
+```
+
+**Examples:**
+```kronos
+set x to 7
+if x is greater than 5 and x is less than 10:
+    print "x is between 5 and 10"
+
+set age to 25
+set hasLicense to true
+if age is greater than 18 and hasLicense is equal true:
+    print "Can drive"
+```
+
+### OR Operator
+
+The `or` operator returns `true` if at least one operand is `true`.
+
+**Syntax:**
+```
+<expression> or <expression>
+```
+
+**Examples:**
+```kronos
+set x to 0
+set y to 5
+if x is equal 0 or y is equal 0:
+    print "At least one is zero"
+
+set isAdmin to true
+set isModerator to false
+if isAdmin is equal true or isModerator is equal true:
+    print "access granted"
+```
+
+### NOT Operator
+
+The `not` operator negates a boolean expression.
+
+**Syntax:**
+```
+not <expression>
+```
+
+**Examples:**
+```kronos
+set isDisabled to false
+if not isDisabled:
+    print "enabled"
+
+set x to 10
+if not (x is equal 5):
+    print "x is not 5"
+```
+
+### Operator Precedence
+
+Logical operators have lower precedence than comparison operators, so comparisons are evaluated first:
+
+```kronos
+# This is evaluated as: (x > 5) and (x < 10)
+if x is greater than 5 and x is less than 10:
+    print "between"
+
+# Use parentheses for clarity when needed
+if (x is equal 0 or y is equal 0) and z is greater than 0:
+    print "condition met"
+```
+
+### Notes
+
+- Logical operators work with boolean values
+- Non-boolean values are converted to booleans using truthiness rules
+- `and` and `or` support short-circuit evaluation
+- `not` is a unary operator (takes one operand)
 
 ---
 
@@ -854,50 +945,79 @@ print max
 
 ---
 
-## Future Features (Version 0.3.0)
+## Future Features
 
-The following features are planned for the next release:
+### Version 0.3.0: "Data Structures & Control Flow" (In Progress)
 
-### Else Statements
+**Completed:**
+- ✅ Logical operators (`and`, `or`, `not`) - **COMPLETED**
 
+**Planned Features:**
+- 🔄 Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
+- 🔄 String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
+- 🔄 Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- 🔄 Control flow - `else if`, `break`, `continue`, range-based loops
+- 🔄 Range objects - First-class range support
+
+**Example:**
 ```kronos
-if x is greater than 10:
-    print "x is large"
+# Else if (planned)
+if score is greater than 90:
+    print "A"
+else if score is greater than 80:
+    print "B"
 else:
-    print "x is small"
-```
+    print "C"
 
-### Logical Operators
-
-```kronos
-if x is greater than 5 and x is less than 10:
-    print "x is between 5 and 10"
-
-if x is equal 0 or y is equal 0:
-    print "At least one is zero"
-```
-
-### Lists
-
-```kronos
+# Lists (planned)
 set numbers to list 1, 2, 3, 4, 5
 set first to numbers at 0
 ```
 
-### Concurrency (Goroutines)
+### Version 0.4.0: "Modules & Error Handling" (Planned)
 
+**Planned Features:**
+- Dictionaries/Maps - Key-value storage with full operations and iteration
+- Import/module system - Built-in and file-based modules, namespace management
+- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
+- File I/O operations - Complete file system interface (read, write, append, list, path ops)
+
+**Example:**
 ```kronos
-spawn task with:
-    print "Running in parallel"
-```
-
-### Exception Handling
-
-```kronos
+# Exception handling (planned)
 try:
     set result to x divided by 0
 catch error:
     print "Division by zero"
+```
+
+### Version 0.5.0: "Advanced Language Features" (Planned)
+
+**Planned Features:**
+- String interpolation - Template strings with expressions and format specifiers
+- Multiple return values - Tuple returns and destructuring
+- Function enhancements - Default parameters, variadic functions, named arguments
+- Anonymous functions / Lambdas - First-class functions, higher-order functions
+- List comprehensions - Concise list creation with conditionals
+- Pattern matching - Advanced control flow with match expressions
+- Type system enhancements - Generic types, type aliases, better inference
+- Debugging support - Debug built-in, improved stack traces
+
+### Version 1.0.0: "Production Release" (Planned)
+
+**Planned Features:**
+- Concurrency - Goroutines and channels with `spawn`, `send`, `receive`, `select`, worker pools
+- Complete standard library - 50+ functions (math, string, date/time, collections, JSON, system)
+- Method chaining - Fluent API support
+- Performance optimizations - Bytecode optimization, constant folding, inline caching
+- Standard library modules - `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
+- Tooling - Package manager, formatter, linter, test runner, documentation generator
+
+**Example:**
+```kronos
+# Concurrency (planned)
+spawn task with:
+    print "Running in parallel"
 ```
 
 ---
@@ -1000,4 +1120,4 @@ Execute a file:
 ---
 
 _Last updated: November 2025_
-_Kronos Language Version: 0.1.0_
+_Kronos Language Version: 0.3.0 (In Development)_

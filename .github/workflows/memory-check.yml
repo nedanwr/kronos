@@ -1,0 +1,119 @@
+name: Memory Leak Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  memory-check:
+    name: Valgrind Memory Leak Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make valgrind
+
+      - name: Build Kronos
+        run: make clean && make
+
+      - name: Run tests with Valgrind
+        run: |
+          echo "=== Running Valgrind Memory Check ==="
+          
+          # Function to check a file with valgrind
+          check_with_valgrind() {
+            local file=$1
+            local name=$2
+            local expect_error=${3:-false}
+            
+            echo ""
+            echo "Checking: $name"
+            
+            # Create a log file for valgrind output
+            local logfile="/tmp/valgrind_${name}.log"
+            
+            # Run with valgrind
+            # Note: We use --error-exitcode=1 so valgrind exits with 1 if it finds issues
+            # But we need to check the log file, not the exit code, because:
+            # - For error tests, the program exits with error (non-zero), but valgrind should still pass
+            # - For passing tests, both should succeed
+            valgrind \
+              --leak-check=full \
+              --show-leak-kinds=all \
+              --track-origins=yes \
+              --error-exitcode=1 \
+              --log-file="$logfile" \
+              ./kronos "$file" > /dev/null 2>&1 || true
+            
+            # Always check the log file, regardless of program exit code
+            
+            # Parse valgrind log for errors
+            if grep -q "ERROR SUMMARY: 0 errors" "$logfile" && \
+               grep -q "LEAK SUMMARY:.*definitely lost: 0" "$logfile" && \
+               grep -q "LEAK SUMMARY:.*indirectly lost: 0" "$logfile"; then
+              echo "  ✓ $name: No memory leaks"
+              rm -f "$logfile"
+              return 0
+            else
+              echo "  ✗ $name: Memory issues detected"
+              echo "  Valgrind report:"
+              grep -A 5 "ERROR SUMMARY\|LEAK SUMMARY\|definitely lost\|indirectly lost" "$logfile" | head -20
+              rm -f "$logfile"
+              return 1
+            fi
+          }
+          
+          failed_count=0
+          
+          # Check passing tests
+          echo "=== Checking Passing Tests ==="
+          for test_file in tests/pass/*.kr; do
+            if [ -f "$test_file" ]; then
+              test_name=$(basename "$test_file" .kr)
+              if ! check_with_valgrind "$test_file" "$test_name" false; then
+                failed_count=$((failed_count + 1))
+              fi
+            fi
+          done
+          
+          # Check error tests (program errors are expected, but no memory leaks)
+          echo ""
+          echo "=== Checking Error Tests ==="
+          for test_file in tests/fail/*.kr; do
+            if [ -f "$test_file" ]; then
+              test_name=$(basename "$test_file" .kr)
+              if ! check_with_valgrind "$test_file" "$test_name" true; then
+                failed_count=$((failed_count + 1))
+              fi
+            fi
+          done
+          
+          # Check example files
+          echo ""
+          echo "=== Checking Example Files ==="
+          for example_file in examples/*.kr; do
+            if [ -f "$example_file" ]; then
+              example_name=$(basename "$example_file" .kr)
+              if ! check_with_valgrind "$example_file" "$example_name" false; then
+                failed_count=$((failed_count + 1))
+              fi
+            fi
+          done
+          
+          echo ""
+          echo "=== Memory Check Summary ==="
+          if [ $failed_count -eq 0 ]; then
+            echo "✓ All files passed memory leak check"
+            exit 0
+          else
+            echo "✗ $failed_count file(s) failed memory leak check"
+            exit 1
+          fi
+

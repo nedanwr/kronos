@@ -5,7 +5,7 @@
  * It uses simplified string-based parsing and hardcoded values for prototyping.
  *
  * Current capabilities:
- * - Keyword completion (set, let, if, for, while, function, etc.)
+ * - Keyword completion (set, let, if, for, while, and, or, not, function, etc.)
  * - Basic text synchronization (didOpen/didChange tracked but not parsed)
  *
  * Missing critical features (see MISSING_FEATURES.md):
@@ -472,6 +472,9 @@ static void handle_completion(const char *id) {
       "{\"label\":\"if\",\"kind\":14,\"detail\":\"Conditional statement\"},"
       "{\"label\":\"for\",\"kind\":14,\"detail\":\"For loop\"},"
       "{\"label\":\"while\",\"kind\":14,\"detail\":\"While loop\"},"
+      "{\"label\":\"and\",\"kind\":14,\"detail\":\"Logical AND operator\"},"
+      "{\"label\":\"or\",\"kind\":14,\"detail\":\"Logical OR operator\"},"
+      "{\"label\":\"not\",\"kind\":14,\"detail\":\"Logical NOT operator\"},"
       "{\"label\":\"function\",\"kind\":14,\"detail\":\"Define function\"},"
       "{\"label\":\"call\",\"kind\":14,\"detail\":\"Call function\"},"
       "{\"label\":\"return\",\"kind\":14,\"detail\":\"Return value\"},"

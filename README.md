@@ -44,7 +44,7 @@ Run the comprehensive test suite:
 ./run_tests.sh
 ```
 
-This runs 26 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs 27 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
@@ -180,34 +180,68 @@ make clean
 
 ## Roadmap
 
-### Current Version (0.2.0)
+### Current Version (0.3.0 - In Development)
 
-✅ All core features working:
-
-- Variables, numbers, strings
-- Arithmetic and comparisons
-- If statements, for/while loops
-- **Functions with parameters and return values**
-- **Local variable scoping**
-- **Built-in Pi constant and math functions**
+✅ **Completed:**
+- Core language features (variables, types, operators, control flow)
+- Functions with parameters and return values
+- Built-in constants and functions
+- ✅ **Logical operators** (`and`, `or`, `not`) - **NEW**
 - REPL and file execution
+- Basic LSP server
+
+🔄 **Remaining for v0.3.0: "Data Structures & Control Flow"**
+- Lists/arrays - Full operations (indexing, slicing, iteration, append, list methods)
+- String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
+- Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- Control flow - `else if`, `break`, `continue`, range-based loops
+- Range objects - First-class range support
+- Enhanced LSP - JSON-RPC parser, diagnostics, go-to-definition, hover, document symbols
 
 ### Future Versions
 
-**v0.3.0 - Enhanced Control Flow**
+**v0.4.0: "Modules & Error Handling" (Q2 2025)**
 
-- Else/else-if statements
-- Break and continue
-- Multiple return values
+- Dictionaries/maps - Key-value storage with full operations and iteration
+- Import/module system - Built-in and file-based modules, namespace management
+- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
+- File I/O operations - Complete file system interface (read, write, append, list, path ops)
+- Advanced LSP - Find references, rename symbol, code actions, formatting, workspace symbols
 
-**v1.0.0 - Concurrency & Fault Tolerance**
+**v0.5.0: "Advanced Language Features" (Q3 2025)**
 
-- Goroutine-style lightweight threads
-- Channel-based communication
-- Exception handling (try/catch/finally)
-- Supervisor trees (Erlang-style)
+- String interpolation - Template strings with expressions and format specifiers
+- Multiple return values - Tuple returns and destructuring
+- Function enhancements - Default parameters, variadic functions, named arguments
+- Anonymous functions / Lambdas - First-class functions, higher-order functions
+- List comprehensions - Concise list creation with conditionals
+- Pattern matching - Advanced control flow with match expressions
+- Type system enhancements - Generic types, type aliases, better inference
+- Debugging support - Debug built-in, improved stack traces
+- Enhanced LSP - Signature help, semantic tokens, inlay hints, call hierarchy
 
-See [docs/PROJECT.md](docs/PROJECT.md) for detailed status and roadmap.
+**v1.0.0: "Production Release" (Q4 2025)**
+
+- Concurrency - Goroutines and channels with `spawn`, `send`, `receive`, `select`, worker pools
+- Complete standard library - 50+ functions (math, string, date/time, collections, JSON, system)
+- Method chaining - Fluent API support
+- Performance optimizations - Bytecode optimization, constant folding, inline caching
+- Standard library modules - `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
+- Production-ready LSP - All features, multi-root workspace support
+- Tooling - Package manager, formatter, linter, test runner, documentation generator
+
+**Release Criteria:**
+- All core language features implemented
+- Complete standard library (50+ functions)
+- Production-ready LSP with all major features
+- Comprehensive test coverage (150+ tests)
+- Full documentation (user guide, API reference, tutorials)
+- Performance benchmarks met (startup < 20ms, execution competitive)
+- Memory safety verified (valgrind clean, no leaks)
+- Cross-platform support (Linux, macOS, Windows)
+- CI/CD pipeline with automated testing
+
+See [MISSING_FEATURES.md](MISSING_FEATURES.md) for detailed feature breakdown with implementation status, or [docs/PROJECT.md](docs/PROJECT.md) for architecture details.
 
 ## Contributing
 

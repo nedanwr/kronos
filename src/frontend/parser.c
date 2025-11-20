@@ -140,12 +140,16 @@ static ASTNode *parse_value(Parser *p) {
 // Get operator precedence (higher number = tighter binding)
 static int get_precedence(TokenType type) {
   switch (type) {
+  case TOK_OR:
+    return 1; // Lowest precedence
+  case TOK_AND:
+    return 2; // Higher than OR
   case TOK_PLUS:
   case TOK_MINUS:
-    return 1; // Lower precedence
+    return 3; // Arithmetic
   case TOK_TIMES:
   case TOK_DIVIDED:
-    return 2; // Higher precedence
+    return 4; // Highest arithmetic precedence
   default:
     return 0; // Not a binary operator
   }
@@ -153,10 +157,79 @@ static int get_precedence(TokenType type) {
 
 // Parse expression with precedence-climbing (Pratt parser)
 static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
-  // Parse left operand
-  ASTNode *left = parse_value(p);
-  if (!left)
-    return NULL;
+  // Handle unary NOT operator (prefix)
+  ASTNode *left = NULL;
+  Token *tok = peek(p, 0);
+  if (tok && tok->type == TOK_NOT) {
+    consume_any(p); // consume NOT
+    ASTNode *operand = parse_expression_prec(p, 10); // High precedence to bind tightly
+    if (!operand)
+      return NULL;
+    ASTNode *node = ast_node_new_checked(AST_BINOP);
+    node->as.binop.left = operand; // For unary, we'll use left operand
+    node->as.binop.op = BINOP_NOT;
+    node->as.binop.right = NULL; // NULL indicates unary operation
+    left = node;
+  } else {
+    left = parse_value(p);
+    if (!left)
+      return NULL;
+    
+    // Check if this is followed by "IS" (a comparison)
+    Token *next = peek(p, 0);
+    if (next && next->type == TOK_IS) {
+      // Parse as a comparison
+      consume_any(p); // consume IS
+      
+      bool negated = false;
+      Token *cmp_tok = peek(p, 0);
+      if (cmp_tok && cmp_tok->type == TOK_NOT) {
+        consume_any(p);
+        negated = true;
+      }
+      
+      cmp_tok = peek(p, 0);
+      if (!cmp_tok) {
+        ast_node_free(left);
+        return NULL;
+      }
+      
+      BinOp op;
+      if (cmp_tok->type == TOK_EQUAL) {
+        consume_any(p);
+        op = negated ? BINOP_NEQ : BINOP_EQ;
+      } else if (cmp_tok->type == TOK_GREATER) {
+        consume_any(p);
+        if (!consume(p, TOK_THAN)) {
+          ast_node_free(left);
+          return NULL;
+        }
+        op = negated ? BINOP_LTE : BINOP_GT;
+      } else if (cmp_tok->type == TOK_LESS) {
+        consume_any(p);
+        if (!consume(p, TOK_THAN)) {
+          ast_node_free(left);
+          return NULL;
+        }
+        op = negated ? BINOP_GTE : BINOP_LT;
+      } else {
+        ast_node_free(left);
+        return NULL;
+      }
+      
+      ASTNode *right = parse_expression_prec(p, 5); // Comparisons have high precedence
+      if (!right) {
+        ast_node_free(left);
+        return NULL;
+      }
+      
+      ASTNode *node = ast_node_new_checked(AST_BINOP);
+      node->as.binop.left = left;
+      node->as.binop.op = op;
+      node->as.binop.right = right;
+      left = node;
+    }
+  }
 
   // While there's an operator with precedence >= min_prec
   while (1) {
@@ -171,6 +244,16 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     bool is_binary_op = false;
 
     switch (tok->type) {
+    case TOK_OR:
+      prec = get_precedence(TOK_OR);
+      op = BINOP_OR;
+      is_binary_op = true;
+      break;
+    case TOK_AND:
+      prec = get_precedence(TOK_AND);
+      op = BINOP_AND;
+      is_binary_op = true;
+      break;
     case TOK_PLUS:
       prec = get_precedence(TOK_PLUS);
       op = BINOP_ADD;
@@ -235,66 +318,10 @@ static ASTNode *parse_expression(Parser *p) {
   return parse_expression_prec(p, 1); // Start with minimum precedence
 }
 
-// Parse condition (for if/while)
+// Parse condition (for if/while) - can be a comparison or a full expression with logical operators
 static ASTNode *parse_condition(Parser *p) {
-  ASTNode *left = parse_expression(p);
-  if (!left)
-    return NULL;
-
-  if (!consume(p, TOK_IS)) {
-    ast_node_free(left);
-    return NULL;
-  }
-
-  bool negated = false;
-  Token *tok = peek(p, 0);
-  if (tok && tok->type == TOK_NOT) {
-    consume_any(p);
-    negated = true;
-  }
-
-  tok = peek(p, 0);
-  if (!tok) {
-    ast_node_free(left);
-    return NULL;
-  }
-
-  BinOp op;
-  if (tok->type == TOK_EQUAL) {
-    consume_any(p);
-    op = negated ? BINOP_NEQ : BINOP_EQ;
-  } else if (tok->type == TOK_GREATER) {
-    consume_any(p);
-    if (!consume(p, TOK_THAN)) {
-      ast_node_free(left);
-      return NULL;
-    }
-    op = negated ? BINOP_LTE : BINOP_GT;
-  } else if (tok->type == TOK_LESS) {
-    consume_any(p);
-    if (!consume(p, TOK_THAN)) {
-      ast_node_free(left);
-      return NULL;
-    }
-    op = negated ? BINOP_GTE : BINOP_LT;
-  } else {
-    fprintf(stderr, "Unknown comparison operator\n");
-    ast_node_free(left);
-    return NULL;
-  }
-
-  ASTNode *right = parse_expression(p);
-  if (!right) {
-    ast_node_free(left);
-    return NULL;
-  }
-
-  ASTNode *node = ast_node_new_checked(AST_BINOP);
-  node->as.binop.left = left;
-  node->as.binop.op = op;
-  node->as.binop.right = right;
-
-  return node;
+  // Parse as a full expression - the expression parser now handles comparisons with "is"
+  return parse_expression(p);
 }
 
 // Parse assignment
