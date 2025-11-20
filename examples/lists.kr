@@ -1,0 +1,32 @@
+# Example: Lists in Kronos
+
+# Create a list of numbers
+set numbers to list 1, 2, 3, 4, 5
+print numbers
+
+# Create a list of strings
+set fruits to list "apple", "banana", "cherry"
+print fruits
+
+# Access elements by index
+set first to numbers at 0
+print first
+
+set last to numbers at -1
+print last
+
+# Get list length
+call len with numbers
+
+# Iterate over a list
+for fruit in fruits:
+    print fruit
+
+# Create an empty list and build it up
+set empty to list
+print empty
+
+# Lists can contain different types
+set mixed to list 1, "hello", true, 3.14
+print mixed
+
