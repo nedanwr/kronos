@@ -1,0 +1,6 @@
+# Test: List index must be a number
+# Expected: Fail with "List index must be a number"
+
+set items to list 1, 2, 3
+set invalid to items at "not a number"
+

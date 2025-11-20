@@ -20,6 +20,9 @@ typedef enum {
   AST_NULL,
   AST_VAR,
   AST_BINOP,
+  AST_LIST,
+  AST_INDEX,
+  AST_SLICE,
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -83,8 +86,9 @@ struct ASTNode {
 
     struct {
       char *var;
-      ASTNode *start;
-      ASTNode *end;
+      ASTNode *iterable; // For range: contains range expression, for list: list expression
+      bool is_range;     // true for range iteration, false for list iteration
+      ASTNode *end;      // Only used for range (end value), NULL for list
       ASTNode **block;
       size_t block_size;
     } for_stmt;
@@ -113,6 +117,25 @@ struct ASTNode {
     struct {
       ASTNode *value;
     } return_stmt;
+
+    // List literal: list 1, 2, 3
+    struct {
+      ASTNode **elements;
+      size_t element_count;
+    } list;
+
+    // Indexing: list at 0
+    struct {
+      ASTNode *list_expr;
+      ASTNode *index;
+    } index;
+
+    // Slicing: list from 1 to 3 or list from 2 to end
+    struct {
+      ASTNode *list_expr;
+      ASTNode *start; // NULL means from beginning
+      ASTNode *end;   // NULL means to end
+    } slice;
   } as;
 };
 

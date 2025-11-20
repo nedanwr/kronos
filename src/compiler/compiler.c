@@ -260,6 +260,51 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_LIST: {
+    // Compile list literal: list 1, 2, 3
+    // Create empty list first
+    emit_byte(c, OP_LIST_NEW);
+    emit_uint16(c, 0); // Start with empty list
+    if (compiler_has_error(c))
+      return;
+
+    // Compile each element and append in order
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      // Push list, then element, then append
+      // List is already on stack from OP_LIST_NEW or previous append
+      // So we need to duplicate it before each append
+      // Actually, OP_LIST_APPEND should leave the list on stack
+      compile_expression(c, node->as.list.elements[i]);
+      if (compiler_has_error(c))
+        return;
+      // Stack: [list, element]
+      // OP_LIST_APPEND: pop element, pop list, append, push list
+      emit_byte(c, OP_LIST_APPEND);
+      if (compiler_has_error(c))
+        return;
+    }
+    break;
+  }
+
+  case AST_INDEX: {
+    // Compile indexing: list at index
+    compile_expression(c, node->as.index.list_expr);
+    if (compiler_has_error(c))
+      return;
+    compile_expression(c, node->as.index.index);
+    if (compiler_has_error(c))
+      return;
+    emit_byte(c, OP_LIST_GET);
+    break;
+  }
+
+  case AST_SLICE: {
+    // Compile slicing: list from start to end
+    // For now, report error - slicing will be implemented later
+    compiler_set_error(c, "List slicing not yet implemented");
+    break;
+  }
+
   default:
     compiler_set_error(c, "Unknown expression node type");
     break;
@@ -366,10 +411,6 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   }
 
   case AST_FOR: {
-    // Initialize loop variable
-    compile_expression(c, node->as.for_stmt.start);
-    if (compiler_has_error(c))
-      return;
     KronosValue *var_name =
         value_new_string(node->as.for_stmt.var, strlen(node->as.for_stmt.var));
     size_t var_idx = add_constant(c, var_name);
@@ -381,73 +422,225 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       compiler_set_error(c, "Too many constants (limit 65535)");
       return;
     }
-    emit_byte(c, OP_STORE_VAR);
-    emit_uint16(c, (uint16_t)var_idx);
-    emit_byte(c, 1); // for loop variables default mutable
-    emit_byte(c, 0); // no type annotation
-    if (compiler_has_error(c))
-      return;
 
-    // Loop start
-    size_t loop_start = c->bytecode->count;
+    if (node->as.for_stmt.is_range) {
+      // Range iteration: for i in range start to end
+      // Initialize loop variable
+      compile_expression(c, node->as.for_stmt.iterable);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)var_idx);
+      emit_byte(c, 1); // for loop variables default mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
 
-    // Load loop variable and end value
-    emit_byte(c, OP_LOAD_VAR);
-    emit_uint16(c, (uint16_t)var_idx);
-    if (compiler_has_error(c))
-      return;
-    compile_expression(c, node->as.for_stmt.end);
-    if (compiler_has_error(c))
-      return;
+      // Loop start
+      size_t loop_start = c->bytecode->count;
 
-    // Check if var <= end
-    emit_byte(c, OP_LTE);
-    if (compiler_has_error(c))
-      return;
+      // Load loop variable and end value
+      emit_byte(c, OP_LOAD_VAR);
+      emit_uint16(c, (uint16_t)var_idx);
+      if (compiler_has_error(c))
+        return;
+      compile_expression(c, node->as.for_stmt.end);
+      if (compiler_has_error(c))
+        return;
 
-    // Jump if false (exit loop)
-    emit_byte(c, OP_JUMP_IF_FALSE);
-    size_t exit_jump_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder
-    if (compiler_has_error(c))
-      return;
+      // Check if var <= end
+      emit_byte(c, OP_LTE);
+      if (compiler_has_error(c))
+        return;
 
-    // Compile loop body
-    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
-      compile_statement(c, node->as.for_stmt.block[i]);
+      // Jump if false (exit loop)
+      emit_byte(c, OP_JUMP_IF_FALSE);
+      size_t exit_jump_pos = c->bytecode->count;
+      emit_byte(c, 0); // Placeholder
+      if (compiler_has_error(c))
+        return;
+
+      // Compile loop body
+      for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+        compile_statement(c, node->as.for_stmt.block[i]);
+        if (compiler_has_error(c))
+          return;
+      }
+
+      // Increment loop variable
+      emit_byte(c, OP_LOAD_VAR);
+      emit_uint16(c, (uint16_t)var_idx);
+      if (compiler_has_error(c))
+        return;
+      KronosValue *one = value_new_number(1);
+      emit_constant(c, one);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_ADD);
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)var_idx);
+      emit_byte(c, 1);
+      emit_byte(c, 0);
+      if (compiler_has_error(c))
+        return;
+
+      // Jump back to loop start
+      size_t offset = c->bytecode->count - loop_start + 2;
+      emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
+      if (compiler_has_error(c))
+        return;
+
+      // Patch exit jump
+      c->bytecode->code[exit_jump_pos] = (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+    } else {
+      // List iteration: for item in list_expr
+      // Compile list expression
+      compile_expression(c, node->as.for_stmt.iterable);
+      if (compiler_has_error(c))
+        return;
+
+      // Start iteration - pushes [list, index=0] onto stack
+      emit_byte(c, OP_LIST_ITER);
+      if (compiler_has_error(c))
+        return;
+
+      // Store iterator state in hidden variables to preserve across loop body
+      // Create hidden variable names for iterator state
+      char iter_list_name[64];
+      char iter_index_name[64];
+      snprintf(iter_list_name, sizeof(iter_list_name), "__iter_list_%zu", var_idx);
+      snprintf(iter_index_name, sizeof(iter_index_name), "__iter_index_%zu", var_idx);
+
+      // Stack after OP_LIST_ITER: [list, index] with index on top
+      // Store index first (pops index)
+      KronosValue *iter_index_name_val = value_new_string(iter_index_name, strlen(iter_index_name));
+      size_t iter_index_name_idx = add_constant(c, iter_index_name_val);
+      if (iter_index_name_idx == SIZE_MAX || iter_index_name_idx > UINT16_MAX) {
+        value_release(iter_index_name_val);
+        return;
+      }
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_index_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      // Now store list (pops list)
+      KronosValue *iter_list_name_val = value_new_string(iter_list_name, strlen(iter_list_name));
+      size_t iter_list_name_idx = add_constant(c, iter_list_name_val);
+      if (iter_list_name_idx == SIZE_MAX || iter_list_name_idx > UINT16_MAX) {
+        value_release(iter_list_name_val);
+        return;
+      }
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_list_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      // Loop start
+      size_t loop_start = c->bytecode->count;
+
+      // Restore iterator state from variables
+      emit_byte(c, OP_LOAD_VAR);
+      emit_uint16(c, (uint16_t)iter_list_name_idx);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_LOAD_VAR);
+      emit_uint16(c, (uint16_t)iter_index_name_idx);
+      if (compiler_has_error(c))
+        return;
+      // Stack: [list, index]
+
+      // Get next item
+      emit_byte(c, OP_LIST_NEXT);
+      if (compiler_has_error(c))
+        return;
+
+      // Stack after OP_LIST_NEXT: [list, index+1, item, has_more]
+      // Check has_more flag (it's on top of stack)
+      // Note: OP_JUMP_IF_FALSE pops the condition, so we don't need OP_POP
+      emit_byte(c, OP_JUMP_IF_FALSE);
+      size_t exit_jump_pos = c->bytecode->count;
+      emit_byte(c, 0); // Placeholder
+      if (compiler_has_error(c))
+        return;
+
+      // Stack now: [list, index+1, item] (OP_JUMP_IF_FALSE already popped has_more)
+      // Store item in loop variable (pops item)
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)var_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      // Stack now: [list, index+1] - save iterator state for next iteration
+      // Stack is [list, index+1] with index+1 on top
+      // Store updated index first (pops index+1)
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_index_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      // Store list (pops list)
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_list_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      // Stack is now empty - loop body can do whatever it wants
+
+      // Compile loop body
+      for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+        compile_statement(c, node->as.for_stmt.block[i]);
+        if (compiler_has_error(c))
+          return;
+      }
+
+      // Jump back to loop start
+      size_t offset = c->bytecode->count - loop_start + 2;
+      emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
+      if (compiler_has_error(c))
+        return;
+
+      // Patch exit jump
+      c->bytecode->code[exit_jump_pos] = (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+
+      // Clean up: pop index and list from stack
+      // Stack at exit: [list, index] (OP_JUMP_IF_FALSE already popped has_more)
+      emit_byte(c, OP_POP); // pop index
+      emit_byte(c, OP_POP); // pop list
+
+      // Reset hidden iterator variables to null to release references
+      KronosValue *nil_val = value_new_nil();
+      emit_constant(c, nil_val);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_list_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
+      if (compiler_has_error(c))
+        return;
+
+      nil_val = value_new_nil();
+      emit_constant(c, nil_val);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_STORE_VAR);
+      emit_uint16(c, (uint16_t)iter_index_name_idx);
+      emit_byte(c, 1); // mutable
+      emit_byte(c, 0); // no type annotation
       if (compiler_has_error(c))
         return;
     }
-
-    // Increment loop variable
-    emit_byte(c, OP_LOAD_VAR);
-    emit_uint16(c, (uint16_t)var_idx);
-    if (compiler_has_error(c))
-      return;
-    KronosValue *one = value_new_number(1);
-    emit_constant(c, one);
-    if (compiler_has_error(c))
-      return;
-    emit_byte(c, OP_ADD);
-    emit_byte(c, OP_STORE_VAR);
-    emit_uint16(c, (uint16_t)var_idx);
-    emit_byte(c, 1);
-    emit_byte(c, 0);
-    if (compiler_has_error(c))
-      return;
-
-    // Jump back to loop start
-    size_t offset = c->bytecode->count - loop_start + 2;
-    emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
-    if (compiler_has_error(c))
-      return;
-
-    // Patch exit jump
-    if (compiler_has_error(c))
-      return;
-    size_t exit_target = c->bytecode->count;
-    c->bytecode->code[exit_jump_pos] =
-        (uint8_t)(exit_target - exit_jump_pos - 1);
     break;
   }
 
@@ -481,11 +674,9 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
 
     // Patch exit jump
-    if (compiler_has_error(c))
-      return;
     size_t exit_target = c->bytecode->count;
     c->bytecode->code[exit_jump_pos] =
-        (uint8_t)(exit_target - exit_jump_pos - 1);
+      (uint8_t)(exit_target - exit_jump_pos - 1);
     break;
   }
 
@@ -603,7 +794,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // statements don't use the return value)
     const char *func_name_str = node->as.call.name;
     if (strcmp(func_name_str, "add") == 0 || strcmp(func_name_str, "subtract") == 0 ||
-        strcmp(func_name_str, "multiply") == 0 || strcmp(func_name_str, "divide") == 0) {
+        strcmp(func_name_str, "multiply") == 0 || strcmp(func_name_str, "divide") == 0 ||
+        strcmp(func_name_str, "len") == 0) {
       emit_byte(c, OP_PRINT);
     } else {
       emit_byte(c, OP_POP);
@@ -849,6 +1041,45 @@ void bytecode_print(Bytecode *bytecode) {
       printf("POP\n");
       offset++;
       break;
+
+    case OP_LIST_NEW: {
+      uint16_t count = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                  bytecode->code[offset + 2]);
+      printf("LIST_NEW %u\n", count);
+      offset += 3;
+      break;
+    }
+
+    case OP_LIST_GET:
+      printf("LIST_GET\n");
+      offset++;
+      break;
+
+    case OP_LIST_SET:
+      printf("LIST_SET\n");
+      offset++;
+      break;
+
+    case OP_LIST_APPEND:
+      printf("LIST_APPEND\n");
+      offset++;
+      break;
+
+    case OP_LIST_LEN:
+      printf("LIST_LEN\n");
+      offset++;
+      break;
+
+    case OP_LIST_ITER:
+      printf("LIST_ITER\n");
+      offset++;
+      break;
+
+    case OP_LIST_NEXT:
+      printf("LIST_NEXT\n");
+      offset++;
+      break;
+
     case OP_HALT:
       printf("HALT\n");
       offset++;

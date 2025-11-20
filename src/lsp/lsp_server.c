@@ -5,7 +5,7 @@
  * It uses simplified string-based parsing and hardcoded values for prototyping.
  *
  * Current capabilities:
- * - Keyword completion (set, let, if, for, while, and, or, not, function, etc.)
+ * - Keyword completion (set, let, if, for, while, and, or, not, list, at, from, end, len, function, etc.)
  * - Basic text synchronization (didOpen/didChange tracked but not parsed)
  *
  * Missing critical features (see MISSING_FEATURES.md):
@@ -475,6 +475,11 @@ static void handle_completion(const char *id) {
       "{\"label\":\"and\",\"kind\":14,\"detail\":\"Logical AND operator\"},"
       "{\"label\":\"or\",\"kind\":14,\"detail\":\"Logical OR operator\"},"
       "{\"label\":\"not\",\"kind\":14,\"detail\":\"Logical NOT operator\"},"
+      "{\"label\":\"list\",\"kind\":14,\"detail\":\"Create list literal\"},"
+      "{\"label\":\"at\",\"kind\":14,\"detail\":\"List indexing operator\"},"
+      "{\"label\":\"from\",\"kind\":14,\"detail\":\"List slicing operator\"},"
+      "{\"label\":\"end\",\"kind\":14,\"detail\":\"End of list (for slicing)\"},"
+      "{\"label\":\"len\",\"kind\":3,\"detail\":\"Get list length\"},"
       "{\"label\":\"function\",\"kind\":14,\"detail\":\"Define function\"},"
       "{\"label\":\"call\",\"kind\":14,\"detail\":\"Call function\"},"
       "{\"label\":\"return\",\"kind\":14,\"detail\":\"Return value\"},"

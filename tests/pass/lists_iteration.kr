@@ -1,0 +1,11 @@
+# Test: List iteration
+# Expected: Pass
+
+set items to list "a", "b", "c"
+for item in items:
+    print item
+
+set numbers to list 10, 20, 30
+for num in numbers:
+    print num
+

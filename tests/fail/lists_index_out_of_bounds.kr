@@ -1,0 +1,6 @@
+# Test: List index out of bounds
+# Expected: Fail with "List index out of bounds"
+
+set items to list 1, 2, 3
+set invalid to items at 10
+

@@ -13,7 +13,8 @@
 // Must match TokenType enum order exactly
 static const char *token_type_names[] = {
     "NUMBER",  "STRING", "SET",     "LET",   "TO",       "AS",    "IF",
-    "FOR",     "WHILE",  "IN",      "RANGE", "FUNCTION", "WITH",  "CALL",
+    "FOR",     "WHILE",  "IN",      "RANGE", "LIST",     "AT",    "FROM",
+    "END",     "FUNCTION", "WITH",  "CALL",
     "RETURN",  "TRUE",   "FALSE",   "NULL",  "IS",       "EQUAL", "NOT",
     "GREATER", "LESS",   "THAN",    "AND",   "OR",       "PRINT", "PLUS",
     "MINUS",   "TIMES",  "DIVIDED", "BY",    "NAME",     "COLON", "COMMA",
@@ -67,7 +68,9 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"to", TOK_TO},           {"as", TOK_AS},
       {"if", TOK_IF},           {"for", TOK_FOR},
       {"while", TOK_WHILE},     {"in", TOK_IN},
-      {"range", TOK_RANGE},     {"function", TOK_FUNCTION},
+      {"range", TOK_RANGE},     {"list", TOK_LIST},
+      {"at", TOK_AT},           {"from", TOK_FROM},
+      {"end", TOK_END},         {"function", TOK_FUNCTION},
       {"with", TOK_WITH},       {"call", TOK_CALL},
       {"return", TOK_RETURN},   {"true", TOK_TRUE},
       {"false", TOK_FALSE},     {"null", TOK_NULL},

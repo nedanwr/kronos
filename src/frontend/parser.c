@@ -51,6 +51,8 @@ static ASTNode *parse_while(Parser *p, int indent);
 static ASTNode *parse_function(Parser *p, int indent);
 static ASTNode *parse_call(Parser *p, int indent);
 static ASTNode *parse_return(Parser *p, int indent);
+static ASTNode *parse_list_literal(Parser *p);
+static ASTNode *parse_primary(Parser *p);
 
 // Create AST node helpers
 static ASTNode *ast_node_new(ASTNodeType type) {
@@ -133,6 +135,10 @@ static ASTNode *parse_value(Parser *p) {
     return node;
   }
 
+  if (tok->type == TOK_LIST) {
+    return parse_list_literal(p);
+  }
+
   fprintf(stderr, "Unexpected token in value position\n");
   return NULL;
 }
@@ -146,13 +152,216 @@ static int get_precedence(TokenType type) {
     return 2; // Higher than OR
   case TOK_PLUS:
   case TOK_MINUS:
-    return 3; // Arithmetic
+    return 4; // Arithmetic (lower than multiplication)
   case TOK_TIMES:
   case TOK_DIVIDED:
-    return 4; // Highest arithmetic precedence
+    return 5; // Highest arithmetic precedence
   default:
     return 0; // Not a binary operator
   }
+}
+
+// Attempt to parse natural-language comparison operators starting with "is"
+static bool match_comparison_operator(Parser *p, BinOp *out_op,
+                                      size_t *tokens_to_consume) {
+  Token *current = peek(p, 0);
+  if (!current || current->type != TOK_IS)
+    return false;
+
+  Token *next = peek(p, 1);
+  if (!next)
+    return false;
+
+  size_t consumed = 0;
+  BinOp op = BINOP_EQ;
+
+  if (next->type == TOK_NOT) {
+    Token *after_not = peek(p, 2);
+    if (!after_not || after_not->type != TOK_EQUAL)
+      return false;
+    op = BINOP_NEQ;
+    consumed = 3; // is not equal
+  } else if (next->type == TOK_EQUAL) {
+    op = BINOP_EQ;
+    consumed = 2; // is equal
+  } else if (next->type == TOK_GREATER || next->type == TOK_LESS) {
+    bool is_greater = (next->type == TOK_GREATER);
+    consumed = 2; // is greater/less
+    Token *look = peek(p, consumed);
+    if (look && look->type == TOK_THAN) {
+      consumed++;
+      look = peek(p, consumed);
+    }
+    bool or_equal = false;
+    if (look && look->type == TOK_OR) {
+      Token *after_or = peek(p, consumed + 1);
+      if (after_or && after_or->type == TOK_EQUAL) {
+        or_equal = true;
+        consumed += 2;
+      }
+    }
+    op = is_greater ? (or_equal ? BINOP_GTE : BINOP_GT)
+                    : (or_equal ? BINOP_LTE : BINOP_LT);
+  } else {
+    return false;
+  }
+
+  // Allow optional trailing "to" (e.g., "is equal to")
+  Token *maybe_to = peek(p, consumed);
+  if (maybe_to && maybe_to->type == TOK_TO) {
+    consumed++;
+  }
+
+  if (tokens_to_consume)
+    *tokens_to_consume = consumed;
+  if (out_op)
+    *out_op = op;
+  return true;
+}
+
+// Parse list literal: list 1, 2, 3 or list (empty)
+static ASTNode *parse_list_literal(Parser *p) {
+  consume(p, TOK_LIST);
+
+  ASTNode **elements = NULL;
+  size_t element_count = 0;
+  size_t element_capacity = 4;
+
+  elements = malloc(sizeof(ASTNode *) * element_capacity);
+  if (!elements) {
+    fprintf(stderr, "Failed to allocate memory for list elements\n");
+    return NULL;
+  }
+
+  // Check if list is empty (next token is not a comma or expression-starting
+  // token)
+  Token *next = peek(p, 0);
+  if (!next || (next->type != TOK_NUMBER && next->type != TOK_STRING &&
+                next->type != TOK_TRUE && next->type != TOK_FALSE &&
+                next->type != TOK_NULL && next->type != TOK_NAME &&
+                next->type != TOK_LIST && next->type != TOK_NOT)) {
+    // Empty list
+    ASTNode *node = ast_node_new_checked(AST_LIST);
+    node->as.list.elements = elements;
+    node->as.list.element_count = 0;
+    return node;
+  }
+
+  // Parse first element
+  ASTNode *first = parse_expression(p);
+  if (!first) {
+    free(elements);
+    return NULL;
+  }
+  elements[element_count++] = first;
+
+  // Parse remaining elements (comma-separated)
+  while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+    consume_any(p); // consume comma
+
+    if (element_count == element_capacity) {
+      size_t new_capacity = element_capacity * 2;
+      ASTNode **new_elements =
+          realloc(elements, sizeof(ASTNode *) * new_capacity);
+      if (!new_elements) {
+        fprintf(stderr, "Failed to grow list elements array\n");
+        // Cleanup
+        for (size_t i = 0; i < element_count; i++) {
+          ast_node_free(elements[i]);
+        }
+        free(elements);
+        return NULL;
+      }
+      elements = new_elements;
+      element_capacity = new_capacity;
+    }
+
+    ASTNode *elem = parse_expression(p);
+    if (!elem) {
+      // Cleanup
+      for (size_t i = 0; i < element_count; i++) {
+        ast_node_free(elements[i]);
+      }
+      free(elements);
+      return NULL;
+    }
+    elements[element_count++] = elem;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_LIST);
+  node->as.list.elements = elements;
+  node->as.list.element_count = element_count;
+  return node;
+}
+
+// Parse primary expression (values, list literals, variables)
+// Then handle postfix operations (indexing, slicing)
+static ASTNode *parse_primary(Parser *p) {
+  ASTNode *expr = parse_value(p);
+  if (!expr)
+    return NULL;
+
+  // Handle postfix operations: at, from ... to
+  while (true) {
+    Token *tok = peek(p, 0);
+    if (!tok)
+      break;
+
+    if (tok->type == TOK_AT) {
+      // Indexing: expr at index
+      consume_any(p); // consume 'at'
+      ASTNode *index = parse_expression(p);
+      if (!index) {
+        ast_node_free(expr);
+        return NULL;
+      }
+
+      ASTNode *index_node = ast_node_new_checked(AST_INDEX);
+      index_node->as.index.list_expr = expr;
+      index_node->as.index.index = index;
+      expr = index_node;
+    } else if (tok->type == TOK_FROM) {
+      // Slicing: expr from start to end
+      consume_any(p); // consume 'from'
+      ASTNode *start = parse_expression(p);
+      if (!start) {
+        ast_node_free(expr);
+        return NULL;
+      }
+
+      if (!peek(p, 0) || peek(p, 0)->type != TOK_TO) {
+        ast_node_free(expr);
+        ast_node_free(start);
+        fprintf(stderr, "Expected 'to' after 'from' in slice\n");
+        return NULL;
+      }
+      consume_any(p); // consume 'to'
+
+      ASTNode *end = NULL;
+      if (peek(p, 0) && peek(p, 0)->type == TOK_END) {
+        consume_any(p); // consume 'end'
+        end = NULL;     // NULL means to end
+      } else {
+        end = parse_expression(p);
+        if (!end) {
+          ast_node_free(expr);
+          ast_node_free(start);
+          return NULL;
+        }
+      }
+
+      ASTNode *slice_node = ast_node_new_checked(AST_SLICE);
+      slice_node->as.slice.list_expr = expr;
+      slice_node->as.slice.start = start;
+      slice_node->as.slice.end = end;
+      expr = slice_node;
+    } else {
+      // Not a postfix operation, stop
+      break;
+    }
+  }
+
+  return expr;
 }
 
 // Parse expression with precedence-climbing (Pratt parser)
@@ -162,7 +371,8 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
   Token *tok = peek(p, 0);
   if (tok && tok->type == TOK_NOT) {
     consume_any(p); // consume NOT
-    ASTNode *operand = parse_expression_prec(p, 10); // High precedence to bind tightly
+    ASTNode *operand =
+        parse_expression_prec(p, 10); // High precedence to bind tightly
     if (!operand)
       return NULL;
     ASTNode *node = ast_node_new_checked(AST_BINOP);
@@ -171,64 +381,10 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     node->as.binop.right = NULL; // NULL indicates unary operation
     left = node;
   } else {
-    left = parse_value(p);
+    // Parse primary expression (values, list literals, postfix operations)
+    left = parse_primary(p);
     if (!left)
       return NULL;
-    
-    // Check if this is followed by "IS" (a comparison)
-    Token *next = peek(p, 0);
-    if (next && next->type == TOK_IS) {
-      // Parse as a comparison
-      consume_any(p); // consume IS
-      
-      bool negated = false;
-      Token *cmp_tok = peek(p, 0);
-      if (cmp_tok && cmp_tok->type == TOK_NOT) {
-        consume_any(p);
-        negated = true;
-      }
-      
-      cmp_tok = peek(p, 0);
-      if (!cmp_tok) {
-        ast_node_free(left);
-        return NULL;
-      }
-      
-      BinOp op;
-      if (cmp_tok->type == TOK_EQUAL) {
-        consume_any(p);
-        op = negated ? BINOP_NEQ : BINOP_EQ;
-      } else if (cmp_tok->type == TOK_GREATER) {
-        consume_any(p);
-        if (!consume(p, TOK_THAN)) {
-          ast_node_free(left);
-          return NULL;
-        }
-        op = negated ? BINOP_LTE : BINOP_GT;
-      } else if (cmp_tok->type == TOK_LESS) {
-        consume_any(p);
-        if (!consume(p, TOK_THAN)) {
-          ast_node_free(left);
-          return NULL;
-        }
-        op = negated ? BINOP_GTE : BINOP_LT;
-      } else {
-        ast_node_free(left);
-        return NULL;
-      }
-      
-      ASTNode *right = parse_expression_prec(p, 5); // Comparisons have high precedence
-      if (!right) {
-        ast_node_free(left);
-        return NULL;
-      }
-      
-      ASTNode *node = ast_node_new_checked(AST_BINOP);
-      node->as.binop.left = left;
-      node->as.binop.op = op;
-      node->as.binop.right = right;
-      left = node;
-    }
   }
 
   // While there's an operator with precedence >= min_prec
@@ -242,6 +398,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     int prec = 0;
     BinOp op;
     bool is_binary_op = false;
+    size_t comparison_consumed = 0;
 
     switch (tok->type) {
     case TOK_OR:
@@ -278,6 +435,15 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       }
       break;
     }
+    case TOK_IS: {
+      size_t consume_count = 0;
+      if (match_comparison_operator(p, &op, &consume_count)) {
+        prec = 3; // Comparison precedence (between AND and arithmetic)
+        is_binary_op = true;
+        comparison_consumed = consume_count;
+      }
+      break;
+    }
     default:
       break;
     }
@@ -291,6 +457,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     if (tok->type == TOK_DIVIDED) {
       consume_any(p); // consume DIVIDED
       consume_any(p); // consume BY
+    } else if (tok->type == TOK_IS) {
+      match_comparison_operator(p, NULL, &comparison_consumed);
+      for (size_t i = 0; i < comparison_consumed; i++) {
+        consume_any(p);
+      }
     } else {
       consume_any(p); // consume the operator
     }
@@ -318,9 +489,11 @@ static ASTNode *parse_expression(Parser *p) {
   return parse_expression_prec(p, 1); // Start with minimum precedence
 }
 
-// Parse condition (for if/while) - can be a comparison or a full expression with logical operators
+// Parse condition (for if/while) - can be a comparison or a full expression
+// with logical operators
 static ASTNode *parse_condition(Parser *p) {
-  // Parse as a full expression - the expression parser now handles comparisons with "is"
+  // Parse as a full expression - the expression parser now handles comparisons
+  // with "is"
   return parse_expression(p);
 }
 
@@ -536,41 +709,64 @@ static ASTNode *parse_for(Parser *p, int indent) {
 
   if (!consume(p, TOK_IN))
     return NULL;
-  if (!consume(p, TOK_RANGE))
-    return NULL;
 
-  ASTNode *start = parse_expression(p);
-  if (!start)
-    return NULL;
-
-  if (!consume(p, TOK_TO)) {
-    ast_node_free(start);
+  Token *next = peek(p, 0);
+  if (!next) {
     return NULL;
   }
 
-  ASTNode *end = parse_expression(p);
-  if (!end) {
-    ast_node_free(start);
-    return NULL;
+  ASTNode *iterable = NULL;
+  ASTNode *end = NULL;
+  bool is_range = false;
+
+  if (next->type == TOK_RANGE) {
+    // Range iteration: for i in range start to end
+    is_range = true;
+    consume_any(p); // consume TOK_RANGE
+
+    ASTNode *start = parse_expression(p);
+    if (!start)
+      return NULL;
+
+    if (!consume(p, TOK_TO)) {
+      ast_node_free(start);
+      return NULL;
+    }
+
+    end = parse_expression(p);
+    if (!end) {
+      ast_node_free(start);
+      return NULL;
+    }
+    iterable = start; // For range, iterable is the start value
+  } else {
+    // List iteration: for item in list_expr
+    is_range = false;
+    iterable = parse_expression(p);
+    if (!iterable)
+      return NULL;
   }
 
   if (!consume(p, TOK_COLON)) {
-    ast_node_free(start);
-    ast_node_free(end);
+    ast_node_free(iterable);
+    if (end)
+      ast_node_free(end);
     return NULL;
   }
 
   if (!consume(p, TOK_NEWLINE)) {
-    ast_node_free(start);
-    ast_node_free(end);
+    ast_node_free(iterable);
+    if (end)
+      ast_node_free(end);
     return NULL;
   }
 
   size_t block_size = 0;
   ASTNode **block = parse_block(p, indent, &block_size);
   if (!block) {
-    ast_node_free(start);
-    ast_node_free(end);
+    ast_node_free(iterable);
+    if (end)
+      ast_node_free(end);
     return NULL;
   }
 
@@ -578,8 +774,9 @@ static ASTNode *parse_for(Parser *p, int indent) {
   node->indent = indent;
   node->as.for_stmt.var = strdup(var->text);
   if (!node->as.for_stmt.var) {
-    ast_node_free(start);
-    ast_node_free(end);
+    ast_node_free(iterable);
+    if (end)
+      ast_node_free(end);
     // Free block and its statements
     if (block) {
       for (size_t i = 0; i < block_size; i++) {
@@ -590,7 +787,8 @@ static ASTNode *parse_for(Parser *p, int indent) {
     free(node);
     return NULL;
   }
-  node->as.for_stmt.start = start;
+  node->as.for_stmt.iterable = iterable;
+  node->as.for_stmt.is_range = is_range;
   node->as.for_stmt.end = end;
   node->as.for_stmt.block = block;
   node->as.for_stmt.block_size = block_size;
@@ -969,8 +1167,9 @@ void ast_node_free(ASTNode *node) {
     break;
   case AST_FOR:
     free(node->as.for_stmt.var);
-    ast_node_free(node->as.for_stmt.start);
-    ast_node_free(node->as.for_stmt.end);
+    ast_node_free(node->as.for_stmt.iterable);
+    if (node->as.for_stmt.end)
+      ast_node_free(node->as.for_stmt.end);
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
       ast_node_free(node->as.for_stmt.block[i]);
     }
@@ -1003,6 +1202,21 @@ void ast_node_free(ASTNode *node) {
     break;
   case AST_RETURN:
     ast_node_free(node->as.return_stmt.value);
+    break;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      ast_node_free(node->as.list.elements[i]);
+    }
+    free(node->as.list.elements);
+    break;
+  case AST_INDEX:
+    ast_node_free(node->as.index.list_expr);
+    ast_node_free(node->as.index.index);
+    break;
+  case AST_SLICE:
+    ast_node_free(node->as.slice.list_expr);
+    ast_node_free(node->as.slice.start);
+    ast_node_free(node->as.slice.end);
     break;
   default:
     break;

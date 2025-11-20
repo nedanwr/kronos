@@ -541,6 +541,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       }
       KronosValue *value = vm_get_variable(vm, name_val->as.string.data);
       if (!value) {
+        // Debug: check what error was set
+        if (vm->last_error_code == KRONOS_ERR_NOT_FOUND) {
+          fprintf(stderr, "DEBUG: OP_LOAD_VAR failed to find variable '%s'\n",
+                  name_val->as.string.data);
+        }
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       push(vm, value);
@@ -1314,6 +1319,31 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         break;
       }
 
+      // Built-in: len(list)
+      if (strcmp(func_name, "len") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'len' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type == VAL_LIST) {
+          KronosValue *result = value_new_number((double)arg->as.list.count);
+          push(vm, result);
+          value_release(result);
+        } else {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'len' requires a list argument");
+          value_release(arg);
+          return err;
+        }
+        value_release(arg);
+        break;
+      }
+
       // Get user-defined function
       Function *func = vm_get_function(vm, func_name);
       if (!func) {
@@ -1451,6 +1481,227 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       value_release(value);
+      break;
+    }
+
+    case OP_LIST_NEW: {
+      // Read element count from bytecode
+      uint16_t count = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+      KronosValue *list = value_new_list(count);
+      if (!list) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+      }
+      push(vm, list);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_APPEND: {
+      KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(value);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for append");
+      }
+
+      // Grow list if needed
+      if (list->as.list.count >= list->as.list.capacity) {
+        size_t new_capacity =
+            list->as.list.capacity == 0 ? 4 : list->as.list.capacity * 2;
+        KronosValue **new_items =
+            realloc(list->as.list.items, sizeof(KronosValue *) * new_capacity);
+        if (!new_items) {
+          value_release(value);
+          value_release(list);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+        }
+        list->as.list.items = new_items;
+        list->as.list.capacity = new_capacity;
+      }
+
+      // Append value
+      value_retain(value);
+      list->as.list.items[list->as.list.count++] = value;
+      push(vm, list);
+      value_release(list);
+      value_release(value);
+      break;
+    }
+
+    case OP_LIST_GET: {
+      KronosValue *index_val = pop(vm);
+      if (!index_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(index_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(index_val);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for indexing");
+      }
+
+      if (index_val->type != VAL_NUMBER) {
+        value_release(index_val);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "List index must be a number");
+      }
+
+      // Handle negative indices
+      int64_t idx = (int64_t)index_val->as.number;
+      if (idx < 0) {
+        idx = (int64_t)list->as.list.count + idx;
+      }
+
+      if (idx < 0 || (size_t)idx >= list->as.list.count) {
+        value_release(index_val);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "List index out of bounds");
+      }
+
+      KronosValue *item = list->as.list.items[(size_t)idx];
+      value_retain(item);
+      push(vm, item);
+      value_release(item);
+      value_release(index_val);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_LEN: {
+      KronosValue *list = pop(vm);
+      if (!list) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for length");
+      }
+
+      KronosValue *len = value_new_number((double)list->as.list.count);
+      push(vm, len);
+      value_release(len);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_ITER: {
+      KronosValue *list = pop(vm);
+      if (!list) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for iteration");
+      }
+
+      // Create iterator (just push the list and current index)
+      // For simplicity, we'll use a list value with a special marker
+      // Actually, we need to track iteration state. Let's use a simple
+      // approach: Push list, then push index 0
+      value_retain(list);
+      push(vm, list);
+      KronosValue *index = value_new_number(0);
+      push(vm, index);
+      value_release(index);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_NEXT: {
+      // Stack: [list, index] (list on bottom, index on top)
+      // Verify stack has at least 2 items before popping
+      size_t stack_depth = (size_t)(vm->stack_top - vm->stack);
+      if (stack_depth < 2) {
+        return vm_errorf(
+            vm, KRONOS_ERR_RUNTIME,
+            "Stack underflow in list iteration: expected 2 items, got %zu. "
+            "This usually means iterator variables were not loaded correctly.",
+            stack_depth);
+      }
+      KronosValue *index_val = pop(vm);
+      if (!index_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(index_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST || index_val->type != VAL_NUMBER) {
+        value_release(index_val);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator state");
+      }
+
+      size_t idx = (size_t)index_val->as.number;
+      bool has_more = idx < list->as.list.count;
+
+      if (has_more) {
+        // Push in order: [list, index+1, item, has_more]
+        // This way, after popping has_more, item is on top for OP_STORE_VAR
+        // After storing item, we have [list, index+1] for next iteration
+
+        // Push in order: [list, index+1, item, has_more]
+        // This way, after popping has_more, item is on top for OP_STORE_VAR
+        // After storing item, we have [list, index+1] for next iteration
+
+        // Push list first (bottom of stack)
+        value_retain(list);
+        push(vm, list);
+        value_release(list);
+
+        // Update and push index
+        KronosValue *next_index = value_new_number((double)(idx + 1));
+        push(vm, next_index);
+        value_release(next_index);
+
+        // Push item
+        KronosValue *item = list->as.list.items[idx];
+        value_retain(item);
+        push(vm, item);
+        value_release(item);
+
+        // Push has_more flag (true) on top
+        KronosValue *has_more_val = value_new_bool(true);
+        push(vm, has_more_val);
+        value_release(has_more_val);
+      } else {
+        // No more items - push iterator state back, then has_more flag (false)
+        // Push list back (for cleanup)
+        value_retain(list);
+        push(vm, list);
+        value_release(list);
+
+        // Push index back (for cleanup)
+        value_retain(index_val);
+        push(vm, index_val);
+        value_release(index_val);
+
+        // Push has_more flag (false) on top
+        KronosValue *has_more_val = value_new_bool(false);
+        push(vm, has_more_val);
+        value_release(has_more_val);
+      }
+
+      value_release(index_val);
+      value_release(list);
       break;
     }
 
