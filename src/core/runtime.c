@@ -355,6 +355,14 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     return a->as.boolean == b->as.boolean;
   case VAL_NIL:
     return true;
+  case VAL_LIST:
+    if (a->as.list.count != b->as.list.count)
+      return false;
+    for (size_t i = 0; i < a->as.list.count; i++) {
+      if (!value_equals(a->as.list.items[i], b->as.list.items[i]))
+        return false;
+    }
+    return true;
   default:
     return a == b; // Pointer equality for complex types
   }
