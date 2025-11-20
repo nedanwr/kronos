@@ -152,13 +152,71 @@ static int get_precedence(TokenType type) {
     return 2; // Higher than OR
   case TOK_PLUS:
   case TOK_MINUS:
-    return 3; // Arithmetic
+    return 4; // Arithmetic (lower than multiplication)
   case TOK_TIMES:
   case TOK_DIVIDED:
-    return 4; // Highest arithmetic precedence
+    return 5; // Highest arithmetic precedence
   default:
     return 0; // Not a binary operator
   }
+}
+
+// Attempt to parse natural-language comparison operators starting with "is"
+static bool match_comparison_operator(Parser *p, BinOp *out_op,
+                                      size_t *tokens_to_consume) {
+  Token *current = peek(p, 0);
+  if (!current || current->type != TOK_IS)
+    return false;
+
+  Token *next = peek(p, 1);
+  if (!next)
+    return false;
+
+  size_t consumed = 0;
+  BinOp op = BINOP_EQ;
+
+  if (next->type == TOK_NOT) {
+    Token *after_not = peek(p, 2);
+    if (!after_not || after_not->type != TOK_EQUAL)
+      return false;
+    op = BINOP_NEQ;
+    consumed = 3; // is not equal
+  } else if (next->type == TOK_EQUAL) {
+    op = BINOP_EQ;
+    consumed = 2; // is equal
+  } else if (next->type == TOK_GREATER || next->type == TOK_LESS) {
+    bool is_greater = (next->type == TOK_GREATER);
+    consumed = 2; // is greater/less
+    Token *look = peek(p, consumed);
+    if (look && look->type == TOK_THAN) {
+      consumed++;
+      look = peek(p, consumed);
+    }
+    bool or_equal = false;
+    if (look && look->type == TOK_OR) {
+      Token *after_or = peek(p, consumed + 1);
+      if (after_or && after_or->type == TOK_EQUAL) {
+        or_equal = true;
+        consumed += 2;
+      }
+    }
+    op = is_greater ? (or_equal ? BINOP_GTE : BINOP_GT)
+                    : (or_equal ? BINOP_LTE : BINOP_LT);
+  } else {
+    return false;
+  }
+
+  // Allow optional trailing "to" (e.g., "is equal to")
+  Token *maybe_to = peek(p, consumed);
+  if (maybe_to && maybe_to->type == TOK_TO) {
+    consumed++;
+  }
+
+  if (tokens_to_consume)
+    *tokens_to_consume = consumed;
+  if (out_op)
+    *out_op = op;
+  return true;
 }
 
 // Parse list literal: list 1, 2, 3 or list (empty)
@@ -175,7 +233,8 @@ static ASTNode *parse_list_literal(Parser *p) {
     return NULL;
   }
 
-  // Check if list is empty (next token is not a comma or expression-starting token)
+  // Check if list is empty (next token is not a comma or expression-starting
+  // token)
   Token *next = peek(p, 0);
   if (!next || (next->type != TOK_NUMBER && next->type != TOK_STRING &&
                 next->type != TOK_TRUE && next->type != TOK_FALSE &&
@@ -281,7 +340,7 @@ static ASTNode *parse_primary(Parser *p) {
       ASTNode *end = NULL;
       if (peek(p, 0) && peek(p, 0)->type == TOK_END) {
         consume_any(p); // consume 'end'
-        end = NULL; // NULL means to end
+        end = NULL;     // NULL means to end
       } else {
         end = parse_expression(p);
         if (!end) {
@@ -312,7 +371,8 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
   Token *tok = peek(p, 0);
   if (tok && tok->type == TOK_NOT) {
     consume_any(p); // consume NOT
-    ASTNode *operand = parse_expression_prec(p, 10); // High precedence to bind tightly
+    ASTNode *operand =
+        parse_expression_prec(p, 10); // High precedence to bind tightly
     if (!operand)
       return NULL;
     ASTNode *node = ast_node_new_checked(AST_BINOP);
@@ -338,6 +398,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     int prec = 0;
     BinOp op;
     bool is_binary_op = false;
+    size_t comparison_consumed = 0;
 
     switch (tok->type) {
     case TOK_OR:
@@ -374,6 +435,15 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       }
       break;
     }
+    case TOK_IS: {
+      size_t consume_count = 0;
+      if (match_comparison_operator(p, &op, &consume_count)) {
+        prec = 3; // Comparison precedence (between AND and arithmetic)
+        is_binary_op = true;
+        comparison_consumed = consume_count;
+      }
+      break;
+    }
     default:
       break;
     }
@@ -387,6 +457,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     if (tok->type == TOK_DIVIDED) {
       consume_any(p); // consume DIVIDED
       consume_any(p); // consume BY
+    } else if (tok->type == TOK_IS) {
+      match_comparison_operator(p, NULL, &comparison_consumed);
+      for (size_t i = 0; i < comparison_consumed; i++) {
+        consume_any(p);
+      }
     } else {
       consume_any(p); // consume the operator
     }
@@ -414,9 +489,11 @@ static ASTNode *parse_expression(Parser *p) {
   return parse_expression_prec(p, 1); // Start with minimum precedence
 }
 
-// Parse condition (for if/while) - can be a comparison or a full expression with logical operators
+// Parse condition (for if/while) - can be a comparison or a full expression
+// with logical operators
 static ASTNode *parse_condition(Parser *p) {
-  // Parse as a full expression - the expression parser now handles comparisons with "is"
+  // Parse as a full expression - the expression parser now handles comparisons
+  // with "is"
   return parse_expression(p);
 }
 
