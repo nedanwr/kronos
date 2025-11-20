@@ -55,9 +55,9 @@ jobs:
             # Always check the log file, regardless of program exit code
             
             # Parse valgrind log for errors
-            if grep -q "ERROR SUMMARY: 0 errors" "$logfile" && \
-               grep -q "LEAK SUMMARY:.*definitely lost: 0" "$logfile" && \
-               grep -q "LEAK SUMMARY:.*indirectly lost: 0" "$logfile"; then
+            if grep -q "All heap blocks were freed -- no leaks are possible" "$logfile" || \
+               (grep -q "definitely lost: 0 bytes in 0 blocks" "$logfile" && \
+                grep -q "indirectly lost: 0 bytes in 0 blocks" "$logfile"); then
               echo "  ✓ $name: No memory leaks"
               rm -f "$logfile"
               return 0
