@@ -162,6 +162,87 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_FSTRING: {
+    // Compile f-string by concatenating parts
+    // parts alternate: string, expr, string, expr, ...
+    // Start with first string (or empty string if first is expr)
+    if (node->as.fstring.part_count == 0) {
+      // Empty f-string
+      KronosValue *empty = value_new_string("", 0);
+      emit_constant(c, empty);
+      break;
+    }
+
+    // Compile first part
+    ASTNode *first_part = node->as.fstring.parts[0];
+    if (first_part->type == AST_STRING) {
+      // First part is a string - emit it
+      compile_expression(c, first_part);
+      if (compiler_has_error(c))
+        return;
+    } else {
+      // First part is an expression - start with empty string
+      KronosValue *empty = value_new_string("", 0);
+      emit_constant(c, empty);
+      if (compiler_has_error(c))
+        return;
+      // Then compile expression, convert to string, and concatenate
+      compile_expression(c, first_part);
+      if (compiler_has_error(c))
+        return;
+
+      // Call to_string to convert expression result to string
+      KronosValue *to_string_name = value_new_string("to_string", 9);
+      size_t to_string_idx = add_constant(c, to_string_name);
+      if (to_string_idx == SIZE_MAX || to_string_idx > UINT16_MAX) {
+        return;
+      }
+      emit_byte(c, OP_CALL_FUNC);
+      emit_uint16(c, (uint16_t)to_string_idx);
+      emit_byte(c, 1); // 1 argument
+      if (compiler_has_error(c))
+        return;
+
+      emit_byte(c, OP_ADD);
+      if (compiler_has_error(c))
+        return;
+    }
+
+    // Process remaining parts (pairs of expr, string)
+    for (size_t i = 1; i < node->as.fstring.part_count; i++) {
+      ASTNode *part = node->as.fstring.parts[i];
+
+      if (part->type == AST_STRING) {
+        // String literal - just compile it
+        compile_expression(c, part);
+        if (compiler_has_error(c))
+          return;
+      } else {
+        // Expression - compile it and convert to string
+        compile_expression(c, part);
+        if (compiler_has_error(c))
+          return;
+
+        // Call to_string to convert expression result to string
+        KronosValue *to_string_name = value_new_string("to_string", 9);
+        size_t to_string_idx = add_constant(c, to_string_name);
+        if (to_string_idx == SIZE_MAX || to_string_idx > UINT16_MAX) {
+          return;
+        }
+        emit_byte(c, OP_CALL_FUNC);
+        emit_uint16(c, (uint16_t)to_string_idx);
+        emit_byte(c, 1); // 1 argument
+        if (compiler_has_error(c))
+          return;
+      }
+
+      emit_byte(c, OP_ADD); // Concatenate
+      if (compiler_has_error(c))
+        return;
+    }
+    break;
+  }
+
   case AST_BOOL: {
     KronosValue *val = value_new_bool(node->as.boolean);
     emit_constant(c, val);
@@ -299,9 +380,62 @@ static void compile_expression(Compiler *c, ASTNode *node) {
   }
 
   case AST_SLICE: {
-    // Compile slicing: list from start to end
-    // For now, report error - slicing will be implemented later
-    compiler_set_error(c, "List slicing not yet implemented");
+    // Compile slicing: container from start to end
+    compile_expression(c, node->as.slice.list_expr);
+    if (compiler_has_error(c))
+      return;
+    compile_expression(c, node->as.slice.start);
+    if (compiler_has_error(c))
+      return;
+
+    if (node->as.slice.end) {
+      // Explicit end: compile end expression
+      compile_expression(c, node->as.slice.end);
+      if (compiler_has_error(c))
+        return;
+    } else {
+      // Implicit end (to end): push -1 as marker
+      KronosValue *end_marker = value_new_number(-1);
+      size_t end_idx = add_constant(c, end_marker);
+      value_release(end_marker);
+      if (end_idx == SIZE_MAX || end_idx > UINT16_MAX) {
+        return;
+      }
+      emit_byte(c, OP_LOAD_CONST);
+      emit_uint16(c, (uint16_t)end_idx);
+      if (compiler_has_error(c))
+        return;
+    }
+
+    emit_byte(c, OP_LIST_SLICE);
+    break;
+  }
+
+  case AST_CALL: {
+    // Compile function call as expression
+    // Push arguments onto stack (in order)
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      compile_expression(c, node->as.call.args[i]);
+      if (compiler_has_error(c))
+        return;
+    }
+
+    // Emit call instruction
+    KronosValue *func_name =
+        value_new_string(node->as.call.name, strlen(node->as.call.name));
+    size_t name_idx = add_constant(c, func_name);
+    if (name_idx == SIZE_MAX) {
+      value_release(func_name);
+      return;
+    }
+    if (name_idx > UINT16_MAX) {
+      compiler_set_error(c, "Too many constants (limit 65535)");
+      return;
+    }
+
+    emit_byte(c, OP_CALL_FUNC);
+    emit_uint16(c, (uint16_t)name_idx);
+    emit_byte(c, (uint8_t)node->as.call.arg_count);
     break;
   }
 
@@ -491,7 +625,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
 
       // Patch exit jump
-      c->bytecode->code[exit_jump_pos] = (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+      c->bytecode->code[exit_jump_pos] =
+          (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
     } else {
       // List iteration: for item in list_expr
       // Compile list expression
@@ -508,12 +643,15 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       // Create hidden variable names for iterator state
       char iter_list_name[64];
       char iter_index_name[64];
-      snprintf(iter_list_name, sizeof(iter_list_name), "__iter_list_%zu", var_idx);
-      snprintf(iter_index_name, sizeof(iter_index_name), "__iter_index_%zu", var_idx);
+      snprintf(iter_list_name, sizeof(iter_list_name), "__iter_list_%zu",
+               var_idx);
+      snprintf(iter_index_name, sizeof(iter_index_name), "__iter_index_%zu",
+               var_idx);
 
       // Stack after OP_LIST_ITER: [list, index] with index on top
       // Store index first (pops index)
-      KronosValue *iter_index_name_val = value_new_string(iter_index_name, strlen(iter_index_name));
+      KronosValue *iter_index_name_val =
+          value_new_string(iter_index_name, strlen(iter_index_name));
       size_t iter_index_name_idx = add_constant(c, iter_index_name_val);
       if (iter_index_name_idx == SIZE_MAX || iter_index_name_idx > UINT16_MAX) {
         value_release(iter_index_name_val);
@@ -527,7 +665,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
 
       // Now store list (pops list)
-      KronosValue *iter_list_name_val = value_new_string(iter_list_name, strlen(iter_list_name));
+      KronosValue *iter_list_name_val =
+          value_new_string(iter_list_name, strlen(iter_list_name));
       size_t iter_list_name_idx = add_constant(c, iter_list_name_val);
       if (iter_list_name_idx == SIZE_MAX || iter_list_name_idx > UINT16_MAX) {
         value_release(iter_list_name_val);
@@ -568,8 +707,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       if (compiler_has_error(c))
         return;
 
-      // Stack now: [list, index+1, item] (OP_JUMP_IF_FALSE already popped has_more)
-      // Store item in loop variable (pops item)
+      // Stack now: [list, index+1, item] (OP_JUMP_IF_FALSE already popped
+      // has_more) Store item in loop variable (pops item)
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)var_idx);
       emit_byte(c, 1); // mutable
@@ -611,7 +750,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
 
       // Patch exit jump
-      c->bytecode->code[exit_jump_pos] = (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+      c->bytecode->code[exit_jump_pos] =
+          (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
 
       // Clean up: pop index and list from stack
       // Stack at exit: [list, index] (OP_JUMP_IF_FALSE already popped has_more)
@@ -676,7 +816,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Patch exit jump
     size_t exit_target = c->bytecode->count;
     c->bytecode->code[exit_jump_pos] =
-      (uint8_t)(exit_target - exit_jump_pos - 1);
+        (uint8_t)(exit_target - exit_jump_pos - 1);
     break;
   }
 
@@ -793,8 +933,10 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // For user-defined functions, pop the return value (function calls as
     // statements don't use the return value)
     const char *func_name_str = node->as.call.name;
-    if (strcmp(func_name_str, "add") == 0 || strcmp(func_name_str, "subtract") == 0 ||
-        strcmp(func_name_str, "multiply") == 0 || strcmp(func_name_str, "divide") == 0 ||
+    if (strcmp(func_name_str, "add") == 0 ||
+        strcmp(func_name_str, "subtract") == 0 ||
+        strcmp(func_name_str, "multiply") == 0 ||
+        strcmp(func_name_str, "divide") == 0 ||
         strcmp(func_name_str, "len") == 0) {
       emit_byte(c, OP_PRINT);
     } else {
@@ -1067,6 +1209,11 @@ void bytecode_print(Bytecode *bytecode) {
 
     case OP_LIST_LEN:
       printf("LIST_LEN\n");
+      offset++;
+      break;
+
+    case OP_LIST_SLICE:
+      printf("LIST_SLICE\n");
       offset++;
       break;
 

@@ -16,6 +16,7 @@ typedef enum {
   AST_RETURN,
   AST_NUMBER,
   AST_STRING,
+  AST_FSTRING,
   AST_BOOL,
   AST_NULL,
   AST_VAR,
@@ -54,6 +55,15 @@ struct ASTNode {
       char *value;
       size_t length;
     } string;
+    struct {
+      // F-string parts: alternating string literals and expressions
+      // parts[0] is always a string (may be empty)
+      // parts[1] is an expression (if present)
+      // parts[2] is a string (if present)
+      // etc.
+      ASTNode **parts;
+      size_t part_count;
+    } fstring;
     bool boolean;
     char *var_name;
 
@@ -86,7 +96,8 @@ struct ASTNode {
 
     struct {
       char *var;
-      ASTNode *iterable; // For range: contains range expression, for list: list expression
+      ASTNode *iterable; // For range: contains range expression, for list: list
+                         // expression
       bool is_range;     // true for range iteration, false for list iteration
       ASTNode *end;      // Only used for range (end value), NULL for list
       ASTNode **block;

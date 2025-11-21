@@ -30,10 +30,11 @@ typedef enum {
   OP_RETURN_VAL,    // Return from function with value
   OP_POP,           // Pop value from stack
   OP_LIST_NEW,      // Create new list (arg: element count)
-  OP_LIST_GET,      // Get element at index (list, index -> value)
+  OP_LIST_GET,      // Get element at index (list/string, index -> value)
   OP_LIST_SET,      // Set element at index (list, index, value -> list)
   OP_LIST_APPEND,   // Append element (list, value -> list)
-  OP_LIST_LEN,      // Get list length (list -> length)
+  OP_LIST_LEN,      // Get list/string length (list/string -> length)
+  OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
   OP_LIST_ITER,     // Start list iteration (list -> iterator)
   OP_LIST_NEXT,     // Get next item from iterator (iterator -> item, has_more)
   OP_HALT,          // End program

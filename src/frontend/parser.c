@@ -53,6 +53,7 @@ static ASTNode *parse_call(Parser *p, int indent);
 static ASTNode *parse_return(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
 static ASTNode *parse_primary(Parser *p);
+static ASTNode *parse_fstring(Parser *p);
 
 // Create AST node helpers
 static ASTNode *ast_node_new(ASTNodeType type) {
@@ -122,6 +123,10 @@ static ASTNode *parse_value(Parser *p) {
     return node;
   }
 
+  if (tok->type == TOK_FSTRING) {
+    return parse_fstring(p);
+  }
+
   if (tok->type == TOK_NAME) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_VAR);
@@ -137,6 +142,12 @@ static ASTNode *parse_value(Parser *p) {
 
   if (tok->type == TOK_LIST) {
     return parse_list_literal(p);
+  }
+
+  if (tok->type == TOK_CALL) {
+    // Function calls can be used as expressions
+    return parse_call(
+        p, -1); // -1 indicates expression context (no newline required)
   }
 
   fprintf(stderr, "Unexpected token in value position\n");
@@ -291,6 +302,198 @@ static ASTNode *parse_list_literal(Parser *p) {
   ASTNode *node = ast_node_new_checked(AST_LIST);
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
+  return node;
+}
+
+// Parse f-string: f"text {expr} more text"
+static ASTNode *parse_fstring(Parser *p) {
+  Token *tok = consume(p, TOK_FSTRING);
+  if (!tok)
+    return NULL;
+
+  const char *content = tok->text;
+  size_t content_len = tok->length;
+
+  // Allocate parts array (alternating: string, expr, string, expr, ...)
+  size_t part_capacity = 4;
+  size_t part_count = 0;
+  ASTNode **parts = malloc(sizeof(ASTNode *) * part_capacity);
+  if (!parts) {
+    fprintf(stderr, "Failed to allocate memory for f-string parts\n");
+    return NULL;
+  }
+
+  size_t i = 0;
+  while (i < content_len) {
+    // Find next { or end of string
+    size_t start = i;
+    size_t brace_start = content_len;
+
+    // Look for { (not escaped)
+    while (i < content_len) {
+      if (content[i] == '\\' && i + 1 < content_len) {
+        i += 2; // Skip escaped character
+      } else if (content[i] == '{') {
+        brace_start = i;
+        break;
+      } else {
+        i++;
+      }
+    }
+
+    // Add string literal part (from start to brace_start)
+    if (brace_start > start) {
+      size_t str_len = brace_start - start;
+      ASTNode *str_node = ast_node_new_checked(AST_STRING);
+      str_node->as.string.value = malloc(str_len + 1);
+      if (!str_node->as.string.value) {
+        // Cleanup
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        free(str_node);
+        return NULL;
+      }
+      memcpy(str_node->as.string.value, content + start, str_len);
+      str_node->as.string.value[str_len] = '\0';
+      str_node->as.string.length = str_len;
+
+      if (part_count >= part_capacity) {
+        size_t new_capacity = part_capacity * 2;
+        ASTNode **new_parts = realloc(parts, sizeof(ASTNode *) * new_capacity);
+        if (!new_parts) {
+          ast_node_free(str_node);
+          for (size_t j = 0; j < part_count; j++) {
+            ast_node_free(parts[j]);
+          }
+          free(parts);
+          return NULL;
+        }
+        parts = new_parts;
+        part_capacity = new_capacity;
+      }
+      parts[part_count++] = str_node;
+    }
+
+    // If we found a {, parse the expression inside
+    if (brace_start < content_len) {
+      i = brace_start + 1; // Skip {
+
+      // Find matching }
+      size_t expr_start = i;
+      size_t brace_end = content_len;
+      int depth = 1;
+
+      while (i < content_len && depth > 0) {
+        if (content[i] == '\\' && i + 1 < content_len) {
+          i += 2;
+        } else if (content[i] == '{') {
+          depth++;
+          i++;
+        } else if (content[i] == '}') {
+          depth--;
+          if (depth == 0) {
+            brace_end = i;
+            break;
+          }
+          i++;
+        } else {
+          i++;
+        }
+      }
+
+      if (depth > 0) {
+        fprintf(stderr, "Unmatched { in f-string\n");
+        // Cleanup
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        return NULL;
+      }
+
+      // Extract expression string
+      size_t expr_len = brace_end - expr_start;
+      char *expr_str = malloc(expr_len + 1);
+      if (!expr_str) {
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        return NULL;
+      }
+      memcpy(expr_str, content + expr_start, expr_len);
+      expr_str[expr_len] = '\0';
+
+      // Tokenize and parse the expression
+      TokenArray *expr_tokens = tokenize(expr_str, NULL);
+      free(expr_str);
+      if (!expr_tokens) {
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        return NULL;
+      }
+
+      // Create a temporary parser for the expression
+      Parser expr_parser = {expr_tokens, 0};
+
+      // Skip INDENT token if present (tokenizer adds it for each line)
+      if (expr_parser.pos < expr_tokens->count &&
+          expr_tokens->tokens[expr_parser.pos].type == TOK_INDENT) {
+        expr_parser.pos++;
+      }
+
+      ASTNode *expr_node = parse_expression(&expr_parser);
+      token_array_free(expr_tokens);
+
+      if (!expr_node) {
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        return NULL;
+      }
+
+      if (part_count >= part_capacity) {
+        size_t new_capacity = part_capacity * 2;
+        ASTNode **new_parts = realloc(parts, sizeof(ASTNode *) * new_capacity);
+        if (!new_parts) {
+          ast_node_free(expr_node);
+          for (size_t j = 0; j < part_count; j++) {
+            ast_node_free(parts[j]);
+          }
+          free(parts);
+          return NULL;
+        }
+        parts = new_parts;
+        part_capacity = new_capacity;
+      }
+      parts[part_count++] = expr_node;
+
+      i = brace_end + 1; // Skip }
+    }
+  }
+
+  // If no parts, add empty string
+  if (part_count == 0) {
+    ASTNode *empty_str = ast_node_new_checked(AST_STRING);
+    empty_str->as.string.value = malloc(1);
+    if (!empty_str->as.string.value) {
+      free(parts);
+      free(empty_str);
+      return NULL;
+    }
+    empty_str->as.string.value[0] = '\0';
+    empty_str->as.string.length = 0;
+    parts[part_count++] = empty_str;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_FSTRING);
+  node->as.fstring.parts = parts;
+  node->as.fstring.part_count = part_count;
   return node;
 }
 
@@ -947,6 +1150,8 @@ static ASTNode *parse_function(Parser *p, int indent) {
 }
 
 // Parse function call
+// If indent >= 0, it's a statement (requires newline)
+// If indent < 0, it's an expression (no newline required)
 static ASTNode *parse_call(Parser *p, int indent) {
   consume(p, TOK_CALL);
 
@@ -1001,11 +1206,14 @@ static ASTNode *parse_call(Parser *p, int indent) {
     }
   }
 
-  if (!consume(p, TOK_NEWLINE)) {
-    for (size_t i = 0; i < arg_count; i++)
-      ast_node_free(args[i]);
-    free(args);
-    return NULL;
+  // Only require newline if it's a statement (indent >= 0)
+  if (indent >= 0) {
+    if (!consume(p, TOK_NEWLINE)) {
+      for (size_t i = 0; i < arg_count; i++)
+        ast_node_free(args[i]);
+      free(args);
+      return NULL;
+    }
   }
 
   ASTNode *node = ast_node_new_checked(AST_CALL);
@@ -1217,6 +1425,12 @@ void ast_node_free(ASTNode *node) {
     ast_node_free(node->as.slice.list_expr);
     ast_node_free(node->as.slice.start);
     ast_node_free(node->as.slice.end);
+    break;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      ast_node_free(node->as.fstring.parts[i]);
+    }
+    free(node->as.fstring.parts);
     break;
   default:
     break;
