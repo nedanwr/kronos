@@ -1,0 +1,14 @@
+# Test: Basic f-string functionality
+# Expected: Pass
+
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+print greeting
+
+set x to 5
+set result to f"x equals {x}"
+print result
+
+set text to f"Simple f-string"
+print text
+
