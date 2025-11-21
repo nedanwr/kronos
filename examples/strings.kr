@@ -1,0 +1,83 @@
+print "=== Kronos String Operations ==="
+print ""
+
+print "1. String Concatenation"
+set greeting to "Hello"
+set name to "World"
+set message to greeting plus ", " plus name plus "!"
+print message
+print ""
+
+print "2. String Indexing"
+set text1 to "Kronos"
+set first_char to text1 at 0
+print first_char
+set last_char to text1 at -1
+print last_char
+print ""
+
+print "3. String Slicing"
+set text2 to "Programming"
+set slice1 to text2 from 0 to 4
+print slice1
+set slice2 to text2 from 3 to 7
+print slice2
+set slice3 to text2 from 5 to 11
+print slice3
+print ""
+
+print "4. String Length"
+set text3 to "Hello"
+set length to call len with text3
+print length
+print ""
+
+print "5. Case Conversion"
+set text4 to "Hello World"
+set upper to call uppercase with text4
+print upper
+set lower to call lowercase with text4
+print lower
+print ""
+
+print "6. Trimming Whitespace"
+set text5 to "  hello world  "
+set trimmed to call trim with text5
+print trimmed
+print ""
+
+print "7. Splitting Strings"
+set text6 to "apple,banana,cherry"
+set fruits to call split with text6, ","
+print fruits
+print ""
+
+print "8. Joining Lists"
+set words to list "Hello", "World", "from", "Kronos"
+set sentence to call join with words, " "
+print sentence
+print ""
+
+print "9. Complex String Operations"
+set text7 to "  Hello World  "
+set trimmed2 to call trim with text7
+set upper2 to call uppercase with trimmed2
+set parts to call split with upper2, " "
+set joined to call join with parts, "-"
+print joined
+print ""
+
+print "10. String Methods"
+set text8 to "Hello World"
+set has_ello to call contains with text8, "ello"
+print has_ello
+set starts_hello to call starts_with with text8, "Hello"
+print starts_hello
+set ends_world to call ends_with with text8, "World"
+print ends_world
+set replaced to call replace with text8, "World", "Kronos"
+print replaced
+print ""
+
+print "=== End of String Operations ==="
+
