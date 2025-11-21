@@ -1,0 +1,17 @@
+# Test: F-strings with expressions
+# Expected: Pass
+
+set x to 5
+set y to 10
+set result to f"x plus y equals {x plus y}"
+print result
+
+set name to "World"
+set len_result to f"'{name}' has {call len with name} characters"
+print len_result
+
+set a to 3
+set b to 4
+set sum to f"{a} plus {b} equals {a plus b}"
+print sum
+
