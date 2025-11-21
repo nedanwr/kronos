@@ -1,0 +1,12 @@
+# Test: F-strings with nested expressions
+# Expected: Pass
+
+set x to 5
+set y to 3
+set result to f"Result: {(x plus y) times 2}"
+print result
+
+set name to "Kronos"
+set greeting to f"Hello from {call uppercase with name}!"
+print greeting
+
