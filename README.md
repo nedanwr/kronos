@@ -7,6 +7,9 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
 - **Optional Type Annotations**: Enforce types with the `as` keyword
+- **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
+- **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
+- **Lists & Arrays**: List literals, indexing, slicing, and iteration
 - **Fast Execution**: Bytecode VM with optimized execution (Python/JS performance levels)
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
