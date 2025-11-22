@@ -1,0 +1,18 @@
+# Test math function argument count errors
+
+# sqrt with no args
+set x to call sqrt with
+# Expected: Runtime error - sqrt expects 1 argument
+
+# power with one arg
+set y to call power with 2
+# Expected: Runtime error - power expects 2 arguments
+
+# min with no args
+set m to call min with
+# Expected: Runtime error - min expects at least 1 argument
+
+# max with no args
+set mx to call max with
+# Expected: Runtime error - max expects at least 1 argument
+

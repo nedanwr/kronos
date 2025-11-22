@@ -1,0 +1,22 @@
+# Test math function type errors
+
+# sqrt with string
+set x to call sqrt with "16"
+# Expected: Runtime error - sqrt requires a number
+
+# power with string
+set y to call power with "2", 3
+# Expected: Runtime error - power requires numbers
+
+# abs with string
+set z to call abs with "10"
+# Expected: Runtime error - abs requires a number
+
+# min with string
+set m to call min with "5", 10
+# Expected: Runtime error - min requires numbers
+
+# max with string
+set mx to call max with 5, "10"
+# Expected: Runtime error - max requires numbers
+
