@@ -1,0 +1,128 @@
+# Enhanced Standard Library Examples
+
+print "=== Math Functions ==="
+
+# Square root
+set area to 64
+set side to call sqrt with area
+print "Square root of 64 is"
+print side
+
+# Power (exponentiation)
+set base to 2
+set exponent to 8
+set result to call power with base, exponent
+print "2 to the power of 8 is"
+print result
+
+# Absolute value
+set negative to -42
+set positive to call abs with negative
+print "Absolute value of -42 is"
+print positive
+
+# Rounding
+set pi_approx to 3.14159
+set rounded to call round with pi_approx
+print "Rounded 3.14159 is"
+print rounded
+
+set down to call floor with 3.9
+set up to call ceil with 3.1
+print "Floor of 3.9 is", down
+print "Ceiling of 3.1 is", up
+
+# Min and Max
+set smallest to call min with 7, 2, 9, 1, 5
+set largest to call max with 7, 2, 9, 1, 5
+print "Min of [7, 2, 9, 1, 5] is"
+print smallest
+print "Max of [7, 2, 9, 1, 5] is"
+print largest
+
+# Random number
+set random_val to call rand with
+print "Random number:", random_val
+
+print ""
+print "=== Type Conversion ==="
+
+# String to number
+set num_str to "12345"
+set num_val to call to_number with num_str
+print "String '12345' converted to number:"
+print num_val
+
+set float_str to "3.14159"
+set float_val to call to_number with float_str
+print "String '3.14159' converted to number:"
+print float_val
+
+# Value to boolean
+set truthy_str to "true"
+set truthy_bool to call to_bool with truthy_str
+print "String 'true' converted to boolean:"
+print truthy_bool
+
+set falsy_str to "false"
+set falsy_bool to call to_bool with falsy_str
+print "String 'false' converted to boolean:"
+print falsy_bool
+
+set num_truthy to call to_bool with 42
+set num_falsy to call to_bool with 0
+print "Number 42 converted to boolean:"
+print num_truthy
+print "Number 0 converted to boolean:"
+print num_falsy
+
+set null_falsy to call to_bool with null
+print "null converted to boolean:"
+print null_falsy
+
+print ""
+print "=== List Utilities ==="
+
+# Reverse a list
+set original to list 1, 2, 3, 4, 5
+set reversed to call reverse with original
+print "Original list:", original
+print "Reversed list:", reversed
+
+# Sort a list of numbers
+set unsorted_nums to list 5, 2, 8, 1, 9, 3
+set sorted_nums to call sort with unsorted_nums
+print "Unsorted:", unsorted_nums
+print "Sorted:", sorted_nums
+
+# Sort a list of strings
+set unsorted_words to list "zebra", "apple", "banana", "cherry"
+set sorted_words to call sort with unsorted_words
+print "Unsorted words:", unsorted_words
+print "Sorted words:", sorted_words
+
+print ""
+print "=== Combining Functions ==="
+
+# Calculate distance using sqrt and power
+set x1 to 0
+set y1 to 0
+set x2 to 3
+set y2 to 4
+
+set dx to x2 minus x1
+set dy to y2 minus y1
+set dx_squared to call power with dx, 2
+set dy_squared to call power with dy, 2
+set sum_squares to dx_squared plus dy_squared
+set distance to call sqrt with sum_squares
+print "Distance from (0,0) to (3,4) is"
+print distance
+
+# Process a list of numbers
+set values to list 5, -3, 8, -1, 4
+for val in values:
+    let abs_val to call abs with val
+    print "Absolute value:"
+    print abs_val
+

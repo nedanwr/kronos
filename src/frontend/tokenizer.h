@@ -29,6 +29,7 @@ typedef enum {
   TOK_WITH,
   TOK_CALL,
   TOK_RETURN,
+  TOK_IMPORT,
   TOK_TRUE,
   TOK_FALSE,
   TOK_NULL,

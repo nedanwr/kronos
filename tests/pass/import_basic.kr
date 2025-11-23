@@ -1,0 +1,8 @@
+# Test basic import and module usage
+
+import math
+
+set result to call math.sqrt with 16
+print result
+# Expected: 4
+

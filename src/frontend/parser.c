@@ -51,6 +51,7 @@ static ASTNode *parse_while(Parser *p, int indent);
 static ASTNode *parse_function(Parser *p, int indent);
 static ASTNode *parse_call(Parser *p, int indent);
 static ASTNode *parse_return(Parser *p, int indent);
+static ASTNode *parse_import(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
@@ -832,6 +833,8 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       stmt = parse_call(p, next_indent);
     } else if (tok->type == TOK_RETURN) {
       stmt = parse_return(p, next_indent);
+    } else if (tok->type == TOK_IMPORT) {
+      stmt = parse_import(p, next_indent);
     }
 
     if (!stmt) {
@@ -1253,6 +1256,29 @@ static ASTNode *parse_return(Parser *p, int indent) {
   return node;
 }
 
+// Parse import statement
+static ASTNode *parse_import(Parser *p, int indent) {
+  consume(p, TOK_IMPORT);
+
+  Token *module_name = consume(p, TOK_NAME);
+  if (!module_name)
+    return NULL;
+
+  if (!consume(p, TOK_NEWLINE)) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_IMPORT);
+  node->indent = indent;
+  node->as.import.module_name = strdup(module_name->text);
+  if (!node->as.import.module_name) {
+    free(node);
+    return NULL;
+  }
+
+  return node;
+}
+
 // Parse statement
 static ASTNode *parse_statement(Parser *p) {
   Token *tok = peek(p, 0);
@@ -1287,6 +1313,8 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_call(p, indent);
   case TOK_RETURN:
     return parse_return(p, indent);
+  case TOK_IMPORT:
+    return parse_import(p, indent);
   default:
     return NULL;
   }
@@ -1410,6 +1438,9 @@ void ast_node_free(ASTNode *node) {
     break;
   case AST_RETURN:
     ast_node_free(node->as.return_stmt.value);
+    break;
+  case AST_IMPORT:
+    free(node->as.import.module_name);
     break;
   case AST_LIST:
     for (size_t i = 0; i < node->as.list.element_count; i++) {

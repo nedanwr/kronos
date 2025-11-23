@@ -1,0 +1,46 @@
+# Test math functions
+
+# sqrt
+set x to call sqrt with 16
+print x
+# Expected: 4
+
+# power
+set y to call power with 2, 3
+print y
+# Expected: 8
+
+# abs
+set z to call abs with -10
+print z
+# Expected: 10
+
+# round
+set r to call round with 3.7
+print r
+# Expected: 4
+
+set r2 to call round with 3.2
+print r2
+# Expected: 3
+
+# floor
+set f to call floor with 3.7
+print f
+# Expected: 3
+
+# ceil
+set c to call ceil with 3.2
+print c
+# Expected: 4
+
+# min
+set m to call min with 5, 10, 3
+print m
+# Expected: 3
+
+# max
+set mx to call max with 5, 10, 3
+print mx
+# Expected: 10
+

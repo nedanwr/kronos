@@ -1,0 +1,15 @@
+# Test list utility errors
+
+# reverse with string
+set r to call reverse with "hello"
+# Expected: Runtime error - reverse requires a list
+
+# sort with mixed types
+set mixed to list 1, "two", 3
+set s to call sort with mixed
+# Expected: Runtime error - sort requires list items to be all numbers or all strings
+
+# sort with string
+set s2 to call sort with "hello"
+# Expected: Runtime error - sort requires a list
+

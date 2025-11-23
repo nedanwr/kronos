@@ -598,6 +598,46 @@ while x is less than limit:
 
 ---
 
+## Modules and Imports
+
+Kronos supports importing built-in modules to organize functions into namespaces.
+
+### Importing Modules
+
+**Syntax:**
+```
+import <module_name>
+```
+
+**Available Built-in Modules:**
+- `math` - Mathematical functions (sqrt, power, abs, round, floor, ceil, rand, min, max)
+
+**Note:** String functions (uppercase, lowercase, trim, split, join, contains, starts_with, ends_with, replace, len, to_string) are available globally and do not require an import.
+
+**Examples:**
+```kronos
+import math
+# String functions are global (no import needed)
+```
+
+### Using Module Functions
+
+After importing a module, access its functions using the `module.function` syntax:
+
+```kronos
+import math
+set result to call math.sqrt with 16        # Returns 4
+set power to call math.power with 2, 8      # Returns 256
+
+# String functions are available globally (no import needed)
+set upper to call uppercase with "hello"    # Returns "HELLO"
+set trimmed to call trim with "  text  "    # Returns "text"
+```
+
+**Note:** Math functions can be accessed via the `math` module namespace. String functions are always available globally without any import, similar to Python and TypeScript.
+
+---
+
 ## Built-in Constants and Functions
 
 Kronos provides several built-in constants and functions for common operations.
@@ -635,6 +675,15 @@ The Pi constant is available globally and can be used in any calculation.
 - `subtract(a, b)` - Subtracts b from a
 - `multiply(a, b)` - Multiplies two numbers
 - `divide(a, b)` - Divides a by b
+- `sqrt(number)` - Square root of a number (requires non-negative number)
+- `power(base, exponent)` - Raises base to the power of exponent
+- `abs(number)` - Absolute value of a number
+- `round(number)` - Rounds number to nearest integer
+- `floor(number)` - Floor (rounds down) of a number
+- `ceil(number)` - Ceiling (rounds up) of a number
+- `rand()` - Returns a random number between 0.0 and 1.0
+- `min(...)` - Returns the minimum of one or more numbers
+- `max(...)` - Returns the maximum of one or more numbers
 
 **Examples:**
 
@@ -643,6 +692,15 @@ call add with 10, 5        # Returns 15
 call subtract with 10, 5   # Returns 5
 call multiply with 10, 5   # Returns 50
 call divide with 10, 5     # Returns 2
+call sqrt with 16          # Returns 4
+call power with 2, 8       # Returns 256
+call abs with -10          # Returns 10
+call round with 3.7        # Returns 4
+call floor with 3.9        # Returns 3
+call ceil with 3.1         # Returns 4
+call rand with             # Returns random number 0.0-1.0
+call min with 5, 10, 3     # Returns 3
+call max with 5, 10, 3     # Returns 10
 ```
 
 **String Operations:**
@@ -659,6 +717,17 @@ call divide with 10, 5     # Returns 2
 - `ends_with(string, suffix)` - Check if string ends with suffix (returns boolean)
 - `replace(string, old, new)` - Replace all occurrences of old substring with new
 
+**Type Conversion:**
+
+- `to_string(value)` - Convert any value to string representation
+- `to_number(string)` - Convert string to number (also accepts numbers)
+- `to_bool(value)` - Convert value to boolean (strings "true"/"false", numbers, null)
+
+**List Utilities:**
+
+- `reverse(list)` - Returns a new list with elements in reverse order
+- `sort(list)` - Returns a new sorted list (numbers or strings only, all same type)
+
 **String Function Examples:**
 
 ```kronos
@@ -670,6 +739,28 @@ set parts to call split with "a,b,c", ","     # Returns list ["a", "b", "c"]
 set joined to call join with parts, "-"       # Returns "a-b-c"
 set has_ello to call contains with text, "ello"  # Returns true
 set replaced to call replace with text, "World", "Kronos"  # Returns "Hello Kronos"
+```
+
+**Type Conversion Examples:**
+
+```kronos
+set num_str to "123"
+set num_val to call to_number with num_str    # Returns 123
+set bool_val to call to_bool with "true"      # Returns true
+set bool_val2 to call to_bool with 42         # Returns true
+set bool_val3 to call to_bool with 0          # Returns false
+set bool_val4 to call to_bool with null       # Returns false
+```
+
+**List Utility Examples:**
+
+```kronos
+set original to list 1, 2, 3, 4, 5
+set reversed to call reverse with original    # Returns [5, 4, 3, 2, 1]
+set unsorted to list 3, 1, 4, 1, 5
+set sorted to call sort with unsorted         # Returns [1, 1, 3, 4, 5]
+set words to list "zebra", "apple", "banana"
+set sorted_words to call sort with words      # Returns ["apple", "banana", "zebra"]
 ```
 
 **Notes:**

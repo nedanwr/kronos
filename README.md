@@ -10,6 +10,8 @@ A high-performance programming language built in C with human-readable syntax, f
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
 - **Lists & Arrays**: List literals, indexing, slicing, and iteration
+- **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort)
+- **Module System**: Import built-in modules (`import math`) and use namespaced functions (`math.sqrt`). String functions are global built-ins.
 - **Fast Execution**: Bytecode VM with optimized execution (Python/JS performance levels)
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
@@ -194,9 +196,9 @@ make clean
 - Basic LSP server
 
 🔄 **Remaining for v0.3.0: "Data Structures & Control Flow"**
-- Lists/arrays - Full operations (indexing, slicing, iteration, append, list methods)
-- String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
-- Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- ✅ Lists/arrays - Full operations (indexing, slicing, iteration) - **COMPLETED**
+- ✅ String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins) - **COMPLETED**
+- ✅ Enhanced standard library - Math, type conversion, list utilities (20+ functions) - **COMPLETED**
 - Control flow - `else if`, `break`, `continue`, range-based loops
 - Range objects - First-class range support
 - Enhanced LSP - JSON-RPC parser, diagnostics, go-to-definition, hover, document symbols

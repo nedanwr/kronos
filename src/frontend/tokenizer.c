@@ -72,7 +72,8 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"at", TOK_AT},           {"from", TOK_FROM},
       {"end", TOK_END},         {"function", TOK_FUNCTION},
       {"with", TOK_WITH},       {"call", TOK_CALL},
-      {"return", TOK_RETURN},   {"true", TOK_TRUE},
+      {"return", TOK_RETURN},   {"import", TOK_IMPORT},
+      {"true", TOK_TRUE},
       {"false", TOK_FALSE},     {"null", TOK_NULL},
       {"is", TOK_IS},           {"equal", TOK_EQUAL},
       {"not", TOK_NOT},         {"greater", TOK_GREATER},
@@ -196,10 +197,10 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       continue;
     }
 
-    // Names and keywords
+    // Names and keywords (allow dots for module.function syntax)
     if (isalpha(line[col]) || line[col] == '_') {
       size_t start = col;
-      while (col < len && (isalnum(line[col]) || line[col] == '_')) {
+      while (col < len && (isalnum(line[col]) || line[col] == '_' || line[col] == '.')) {
         col++;
       }
       size_t word_len = col - start;

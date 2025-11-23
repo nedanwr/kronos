@@ -14,6 +14,7 @@ typedef enum {
   AST_FUNCTION,
   AST_CALL,
   AST_RETURN,
+  AST_IMPORT,
   AST_NUMBER,
   AST_STRING,
   AST_FSTRING,
@@ -128,6 +129,11 @@ struct ASTNode {
     struct {
       ASTNode *value;
     } return_stmt;
+
+    // Import: import module_name
+    struct {
+      char *module_name;
+    } import;
 
     // List literal: list 1, 2, 3
     struct {

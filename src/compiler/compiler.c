@@ -947,6 +947,14 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_IMPORT: {
+    // Import statements are handled at runtime
+    // For built-in modules, we just track that the module was imported
+    // Module resolution happens when module.function is called
+    // No bytecode needed - this is a no-op
+    break;
+  }
+
   case AST_RETURN: {
     // Compile return value
     compile_expression(c, node->as.return_stmt.value);

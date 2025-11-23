@@ -1,0 +1,6 @@
+# Test sqrt with negative number
+
+set x to 0 minus 4
+set y to call sqrt with x
+# Expected: Runtime error - sqrt requires a non-negative number
+

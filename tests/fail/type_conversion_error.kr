@@ -1,0 +1,14 @@
+# Test type conversion errors
+
+# to_number with invalid string
+set num to call to_number with "abc"
+# Expected: Runtime error - cannot convert string to number
+
+# to_number with list
+set num2 to call to_number with list 1, 2, 3
+# Expected: Runtime error - to_number requires string or number
+
+# to_bool with list
+set b to call to_bool with list 1, 2
+# Expected: Runtime error - cannot convert type to boolean
+
