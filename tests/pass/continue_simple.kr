@@ -1,0 +1,6 @@
+# Simple continue test
+for i in range 1 to 5:
+    if i is equal 3:
+        continue
+    print i
+

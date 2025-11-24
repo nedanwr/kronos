@@ -1,0 +1,12 @@
+# Test else-if statements
+set score to 85
+
+if score is greater than 90:
+    print "A"
+else if score is greater than 80:
+    print "B"
+else if score is greater than 70:
+    print "C"
+else:
+    print "F"
+

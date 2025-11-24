@@ -5,9 +5,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Loop boundary tracking for break/continue
+typedef struct BreakContinueJump {
+  size_t jump_pos;    // Position of jump offset byte that needs patching
+  bool is_break;      // true for break, false for continue
+  struct BreakContinueJump *next;
+} BreakContinueJump;
+
+typedef struct LoopInfo {
+  size_t loop_start;  // Position of loop start (for continue in while loops)
+  size_t loop_continue; // Position to jump to for continue (increment for for loops, loop_start for while)
+  size_t loop_end;    // Position after loop end (for break) - updated after loop compilation
+  BreakContinueJump *pending_jumps; // List of break/continue jumps to patch
+  struct LoopInfo *next;
+} LoopInfo;
+
 typedef struct {
   Bytecode *bytecode;
   const char *error_message;
+  LoopInfo *loop_stack; // Stack of active loops for break/continue
 } Compiler;
 
 static inline bool compiler_has_error(const Compiler *c) {
@@ -18,6 +34,93 @@ static void compiler_set_error(Compiler *c, const char *message) {
   if (!c || c->error_message)
     return;
   c->error_message = message;
+}
+
+// Push loop info onto stack
+static bool push_loop(Compiler *c, size_t loop_start) {
+  LoopInfo *info = malloc(sizeof(LoopInfo));
+  if (!info) {
+    compiler_set_error(c, "Failed to allocate loop info");
+    return false;
+  }
+  info->loop_start = loop_start;
+  info->loop_continue = loop_start; // Default to loop_start, will be updated for for loops
+  info->loop_end = 0; // Will be set after loop compilation
+  info->pending_jumps = NULL;
+  info->next = c->loop_stack;
+  c->loop_stack = info;
+  return true;
+}
+
+// Add a pending break/continue jump to the current loop
+static bool add_pending_jump(Compiler *c, size_t jump_pos, bool is_break) {
+  if (!c->loop_stack) {
+    compiler_set_error(c, is_break ? "break statement outside of loop" : "continue statement outside of loop");
+    return false;
+  }
+  BreakContinueJump *jump = malloc(sizeof(BreakContinueJump));
+  if (!jump) {
+    compiler_set_error(c, "Failed to allocate jump info");
+    return false;
+  }
+  jump->jump_pos = jump_pos;
+  jump->is_break = is_break;
+  jump->next = c->loop_stack->pending_jumps;
+  c->loop_stack->pending_jumps = jump;
+  return true;
+}
+
+// Patch all pending jumps for the current loop
+static void patch_pending_jumps(Compiler *c) {
+  if (!c->loop_stack)
+    return;
+  BreakContinueJump *jump = c->loop_stack->pending_jumps;
+  while (jump) {
+    size_t target_pos = jump->is_break ? c->loop_stack->loop_end : c->loop_stack->loop_continue;
+    size_t offset = target_pos - (jump->jump_pos + 1);
+
+    if (jump->is_break) {
+      // Forward jump
+      if (offset > 255) {
+        compiler_set_error(c, "break jump offset too large");
+        return;
+      }
+      c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
+    } else {
+      // Backward jump for continue
+      if (target_pos < jump->jump_pos + 1) {
+        int8_t signed_offset = (int8_t)(target_pos - (jump->jump_pos + 1));
+        c->bytecode->code[jump->jump_pos] = (uint8_t)signed_offset;
+      } else {
+        // Forward jump (shouldn't happen, but handle it)
+        if (offset > 255) {
+          compiler_set_error(c, "continue jump offset too large");
+          return;
+        }
+        c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
+      }
+    }
+    BreakContinueJump *next = jump->next;
+    free(jump);
+    jump = next;
+  }
+  c->loop_stack->pending_jumps = NULL;
+}
+
+// Pop loop info from stack (frees pending jumps)
+static void pop_loop(Compiler *c) {
+  if (!c->loop_stack)
+    return;
+  // Free any remaining pending jumps (shouldn't happen, but be safe)
+  BreakContinueJump *jump = c->loop_stack->pending_jumps;
+  while (jump) {
+    BreakContinueJump *next = jump->next;
+    free(jump);
+    jump = next;
+  }
+  LoopInfo *next = c->loop_stack->next;
+  free(c->loop_stack);
+  c->loop_stack = next;
 }
 
 // Helper to emit byte
@@ -528,19 +631,182 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     if (compiler_has_error(c))
       return;
 
-    // Compile block
+    // Compile if block
     for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
       compile_statement(c, node->as.if_stmt.block[i]);
       if (compiler_has_error(c))
         return;
     }
 
-    // Patch jump offset
-    if (compiler_has_error(c))
-      return;
-    size_t jump_target = c->bytecode->count;
-    c->bytecode->code[jump_offset_pos] =
-        (uint8_t)(jump_target - jump_offset_pos - 1);
+    // Collect all jump positions that need to be patched to point to next condition/else/end
+    size_t *jump_positions = NULL;
+    size_t jump_count = 0;
+    size_t jump_capacity = 0;
+
+    // Collect all skip jumps (jumps that skip to the end)
+    size_t *skip_jumps = NULL;
+    size_t skip_count = 0;
+    size_t skip_capacity = 0;
+
+    // Add the initial if jump (jump-if-false, should point to next else-if/else/end)
+    if (jump_count >= jump_capacity) {
+      size_t new_capacity = jump_capacity == 0 ? 4 : jump_capacity * 2;
+      size_t *new_positions = realloc(jump_positions, sizeof(size_t) * new_capacity);
+      if (!new_positions) {
+        compiler_set_error(c, "Failed to allocate jump positions array");
+        return;
+      }
+      jump_positions = new_positions;
+      jump_capacity = new_capacity;
+    }
+    jump_positions[jump_count++] = jump_offset_pos;
+
+    // Only emit skip jump if there are else-if or else blocks
+    // For simple if statements, we don't need a skip jump
+    bool has_else_or_else_if = (node->as.if_stmt.else_if_count > 0 || node->as.if_stmt.else_block_size > 0);
+
+    if (has_else_or_else_if) {
+      // Emit skip jump at end of if block (will be patched at the end)
+      emit_byte(c, OP_JUMP);
+      size_t if_skip_jump_pos = c->bytecode->count;
+      emit_byte(c, 0); // Placeholder
+      if (compiler_has_error(c)) {
+        free(jump_positions);
+        return;
+      }
+      if (skip_count >= skip_capacity) {
+        size_t new_capacity = skip_capacity == 0 ? 4 : skip_capacity * 2;
+        size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
+        if (!new_skips) {
+          compiler_set_error(c, "Failed to allocate skip jumps array");
+          free(jump_positions);
+          return;
+        }
+        skip_jumps = new_skips;
+        skip_capacity = new_capacity;
+      }
+      skip_jumps[skip_count++] = if_skip_jump_pos;
+    }
+
+    // Compile else-if chains
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      // Emit jump to skip else-if block (will be patched immediately when we know where next block starts)
+      emit_byte(c, OP_JUMP);
+      size_t else_if_jump_pos = c->bytecode->count;
+      emit_byte(c, 0); // Placeholder
+      if (compiler_has_error(c)) {
+        free(jump_positions);
+        free(skip_jumps);
+        return;
+      }
+
+      // Patch previous jumps to point to this else-if condition
+      size_t else_if_start = c->bytecode->count;
+      for (size_t j = 0; j < jump_count; j++) {
+        size_t pos = jump_positions[j];
+        c->bytecode->code[pos] = (uint8_t)(else_if_start - pos - 1);
+      }
+      // Clear jump positions - we'll add new ones for this else-if
+      jump_count = 0;
+
+      // Compile else-if condition
+      compile_expression(c, node->as.if_stmt.else_if_conditions[i]);
+      if (compiler_has_error(c)) {
+        free(jump_positions);
+        free(skip_jumps);
+        return;
+      }
+
+      // Emit jump if false
+      emit_byte(c, OP_JUMP_IF_FALSE);
+      size_t else_if_jump_if_false_pos = c->bytecode->count;
+      emit_byte(c, 0); // Placeholder
+      if (compiler_has_error(c)) {
+        free(jump_positions);
+        free(skip_jumps);
+        return;
+      }
+
+      // Compile else-if block
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        compile_statement(c, node->as.if_stmt.else_if_blocks[i][j]);
+        if (compiler_has_error(c)) {
+          free(jump_positions);
+          return;
+        }
+      }
+
+      // Add skip jump to list (will be patched at the end)
+      if (skip_count >= skip_capacity) {
+        size_t new_capacity = skip_capacity == 0 ? 4 : skip_capacity * 2;
+        size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
+        if (!new_skips) {
+          compiler_set_error(c, "Failed to allocate skip jumps array");
+          free(jump_positions);
+          return;
+        }
+        skip_jumps = new_skips;
+        skip_capacity = new_capacity;
+      }
+      skip_jumps[skip_count++] = else_if_jump_pos;
+
+      // Add jump-if-false to list (should point to next else-if/else/end)
+      if (jump_count + 1 > jump_capacity) {
+        size_t new_capacity = jump_capacity == 0 ? 4 : jump_capacity * 2;
+        while (new_capacity < jump_count + 1) {
+          new_capacity *= 2;
+        }
+        size_t *new_positions = realloc(jump_positions, sizeof(size_t) * new_capacity);
+        if (!new_positions) {
+          compiler_set_error(c, "Failed to allocate jump positions array");
+          free(jump_positions);
+          free(skip_jumps);
+          return;
+        }
+        jump_positions = new_positions;
+        jump_capacity = new_capacity;
+      }
+      jump_positions[jump_count++] = else_if_jump_if_false_pos;
+    }
+
+    // Compile else block (if present)
+    if (node->as.if_stmt.else_block_size > 0) {
+      // Patch all previous jumps (from if and else-if chains) to point to else block
+      size_t else_start = c->bytecode->count;
+      for (size_t j = 0; j < jump_count; j++) {
+        size_t pos = jump_positions[j];
+        c->bytecode->code[pos] = (uint8_t)(else_start - pos - 1);
+      }
+      jump_count = 0;
+
+      // Compile else block
+      for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+        compile_statement(c, node->as.if_stmt.else_block[i]);
+        if (compiler_has_error(c)) {
+          free(jump_positions);
+          free(skip_jumps);
+          return;
+        }
+      }
+    }
+
+    // Patch all skip jumps to point to end
+    size_t end_pos = c->bytecode->count;
+    for (size_t j = 0; j < skip_count; j++) {
+      size_t pos = skip_jumps[j];
+      c->bytecode->code[pos] = (uint8_t)(end_pos - pos - 1);
+    }
+
+    // If no else block, also patch jump-if-false jumps to end
+    if (node->as.if_stmt.else_block_size == 0) {
+      for (size_t j = 0; j < jump_count; j++) {
+        size_t pos = jump_positions[j];
+        c->bytecode->code[pos] = (uint8_t)(end_pos - pos - 1);
+      }
+    }
+
+    free(jump_positions);
+    free(skip_jumps);
     break;
   }
 
@@ -558,7 +824,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     }
 
     if (node->as.for_stmt.is_range) {
-      // Range iteration: for i in range start to end
+      // Range iteration: for i in range start to end [by step]
       // Initialize loop variable
       compile_expression(c, node->as.for_stmt.iterable);
       if (compiler_has_error(c))
@@ -582,7 +848,21 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       if (compiler_has_error(c))
         return;
 
-      // Check if var <= end
+      // Determine step value (default to 1 if not specified)
+      // For now, we'll compile the step expression and use it
+      // If step is NULL, we'll use 1
+      bool has_step = (node->as.for_stmt.step != NULL);
+
+      // For comparison, we need to check direction based on step
+      // If step > 0: check var <= end
+      // If step < 0: check var >= end
+      // For now, we'll assume step is positive (default) and handle negative at runtime
+      // Actually, we can't know the sign at compile time if step is an expression
+      // So we'll always use <= and handle negative steps at runtime
+      // Or we can check if step is a constant and optimize
+
+      // For simplicity, always use <= for now
+      // TODO: Optimize for negative steps when step is a constant
       emit_byte(c, OP_LTE);
       if (compiler_has_error(c))
         return;
@@ -594,39 +874,80 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       if (compiler_has_error(c))
         return;
 
+      // Push loop info for break/continue
+      if (!push_loop(c, loop_start)) {
+        return;
+      }
+
       // Compile loop body
       for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
         compile_statement(c, node->as.for_stmt.block[i]);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
+          pop_loop(c);
           return;
+        }
       }
 
-      // Increment loop variable
+      // Set continue target to here (increment part) for continue statements
+      if (c->loop_stack) {
+        c->loop_stack->loop_continue = c->bytecode->count;
+      }
+
+      // Increment loop variable by step
       emit_byte(c, OP_LOAD_VAR);
       emit_uint16(c, (uint16_t)var_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
-      KronosValue *one = value_new_number(1);
-      emit_constant(c, one);
-      if (compiler_has_error(c))
-        return;
+      }
+
+      if (has_step) {
+        // Use the specified step value
+        compile_expression(c, node->as.for_stmt.step);
+        if (compiler_has_error(c)) {
+          pop_loop(c);
+          return;
+        }
+      } else {
+        // Default step is 1
+        KronosValue *one = value_new_number(1);
+        emit_constant(c, one);
+        if (compiler_has_error(c)) {
+          pop_loop(c);
+          return;
+        }
+      }
+
       emit_byte(c, OP_ADD);
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)var_idx);
       emit_byte(c, 1);
       emit_byte(c, 0);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
       // Jump back to loop start
       size_t offset = c->bytecode->count - loop_start + 2;
       emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
-      // Patch exit jump
+      // Patch exit jump and update loop end
+      size_t exit_target = c->bytecode->count;
       c->bytecode->code[exit_jump_pos] =
-          (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+          (uint8_t)(exit_target - exit_jump_pos - 1);
+      if (c->loop_stack) {
+        c->loop_stack->loop_end = exit_target;
+        // Patch all pending break/continue jumps
+        patch_pending_jumps(c);
+      }
+
+      // Pop loop info
+      pop_loop(c);
     } else {
       // List iteration: for item in list_expr
       // Compile list expression
@@ -707,14 +1028,21 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       if (compiler_has_error(c))
         return;
 
+      // Push loop info for break/continue
+      if (!push_loop(c, loop_start)) {
+        return;
+      }
+
       // Stack now: [list, index+1, item] (OP_JUMP_IF_FALSE already popped
       // has_more) Store item in loop variable (pops item)
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)var_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
       // Stack now: [list, index+1] - save iterator state for next iteration
       // Stack is [list, index+1] with index+1 on top
@@ -723,35 +1051,52 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       emit_uint16(c, (uint16_t)iter_index_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
       // Store list (pops list)
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_list_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
       // Stack is now empty - loop body can do whatever it wants
 
       // Compile loop body
       for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
         compile_statement(c, node->as.for_stmt.block[i]);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
+          pop_loop(c);
           return;
+        }
       }
 
       // Jump back to loop start
       size_t offset = c->bytecode->count - loop_start + 2;
       emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
 
-      // Patch exit jump
+      // Patch exit jump and update loop end
+      size_t exit_target = c->bytecode->count;
       c->bytecode->code[exit_jump_pos] =
-          (uint8_t)(c->bytecode->count - exit_jump_pos - 1);
+          (uint8_t)(exit_target - exit_jump_pos - 1);
+      if (c->loop_stack) {
+        c->loop_stack->loop_end = exit_target;
+        // Patch all pending break/continue jumps
+        patch_pending_jumps(c);
+      }
+
+      // Pop loop info
+      pop_loop(c);
 
       // Clean up: pop index and list from stack
       // Stack at exit: [list, index] (OP_JUMP_IF_FALSE already popped has_more)
@@ -800,23 +1145,38 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     if (compiler_has_error(c))
       return;
 
+      // Push loop info for break/continue
+      if (!push_loop(c, loop_start)) {
+        return;
+      }
+
     // Compile loop body
     for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
       compile_statement(c, node->as.while_stmt.block[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
+        pop_loop(c);
         return;
+      }
     }
 
     // Jump back to loop start
     size_t offset = c->bytecode->count - loop_start + 2;
     emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
+      pop_loop(c);
       return;
+    }
 
-    // Patch exit jump
+    // Patch exit jump and update loop end
     size_t exit_target = c->bytecode->count;
     c->bytecode->code[exit_jump_pos] =
         (uint8_t)(exit_target - exit_jump_pos - 1);
+    if (c->loop_stack) {
+      c->loop_stack->loop_end = exit_target;
+    }
+
+    // Pop loop info
+    pop_loop(c);
     break;
   }
 
@@ -952,6 +1312,34 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // For built-in modules, we just track that the module was imported
     // Module resolution happens when module.function is called
     // No bytecode needed - this is a no-op
+    break;
+  }
+
+  case AST_BREAK: {
+    // Break out of loop - jump to loop end (will be patched after loop compilation)
+    emit_byte(c, OP_JUMP);
+    size_t jump_pos = c->bytecode->count;
+    emit_byte(c, 0); // Placeholder - will be patched later
+    if (compiler_has_error(c))
+      return;
+    // Add to pending jumps list
+    if (!add_pending_jump(c, jump_pos, true)) {
+      return;
+    }
+    break;
+  }
+
+  case AST_CONTINUE: {
+    // Continue to next loop iteration - jump to loop start (will be patched after loop compilation)
+    emit_byte(c, OP_JUMP);
+    size_t jump_pos = c->bytecode->count;
+    emit_byte(c, 0); // Placeholder - will be patched later
+    if (compiler_has_error(c))
+      return;
+    // Add to pending jumps list
+    if (!add_pending_jump(c, jump_pos, false)) {
+      return;
+    }
     break;
   }
 

@@ -496,7 +496,62 @@ if x is greater than 5:
         print "x is also less than 15"
 ```
 
-**Note:** Currently, only `if` is supported. `else` and `else if` are planned for future releases.
+### Else If Statement
+
+Chain multiple conditions together.
+
+**Syntax:**
+
+```
+if <condition>:
+    <indented block>
+else if <condition>:
+    <indented block>
+else if <condition>:
+    <indented block>
+else:
+    <indented block>
+```
+
+**Examples:**
+
+Grade assignment:
+
+```kronos
+set score to 85
+
+if score is greater than 90:
+    print "A"
+else if score is greater than 80:
+    print "B"
+else if score is greater than 70:
+    print "C"
+else:
+    print "F"
+```
+
+### Else Statement
+
+Execute code when the condition is false.
+
+**Syntax:**
+
+```
+if <condition>:
+    <indented block>
+else:
+    <indented block>
+```
+
+**Examples:**
+
+```kronos
+set age to 18
+if age is greater than 17:
+    print "You are an adult"
+else:
+    print "You are a minor"
+```
 
 ---
 
@@ -511,9 +566,11 @@ Iterate over a range of numbers.
 **Syntax:**
 
 ```
-for <variable> in range <start> to <end>:
+for <variable> in range <start> to <end> [by <step>]:
     <indented block>
 ```
+
+The `by <step>` clause is optional. If omitted, the step defaults to 1.
 
 **Examples:**
 
@@ -548,10 +605,26 @@ for i in range 1 to 3:
         print product
 ```
 
+Range with step:
+
+```kronos
+# Count by 2s
+for i in range 0 to 10 by 2:
+    print i
+# Prints: 0, 2, 4, 6, 8, 10
+
+# Count by 5s
+for i in range 0 to 100 by 5:
+    print i
+# Prints: 0, 5, 10, 15, ..., 100
+```
+
 **Range behavior:**
 
 - `range <start> to <end>` is inclusive on both ends
 - `range 1 to 5` includes 1, 2, 3, 4, and 5
+- The step value determines the increment between iterations
+- Step defaults to 1 if not specified
 
 ### While Loop
 
@@ -595,6 +668,48 @@ while x is less than limit:
 ```
 
 **Warning:** Be careful to update variables in the loop to avoid infinite loops!
+
+### Break Statement
+
+Exit a loop early.
+
+**Syntax:**
+
+```
+break
+```
+
+**Examples:**
+
+```kronos
+for i in range 1 to 10:
+    if i is equal 5:
+        break
+    print i
+# Prints: 1, 2, 3, 4
+```
+
+### Continue Statement
+
+Skip to the next iteration of a loop.
+
+**Syntax:**
+
+```
+continue
+```
+
+**Examples:**
+
+```kronos
+for i in range 1 to 10:
+    if i is equal 5:
+        continue
+    print i
+# Prints: 1, 2, 3, 4, 6, 7, 8, 9, 10
+```
+
+**Note:** `break` and `continue` can only be used inside loops (`for` or `while`).
 
 ---
 

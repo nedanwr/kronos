@@ -81,6 +81,21 @@ Loop demonstrations:
 ./kronos examples/loops.kr
 ```
 
+### control_flow.kr
+
+Showcases the newest control flow features:
+
+- `else if` / `else` chains
+- `break` and `continue`
+- Range loops with `by <step>`
+- Basic module imports (`import math`)
+
+**Run:**
+
+```bash
+./kronos examples/control_flow.kr
+```
+
 ## Advanced Examples
 
 ### syntax_showcase.kr

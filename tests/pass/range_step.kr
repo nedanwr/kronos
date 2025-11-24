@@ -1,0 +1,9 @@
+# Test range loops with step
+print "Range 0 to 10 by 2:"
+for i in range 0 to 10 by 2:
+    print i
+
+print "Range 1 to 20 by 5:"
+for i in range 1 to 20 by 5:
+    print i
+

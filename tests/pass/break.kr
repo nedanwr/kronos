@@ -1,0 +1,6 @@
+# Test break statement
+for i in range 1 to 10:
+    if i is equal 5:
+        break
+    print i
+
