@@ -25,6 +25,8 @@ typedef enum {
   OP_NOT,           // Logical NOT (unary)
   OP_JUMP,          // Unconditional jump
   OP_JUMP_IF_FALSE, // Jump if top of stack is false
+  OP_BREAK,         // Break out of loop
+  OP_CONTINUE,      // Continue to next loop iteration
   OP_DEFINE_FUNC,   // Define function
   OP_CALL_FUNC,     // Call function
   OP_RETURN_VAL,    // Return from function with value

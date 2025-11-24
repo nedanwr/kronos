@@ -11,6 +11,8 @@ typedef enum {
   AST_IF,
   AST_FOR,
   AST_WHILE,
+  AST_BREAK,
+  AST_CONTINUE,
   AST_FUNCTION,
   AST_CALL,
   AST_RETURN,
@@ -93,6 +95,14 @@ struct ASTNode {
       ASTNode *condition;
       ASTNode **block;
       size_t block_size;
+      // Else-if chain: list of (condition, block) pairs
+      ASTNode **else_if_conditions;
+      ASTNode ***else_if_blocks;
+      size_t *else_if_block_sizes;
+      size_t else_if_count;
+      // Else block (optional)
+      ASTNode **else_block;
+      size_t else_block_size;
     } if_stmt;
 
     struct {
@@ -101,6 +111,7 @@ struct ASTNode {
                          // expression
       bool is_range;     // true for range iteration, false for list iteration
       ASTNode *end;      // Only used for range (end value), NULL for list
+      ASTNode *step;     // Only used for range (step value), NULL means step=1
       ASTNode **block;
       size_t block_size;
     } for_stmt;

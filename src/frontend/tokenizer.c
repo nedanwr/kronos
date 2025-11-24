@@ -66,8 +66,10 @@ static TokenType match_keyword(const char *text, size_t len) {
   } keywords[] = {
       {"set", TOK_SET},         {"let", TOK_LET},
       {"to", TOK_TO},           {"as", TOK_AS},
-      {"if", TOK_IF},           {"for", TOK_FOR},
-      {"while", TOK_WHILE},     {"in", TOK_IN},
+      {"if", TOK_IF},           {"else", TOK_ELSE},
+      {"for", TOK_FOR},         {"while", TOK_WHILE},
+      {"break", TOK_BREAK},     {"continue", TOK_CONTINUE},
+      {"in", TOK_IN},
       {"range", TOK_RANGE},     {"list", TOK_LIST},
       {"at", TOK_AT},           {"from", TOK_FROM},
       {"end", TOK_END},         {"function", TOK_FUNCTION},

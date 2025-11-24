@@ -52,6 +52,8 @@ static ASTNode *parse_function(Parser *p, int indent);
 static ASTNode *parse_call(Parser *p, int indent);
 static ASTNode *parse_return(Parser *p, int indent);
 static ASTNode *parse_import(Parser *p, int indent);
+static ASTNode *parse_break(Parser *p, int indent);
+static ASTNode *parse_continue(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
@@ -835,6 +837,10 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       stmt = parse_return(p, next_indent);
     } else if (tok->type == TOK_IMPORT) {
       stmt = parse_import(p, next_indent);
+    } else if (tok->type == TOK_BREAK) {
+      stmt = parse_break(p, next_indent);
+    } else if (tok->type == TOK_CONTINUE) {
+      stmt = parse_continue(p, next_indent);
     }
 
     if (!stmt) {
@@ -901,6 +907,119 @@ static ASTNode *parse_if(Parser *p, int indent) {
   node->as.if_stmt.condition = condition;
   node->as.if_stmt.block = block;
   node->as.if_stmt.block_size = block_size;
+  node->as.if_stmt.else_if_conditions = NULL;
+  node->as.if_stmt.else_if_blocks = NULL;
+  node->as.if_stmt.else_if_block_sizes = NULL;
+  node->as.if_stmt.else_if_count = 0;
+  node->as.if_stmt.else_block = NULL;
+  node->as.if_stmt.else_block_size = 0;
+
+  // Parse else-if chains
+  while (p->pos < p->tokens->count) {
+    Token *tok = peek(p, 0);
+    if (!tok || tok->type != TOK_INDENT)
+      break;
+
+    int next_indent = tok->indent_level;
+    if (next_indent != indent)
+      break;
+
+    // Check if next token is else
+    Token *next_tok = peek(p, 1);
+    if (!next_tok)
+      break;
+
+    if (next_tok->type == TOK_ELSE) {
+      // Check if it's else-if or just else
+      Token *after_else = peek(p, 2);
+      if (after_else && after_else->type == TOK_IF) {
+        // It's else-if
+        consume_any(p); // consume INDENT
+        consume(p, TOK_ELSE);
+        consume(p, TOK_IF);
+
+        ASTNode *else_if_condition = parse_condition(p);
+        if (!else_if_condition) {
+          ast_node_free(node);
+          return NULL;
+        }
+
+        if (!consume(p, TOK_COLON)) {
+          ast_node_free(else_if_condition);
+          ast_node_free(node);
+          return NULL;
+        }
+
+        if (!consume(p, TOK_NEWLINE)) {
+          ast_node_free(else_if_condition);
+          ast_node_free(node);
+          return NULL;
+        }
+
+        size_t else_if_block_size = 0;
+        ASTNode **else_if_block = parse_block(p, indent, &else_if_block_size);
+        if (!else_if_block) {
+          ast_node_free(else_if_condition);
+          ast_node_free(node);
+          return NULL;
+        }
+
+        // Grow arrays
+        size_t new_count = node->as.if_stmt.else_if_count + 1;
+        ASTNode **new_conditions = realloc(node->as.if_stmt.else_if_conditions,
+                                           sizeof(ASTNode *) * new_count);
+        ASTNode ***new_blocks = realloc(node->as.if_stmt.else_if_blocks,
+                                        sizeof(ASTNode **) * new_count);
+        size_t *new_block_sizes = realloc(node->as.if_stmt.else_if_block_sizes,
+                                          sizeof(size_t) * new_count);
+
+        if (!new_conditions || !new_blocks || !new_block_sizes) {
+          ast_node_free(else_if_condition);
+          for (size_t i = 0; i < else_if_block_size; i++) {
+            ast_node_free(else_if_block[i]);
+          }
+          free(else_if_block);
+          ast_node_free(node);
+          return NULL;
+        }
+
+        node->as.if_stmt.else_if_conditions = new_conditions;
+        node->as.if_stmt.else_if_blocks = new_blocks;
+        node->as.if_stmt.else_if_block_sizes = new_block_sizes;
+        node->as.if_stmt.else_if_conditions[new_count - 1] = else_if_condition;
+        node->as.if_stmt.else_if_blocks[new_count - 1] = else_if_block;
+        node->as.if_stmt.else_if_block_sizes[new_count - 1] = else_if_block_size;
+        node->as.if_stmt.else_if_count = new_count;
+      } else {
+        // It's just else
+        consume_any(p); // consume INDENT
+        consume(p, TOK_ELSE);
+
+        if (!consume(p, TOK_COLON)) {
+          ast_node_free(node);
+          return NULL;
+        }
+
+        if (!consume(p, TOK_NEWLINE)) {
+          ast_node_free(node);
+          return NULL;
+        }
+
+        size_t else_block_size = 0;
+        ASTNode **else_block = parse_block(p, indent, &else_block_size);
+        if (!else_block) {
+          ast_node_free(node);
+          return NULL;
+        }
+
+        node->as.if_stmt.else_block = else_block;
+        node->as.if_stmt.else_block_size = else_block_size;
+        break; // else is always last
+      }
+    } else {
+      break; // Not an else/else-if, we're done
+    }
+  }
 
   return node;
 }
@@ -923,10 +1042,11 @@ static ASTNode *parse_for(Parser *p, int indent) {
 
   ASTNode *iterable = NULL;
   ASTNode *end = NULL;
+  ASTNode *step = NULL;
   bool is_range = false;
 
   if (next->type == TOK_RANGE) {
-    // Range iteration: for i in range start to end
+    // Range iteration: for i in range start to end [by step]
     is_range = true;
     consume_any(p); // consume TOK_RANGE
 
@@ -945,6 +1065,18 @@ static ASTNode *parse_for(Parser *p, int indent) {
       return NULL;
     }
     iterable = start; // For range, iterable is the start value
+    
+    // Check for optional "by step" clause
+    Token *after_end = peek(p, 0);
+    if (after_end && after_end->type == TOK_BY) {
+      consume_any(p); // consume TOK_BY
+      step = parse_expression(p);
+      if (!step) {
+        ast_node_free(start);
+        ast_node_free(end);
+        return NULL;
+      }
+    }
   } else {
     // List iteration: for item in list_expr
     is_range = false;
@@ -957,6 +1089,8 @@ static ASTNode *parse_for(Parser *p, int indent) {
     ast_node_free(iterable);
     if (end)
       ast_node_free(end);
+    if (step)
+      ast_node_free(step);
     return NULL;
   }
 
@@ -964,6 +1098,8 @@ static ASTNode *parse_for(Parser *p, int indent) {
     ast_node_free(iterable);
     if (end)
       ast_node_free(end);
+    if (step)
+      ast_node_free(step);
     return NULL;
   }
 
@@ -973,6 +1109,8 @@ static ASTNode *parse_for(Parser *p, int indent) {
     ast_node_free(iterable);
     if (end)
       ast_node_free(end);
+    if (step)
+      ast_node_free(step);
     return NULL;
   }
 
@@ -983,6 +1121,8 @@ static ASTNode *parse_for(Parser *p, int indent) {
     ast_node_free(iterable);
     if (end)
       ast_node_free(end);
+    if (step)
+      ast_node_free(step);
     // Free block and its statements
     if (block) {
       for (size_t i = 0; i < block_size; i++) {
@@ -996,6 +1136,7 @@ static ASTNode *parse_for(Parser *p, int indent) {
   node->as.for_stmt.iterable = iterable;
   node->as.for_stmt.is_range = is_range;
   node->as.for_stmt.end = end;
+  node->as.for_stmt.step = step; // NULL means step=1
   node->as.for_stmt.block = block;
   node->as.for_stmt.block_size = block_size;
 
@@ -1279,6 +1420,34 @@ static ASTNode *parse_import(Parser *p, int indent) {
   return node;
 }
 
+// Parse break statement
+static ASTNode *parse_break(Parser *p, int indent) {
+  consume(p, TOK_BREAK);
+
+  if (!consume(p, TOK_NEWLINE)) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_BREAK);
+  node->indent = indent;
+
+  return node;
+}
+
+// Parse continue statement
+static ASTNode *parse_continue(Parser *p, int indent) {
+  consume(p, TOK_CONTINUE);
+
+  if (!consume(p, TOK_NEWLINE)) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_CONTINUE);
+  node->indent = indent;
+
+  return node;
+}
+
 // Parse statement
 static ASTNode *parse_statement(Parser *p) {
   Token *tok = peek(p, 0);
@@ -1315,6 +1484,10 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_return(p, indent);
   case TOK_IMPORT:
     return parse_import(p, indent);
+  case TOK_BREAK:
+    return parse_break(p, indent);
+  case TOK_CONTINUE:
+    return parse_continue(p, indent);
   default:
     return NULL;
   }
@@ -1400,12 +1573,36 @@ void ast_node_free(ASTNode *node) {
       ast_node_free(node->as.if_stmt.block[i]);
     }
     free(node->as.if_stmt.block);
+    // Free else-if chains
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      ast_node_free(node->as.if_stmt.else_if_conditions[i]);
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        ast_node_free(node->as.if_stmt.else_if_blocks[i][j]);
+      }
+      free(node->as.if_stmt.else_if_blocks[i]);
+    }
+    free(node->as.if_stmt.else_if_conditions);
+    free(node->as.if_stmt.else_if_blocks);
+    free(node->as.if_stmt.else_if_block_sizes);
+    // Free else block
+    if (node->as.if_stmt.else_block) {
+      for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+        ast_node_free(node->as.if_stmt.else_block[i]);
+      }
+      free(node->as.if_stmt.else_block);
+    }
+    break;
+  case AST_BREAK:
+  case AST_CONTINUE:
+    // No allocated memory
     break;
   case AST_FOR:
     free(node->as.for_stmt.var);
     ast_node_free(node->as.for_stmt.iterable);
     if (node->as.for_stmt.end)
       ast_node_free(node->as.for_stmt.end);
+    if (node->as.for_stmt.step)
+      ast_node_free(node->as.for_stmt.step);
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
       ast_node_free(node->as.for_stmt.block[i]);
     }
