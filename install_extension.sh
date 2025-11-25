@@ -15,14 +15,10 @@ fi
 
 cd "$SCRIPT_DIR"
 
-# Check if LSP binary exists
-if [ ! -f "$SCRIPT_DIR/kronos-lsp" ]; then
-    echo "⚠️  LSP server not found. Building it first..."
-    make lsp
-    echo ""
-fi
-
-echo "✅ LSP server ready"
+# Always rebuild the LSP server to ensure it's up to date
+echo "🔨 Building LSP server..."
+make lsp
+echo "✅ LSP server built"
 echo ""
 
 # Install npm dependencies
