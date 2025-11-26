@@ -1,4 +1,4 @@
-# Test: Null values
+# Test: Null and undefined values
 # Expected: Pass
 
 set empty to null
@@ -7,4 +7,11 @@ print empty
 let value to null
 let value to 42
 print value
+
+set empty2 to undefined
+print empty2
+
+let value2 to undefined
+let value2 to "hello"
+print value2
 

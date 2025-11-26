@@ -15,7 +15,7 @@ static const char *token_type_names[] = {
     "NUMBER",  "STRING", "FSTRING",  "SET",   "LET",   "TO",      "AS",
     "IF",      "FOR",    "WHILE",    "IN",    "RANGE", "LIST",    "AT",
     "FROM",    "END",    "FUNCTION", "WITH",  "CALL",  "RETURN",  "TRUE",
-    "FALSE",   "NULL",   "IS",       "EQUAL", "NOT",   "GREATER", "LESS",
+    "FALSE",   "NULL",   "UNDEFINED", "IS",   "EQUAL", "NOT",     "GREATER", "LESS",
     "THAN",    "AND",    "OR",       "PRINT", "PLUS",  "MINUS",   "TIMES",
     "DIVIDED", "BY",     "NAME",     "COLON", "COMMA", "NEWLINE", "INDENT",
     "EOF"};
@@ -77,7 +77,7 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"return", TOK_RETURN},   {"import", TOK_IMPORT},
       {"true", TOK_TRUE},
       {"false", TOK_FALSE},     {"null", TOK_NULL},
-      {"is", TOK_IS},           {"equal", TOK_EQUAL},
+      {"undefined", TOK_UNDEFINED}, {"is", TOK_IS},           {"equal", TOK_EQUAL},
       {"not", TOK_NOT},         {"greater", TOK_GREATER},
       {"less", TOK_LESS},       {"than", TOK_THAN},
       {"and", TOK_AND},         {"or", TOK_OR},

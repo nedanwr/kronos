@@ -37,6 +37,7 @@ typedef enum {
   TOK_TRUE,
   TOK_FALSE,
   TOK_NULL,
+  TOK_UNDEFINED,
   TOK_IS,
   TOK_EQUAL,
   TOK_NOT,

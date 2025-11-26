@@ -506,6 +506,39 @@ static KronosValue *read_constant(KronosVM *vm) {
   return vm->bytecode->constants[idx];
 }
 
+// Helper function to convert a value to a string representation
+// Returns a newly allocated string that the caller must free
+static char *value_to_string_repr(KronosValue *val) {
+  if (val->type == VAL_STRING) {
+    char *str = malloc(val->as.string.length + 1);
+    if (!str)
+      return NULL;
+    memcpy(str, val->as.string.data, val->as.string.length);
+    str[val->as.string.length] = '\0';
+    return str;
+  } else if (val->type == VAL_NUMBER) {
+    char *str_buf = malloc(64);
+    if (!str_buf)
+      return NULL;
+    double intpart;
+    double frac = modf(val->as.number, &intpart);
+    size_t len;
+    if (frac == 0.0) {
+      len = (size_t)snprintf(str_buf, 64, "%.0f", val->as.number);
+    } else {
+      len = (size_t)snprintf(str_buf, 64, "%g", val->as.number);
+    }
+    // Reallocate to exact size
+    char *result = realloc(str_buf, len + 1);
+    return result ? result : str_buf;
+  } else if (val->type == VAL_BOOL) {
+    return strdup(val->as.boolean ? "true" : "false");
+  } else if (val->type == VAL_NIL) {
+    return strdup("null");
+  }
+  return strdup(""); // Unknown type
+}
+
 // Execute bytecode
 int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   if (!vm) {
@@ -630,29 +663,49 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
+        // Numeric addition
         KronosValue *result = value_new_number(a->as.number + b->as.number);
         push(vm, result);
         value_release(result); // Push retains it
-      } else if (a->type == VAL_STRING && b->type == VAL_STRING) {
-        // String concatenation
-        size_t len_a = a->as.string.length;
-        size_t len_b = b->as.string.length;
+      } else {
+        // String concatenation (handles string+string, number+string,
+        // string+number) Order matters: left operand first, then right operand
+        char *str_a = value_to_string_repr(a);
+        char *str_b = value_to_string_repr(b);
+
+        if (!str_a || !str_b) {
+          free(str_a);
+          free(str_b);
+          value_release(a);
+          value_release(b);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to allocate memory for string conversion");
+        }
+
+        size_t len_a = strlen(str_a);
+        size_t len_b = strlen(str_b);
         size_t total_len = len_a + len_b;
 
         char *concat = malloc(total_len + 1);
         if (!concat) {
+          free(str_a);
+          free(str_b);
           value_release(a);
           value_release(b);
           return vm_error(vm, KRONOS_ERR_INTERNAL,
                           "Failed to allocate memory for string concatenation");
         }
 
-        memcpy(concat, a->as.string.data, len_a);
-        memcpy(concat + len_a, b->as.string.data, len_b);
+        // Concatenate in order: left operand first, then right operand
+        memcpy(concat, str_a, len_a);
+        memcpy(concat + len_a, str_b, len_b);
         concat[total_len] = '\0';
 
         KronosValue *result = value_new_string(concat, total_len);
         free(concat);
+        free(str_a);
+        free(str_b);
+
         if (!result) {
           value_release(a);
           value_release(b);
@@ -662,13 +715,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
         push(vm, result);
         value_release(result);
-      } else {
-        int err = vm_error(
-            vm, KRONOS_ERR_RUNTIME,
-            "Cannot add - both values must be numbers or both must be strings");
-        value_release(a);
-        value_release(b);
-        return err;
       }
 
       value_release(a);

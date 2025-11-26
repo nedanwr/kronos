@@ -103,7 +103,7 @@ static ASTNode *parse_value(Parser *p) {
     return node;
   }
 
-  if (tok->type == TOK_NULL) {
+  if (tok->type == TOK_NULL || tok->type == TOK_UNDEFINED) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_NULL);
     return node;
