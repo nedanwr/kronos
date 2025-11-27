@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "../framework/test_framework.h"
 #include "../../src/frontend/tokenizer.h"
 #include "../../src/frontend/parser.h"
