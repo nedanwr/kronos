@@ -24,7 +24,7 @@ DEP = $(OBJ:.o=.d)
 # Output binary
 TARGET = kronos
 
-.PHONY: all clean run test install lsp
+.PHONY: all clean run test test-unit install lsp
 
 all: $(TARGET)
 
@@ -41,6 +41,8 @@ clean:
 	rm -f $(OBJ) $(DEP) $(TARGET) kronos-lsp
 	rm -f src/core/*.o src/core/*.d src/frontend/*.o src/frontend/*.d
 	rm -f src/compiler/*.o src/compiler/*.d src/vm/*.o src/vm/*.d src/lsp/*.o src/lsp/*.d
+	rm -f $(TEST_OBJ) $(TEST_DEP) $(TEST_TARGET)
+	rm -f tests/framework/*.o tests/framework/*.d tests/unit/*.o tests/unit/*.d
 
 run: $(TARGET)
 	./$(TARGET)
@@ -48,8 +50,46 @@ run: $(TARGET)
 test: $(TARGET)
 	./$(TARGET) examples/test.kr
 
+# Unit test sources
+TEST_FRAMEWORK_SRC = tests/framework/test_framework.c
+TEST_UNIT_SRC = tests/unit/test_tokenizer.c \
+                tests/unit/test_parser.c \
+                tests/unit/test_runtime.c \
+                tests/unit/test_compiler.c \
+                tests/unit/test_vm.c \
+                tests/unit/test_gc.c \
+                tests/unit/test_main.c
+
+# Unit test object files
+TEST_OBJ = $(TEST_FRAMEWORK_SRC:.c=.o) $(TEST_UNIT_SRC:.c=.o)
+TEST_DEP = $(TEST_OBJ:.o=.d)
+
+# Unit test executable
+TEST_TARGET = tests/unit/kronos_unit_tests
+
+# Object files for unit tests (exclude main.o)
+TEST_OBJ_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC)
+TEST_OBJ_BASE = $(TEST_OBJ_SRC:.c=.o)
+
+# Build unit tests
+$(TEST_TARGET): $(TEST_OBJ_BASE) $(TEST_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# Build test object files
+tests/framework/%.o: tests/framework/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+tests/unit/%.o: tests/unit/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Run unit tests
+test-unit: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
 # Install target (optional)
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
+
 # Include auto-generated dependency files (if they exist)
 -include $(DEP)
+-include $(TEST_DEP)
