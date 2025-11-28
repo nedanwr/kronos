@@ -15,7 +15,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "vm.h"
 #include <ctype.h>
-#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdarg.h>
@@ -1512,7 +1511,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         break;
       }
 
-      // Built-in: len(list/string)
+      // Built-in: len(list/string/range)
       if (strcmp(func_name, "len") == 0) {
         if (arg_count != 1) {
           return vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -1531,10 +1530,34 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           KronosValue *result = value_new_number((double)arg->as.string.length);
           push(vm, result);
           value_release(result);
+        } else if (arg->type == VAL_RANGE) {
+          // Calculate range length: number of values in range
+          double start = arg->as.range.start;
+          double end = arg->as.range.end;
+          double step = arg->as.range.step;
+
+          if (step == 0.0) {
+            value_release(arg);
+            return vm_error(vm, KRONOS_ERR_RUNTIME,
+                            "Range step cannot be zero");
+          }
+
+          // Calculate number of steps
+          double diff = end - start;
+          double count = floor((diff / step)) + 1.0;
+
+          // Ensure count is non-negative
+          if (count < 0) {
+            count = 0;
+          }
+
+          KronosValue *result = value_new_number(count);
+          push(vm, result);
+          value_release(result);
         } else {
-          int err =
-              vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                        "Function 'len' requires a list or string argument");
+          int err = vm_errorf(
+              vm, KRONOS_ERR_RUNTIME,
+              "Function 'len' requires a list, string, or range argument");
           value_release(arg);
           return err;
         }
@@ -2874,6 +2897,52 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_RANGE_NEW: {
+      // Stack: [start, end, step]
+      // Pop step, end, start and create range
+      KronosValue *step_val = pop(vm);
+      if (!step_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *end_val = pop(vm);
+      if (!end_val) {
+        value_release(step_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *start_val = pop(vm);
+      if (!start_val) {
+        value_release(step_val);
+        value_release(end_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // All must be numbers
+      if (start_val->type != VAL_NUMBER || end_val->type != VAL_NUMBER ||
+          step_val->type != VAL_NUMBER) {
+        value_release(start_val);
+        value_release(end_val);
+        value_release(step_val);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Range start, end, and step must be numbers");
+      }
+
+      KronosValue *range = value_new_range(
+          start_val->as.number, end_val->as.number, step_val->as.number);
+      if (!range) {
+        value_release(start_val);
+        value_release(end_val);
+        value_release(step_val);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create range");
+      }
+
+      push(vm, range);
+      value_release(range);
+      value_release(start_val);
+      value_release(end_val);
+      value_release(step_val);
+      break;
+    }
+
     case OP_LIST_APPEND: {
       KronosValue *value = pop(vm);
       if (!value) {
@@ -2950,6 +3019,55 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         value_retain(item);
         push(vm, item);
         value_release(item);
+      } else if (container->type == VAL_RANGE) {
+        // Calculate value at index: start + (index * step)
+        double start = container->as.range.start;
+        double step = container->as.range.step;
+        double end = container->as.range.end;
+
+        // Handle negative indices by calculating range length
+        if (idx < 0) {
+          if (step == 0.0) {
+            value_release(index_val);
+            value_release(container);
+            return vm_error(vm, KRONOS_ERR_RUNTIME,
+                            "Range step cannot be zero");
+          }
+          double diff = end - start;
+          double count = floor((diff / step)) + 1.0;
+          if (count < 0)
+            count = 0;
+          idx = (int64_t)count + idx;
+        }
+
+        // Calculate the value at this index
+        double value = start + (idx * step);
+
+        // Check bounds based on step direction
+        bool in_bounds = false;
+        if (step > 0) {
+          in_bounds = (value >= start && value <= end && idx >= 0);
+        } else if (step < 0) {
+          in_bounds = (value <= start && value >= end && idx >= 0);
+        } else {
+          // step == 0 is invalid, but we handle it
+          in_bounds = (idx == 0);
+        }
+
+        if (!in_bounds) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Range index out of bounds");
+        }
+
+        KronosValue *result = value_new_number(value);
+        if (!result) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create number");
+        }
+        push(vm, result);
+        value_release(result);
       } else if (container->type == VAL_STRING) {
         // String indexing
         if (idx < 0) {
@@ -2977,8 +3095,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       } else {
         value_release(index_val);
         value_release(container);
-        return vm_error(vm, KRONOS_ERR_RUNTIME,
-                        "Indexing only supported for lists and strings");
+        return vm_error(
+            vm, KRONOS_ERR_RUNTIME,
+            "Indexing only supported for lists, strings, and ranges");
       }
 
       value_release(index_val);
@@ -3001,10 +3120,33 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
             value_new_number((double)container->as.string.length);
         push(vm, len);
         value_release(len);
+      } else if (container->type == VAL_RANGE) {
+        // Calculate range length: number of values in range
+        double start = container->as.range.start;
+        double end = container->as.range.end;
+        double step = container->as.range.step;
+
+        if (step == 0.0) {
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Range step cannot be zero");
+        }
+
+        // Calculate number of steps
+        double diff = end - start;
+        double count = floor((diff / step)) + 1.0;
+
+        // Ensure count is non-negative
+        if (count < 0) {
+          count = 0;
+        }
+
+        KronosValue *len = value_new_number(count);
+        push(vm, len);
+        value_release(len);
       } else {
         value_release(container);
         return vm_error(vm, KRONOS_ERR_RUNTIME,
-                        "Expected list or string for length");
+                        "Expected list, string, or range for length");
       }
 
       value_release(container);
@@ -3139,12 +3281,59 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
         push(vm, slice);
         value_release(slice);
+      } else if (container->type == VAL_RANGE) {
+        // Range slicing: create a new range with adjusted start/end
+        double orig_start = container->as.range.start;
+        double orig_end = container->as.range.end;
+        double step = container->as.range.step;
+
+        // Calculate actual start and end values at these indices
+        double new_start = orig_start + (start * step);
+        double new_end = orig_start + (end * step);
+
+        // For negative end, use original end
+        if (end_val->as.number == -1.0) {
+          new_end = orig_end;
+        }
+
+        // Ensure bounds are valid
+        if (step > 0) {
+          if (new_start < orig_start)
+            new_start = orig_start;
+          if (new_end > orig_end)
+            new_end = orig_end;
+          if (new_start > new_end) {
+            // Empty range
+            new_end = new_start;
+          }
+        } else if (step < 0) {
+          if (new_start > orig_start)
+            new_start = orig_start;
+          if (new_end < orig_end)
+            new_end = orig_end;
+          if (new_start < new_end) {
+            // Empty range
+            new_end = new_start;
+          }
+        }
+
+        KronosValue *slice = value_new_range(new_start, new_end, step);
+        if (!slice) {
+          value_release(container);
+          value_release(start_val);
+          value_release(end_val);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create range");
+        }
+
+        push(vm, slice);
+        value_release(slice);
       } else {
         value_release(container);
         value_release(start_val);
         value_release(end_val);
-        return vm_error(vm, KRONOS_ERR_RUNTIME,
-                        "Slicing only supported for lists and strings");
+        return vm_error(
+            vm, KRONOS_ERR_RUNTIME,
+            "Slicing only supported for lists, strings, and ranges");
       }
 
       value_release(container);
@@ -3154,108 +3343,179 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     }
 
     case OP_LIST_ITER: {
-      KronosValue *list = pop(vm);
-      if (!list) {
+      KronosValue *iterable = pop(vm);
+      if (!iterable) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
 
-      if (list->type != VAL_LIST) {
-        value_release(list);
-        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for iteration");
+      if (iterable->type == VAL_LIST) {
+        // Create iterator (just push the list and current index)
+        // For simplicity, we'll use a list value with a special marker
+        // Actually, we need to track iteration state. Let's use a simple
+        // approach: Push list, then push index 0
+        value_retain(iterable);
+        push(vm, iterable);
+        KronosValue *index = value_new_number(0);
+        push(vm, index);
+        value_release(index);
+        value_release(iterable);
+      } else if (iterable->type == VAL_RANGE) {
+        // For ranges, push the range and current value (start)
+        value_retain(iterable);
+        push(vm, iterable);
+        KronosValue *current = value_new_number(iterable->as.range.start);
+        push(vm, current);
+        value_release(current);
+        value_release(iterable);
+      } else {
+        value_release(iterable);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Expected list or range for iteration");
       }
-
-      // Create iterator (just push the list and current index)
-      // For simplicity, we'll use a list value with a special marker
-      // Actually, we need to track iteration state. Let's use a simple
-      // approach: Push list, then push index 0
-      value_retain(list);
-      push(vm, list);
-      KronosValue *index = value_new_number(0);
-      push(vm, index);
-      value_release(index);
-      value_release(list);
       break;
     }
 
     case OP_LIST_NEXT: {
-      // Stack: [list, index] (list on bottom, index on top)
+      // Stack: [iterable, state] (iterable on bottom, state on top)
+      // For lists: state is index (number)
+      // For ranges: state is current value (number)
       // Verify stack has at least 2 items before popping
       size_t stack_depth = (size_t)(vm->stack_top - vm->stack);
       if (stack_depth < 2) {
         return vm_errorf(
             vm, KRONOS_ERR_RUNTIME,
-            "Stack underflow in list iteration: expected 2 items, got %zu. "
+            "Stack underflow in iteration: expected 2 items, got %zu. "
             "This usually means iterator variables were not loaded correctly.",
             stack_depth);
       }
-      KronosValue *index_val = pop(vm);
-      if (!index_val) {
+      KronosValue *state_val = pop(vm);
+      if (!state_val) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
-      KronosValue *list = pop(vm);
-      if (!list) {
-        value_release(index_val);
+      KronosValue *iterable = pop(vm);
+      if (!iterable) {
+        value_release(state_val);
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
 
-      if (list->type != VAL_LIST || index_val->type != VAL_NUMBER) {
-        value_release(index_val);
-        value_release(list);
-        return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator state");
-      }
+      if (iterable->type == VAL_LIST) {
+        if (state_val->type != VAL_NUMBER) {
+          value_release(state_val);
+          value_release(iterable);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator state");
+        }
 
-      size_t idx = (size_t)index_val->as.number;
-      bool has_more = idx < list->as.list.count;
+        size_t idx = (size_t)state_val->as.number;
+        bool has_more = idx < iterable->as.list.count;
 
-      if (has_more) {
-        // Push in order: [list, index+1, item, has_more]
-        // This way, after popping has_more, item is on top for OP_STORE_VAR
-        // After storing item, we have [list, index+1] for next iteration
+        if (has_more) {
+          // Push in order: [list, index+1, item, has_more]
+          // This way, after popping has_more, item is on top for OP_STORE_VAR
+          // After storing item, we have [list, index+1] for next iteration
 
-        // Push in order: [list, index+1, item, has_more]
-        // This way, after popping has_more, item is on top for OP_STORE_VAR
-        // After storing item, we have [list, index+1] for next iteration
+          // Push list first (bottom of stack)
+          value_retain(iterable);
+          push(vm, iterable);
+          value_release(iterable);
 
-        // Push list first (bottom of stack)
-        value_retain(list);
-        push(vm, list);
-        value_release(list);
+          // Update and push index
+          KronosValue *next_index = value_new_number((double)(idx + 1));
+          push(vm, next_index);
+          value_release(next_index);
 
-        // Update and push index
-        KronosValue *next_index = value_new_number((double)(idx + 1));
-        push(vm, next_index);
-        value_release(next_index);
+          // Push item
+          KronosValue *item = iterable->as.list.items[idx];
+          value_retain(item);
+          push(vm, item);
+          value_release(item);
 
-        // Push item
-        KronosValue *item = list->as.list.items[idx];
-        value_retain(item);
-        push(vm, item);
-        value_release(item);
+          // Push has_more flag (true) on top
+          KronosValue *has_more_val = value_new_bool(true);
+          push(vm, has_more_val);
+          value_release(has_more_val);
+        } else {
+          // No more items - push iterator state back, then has_more flag
+          // (false) Push list back (for cleanup)
+          value_retain(iterable);
+          push(vm, iterable);
+          value_release(iterable);
 
-        // Push has_more flag (true) on top
-        KronosValue *has_more_val = value_new_bool(true);
-        push(vm, has_more_val);
-        value_release(has_more_val);
+          // Push index back (for cleanup)
+          value_retain(state_val);
+          push(vm, state_val);
+          value_release(state_val);
+
+          // Push has_more flag (false) on top
+          KronosValue *has_more_val = value_new_bool(false);
+          push(vm, has_more_val);
+          value_release(has_more_val);
+        }
+      } else if (iterable->type == VAL_RANGE) {
+        // Range iteration: state_val is the current value
+        if (state_val->type != VAL_NUMBER) {
+          value_release(state_val);
+          value_release(iterable);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator state");
+        }
+
+        double current = state_val->as.number;
+        double end = iterable->as.range.end;
+        double step = iterable->as.range.step;
+
+        // Check if we've reached the end
+        bool has_more = false;
+        if (step > 0) {
+          has_more = current <= end;
+        } else if (step < 0) {
+          has_more = current >= end;
+        } else {
+          // step == 0, only one value
+          has_more = false;
+        }
+
+        if (has_more) {
+          // Push in order: [range, next_value, current_value, has_more]
+          value_retain(iterable);
+          push(vm, iterable);
+          value_release(iterable);
+
+          // Calculate and push next value
+          double next = current + step;
+          KronosValue *next_val = value_new_number(next);
+          push(vm, next_val);
+          value_release(next_val);
+
+          // Push current value (the item to use in loop)
+          KronosValue *current_val = value_new_number(current);
+          push(vm, current_val);
+          value_release(current_val);
+
+          // Push has_more flag (true)
+          KronosValue *has_more_val = value_new_bool(true);
+          push(vm, has_more_val);
+          value_release(has_more_val);
+        } else {
+          // No more items
+          value_retain(iterable);
+          push(vm, iterable);
+          value_release(iterable);
+
+          value_retain(state_val);
+          push(vm, state_val);
+          value_release(state_val);
+
+          KronosValue *has_more_val = value_new_bool(false);
+          push(vm, has_more_val);
+          value_release(has_more_val);
+        }
       } else {
-        // No more items - push iterator state back, then has_more flag (false)
-        // Push list back (for cleanup)
-        value_retain(list);
-        push(vm, list);
-        value_release(list);
-
-        // Push index back (for cleanup)
-        value_retain(index_val);
-        push(vm, index_val);
-        value_release(index_val);
-
-        // Push has_more flag (false) on top
-        KronosValue *has_more_val = value_new_bool(false);
-        push(vm, has_more_val);
-        value_release(has_more_val);
+        value_release(state_val);
+        value_release(iterable);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator type");
       }
 
-      value_release(index_val);
-      value_release(list);
+      value_release(state_val);
+      value_release(iterable);
       break;
     }
 
