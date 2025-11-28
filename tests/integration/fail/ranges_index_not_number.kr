@@ -1,0 +1,6 @@
+# Test: Range index must be a number
+# Expected: Fail with "Index must be a number"
+
+set r to range 1 to 10
+set invalid to r at "hello"
+
