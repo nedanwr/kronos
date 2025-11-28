@@ -17,6 +17,7 @@ typedef enum {
   VAL_FUNCTION,
   VAL_LIST,
   VAL_CHANNEL,
+  VAL_RANGE,
 } ValueType;
 
 // Reference-counted value
@@ -42,6 +43,11 @@ typedef struct KronosValue {
       size_t capacity;
     } list;
     Channel *channel;
+    struct {
+      double start;
+      double end;
+      double step;
+    } range;
   } as;
 } KronosValue;
 
@@ -64,6 +70,7 @@ KronosValue *value_new_nil(void);
 KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity);
 KronosValue *value_new_list(size_t initial_capacity);
 KronosValue *value_new_channel(Channel *channel);
+KronosValue *value_new_range(double start, double end, double step);
 
 // Reference counting
 // Both helpers treat NULL inputs as no-ops for convenience.
