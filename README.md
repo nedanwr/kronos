@@ -185,33 +185,32 @@ make clean
 
 ## Roadmap
 
-### Current Version (0.3.0 - In Development)
+See [ROADMAP.md](ROADMAP.md) for the complete roadmap and upcoming features.
+
+### Current Version (0.3.0)
 
 ✅ **Completed:**
 - Core language features (variables, types, operators, control flow)
 - Functions with parameters and return values
 - Built-in constants and functions
-- ✅ **Logical operators** (`and`, `or`, `not`) - **NEW**
+- Logical operators (`and`, `or`, `not`)
+- Lists/arrays with full operations (indexing, slicing, iteration)
+- String operations (concatenation, indexing, slicing, built-ins)
+- F-strings (string interpolation)
+- Enhanced standard library and module system
+- Enhanced control flow (else-if, break, continue)
+- LSP support (error checking, go-to-definition, hover, completions)
+- Range objects (literals, indexing, slicing, iteration, length)
 - REPL and file execution
-- Basic LSP server
 
-🔄 **Remaining for v0.3.0: "Data Structures & Control Flow"**
-- ✅ Lists/arrays - Full operations (indexing, slicing, iteration) - **COMPLETED**
-- ✅ String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins) - **COMPLETED**
-- ✅ Enhanced standard library - Math, type conversion, list utilities (20+ functions) - **COMPLETED**
-- Control flow - `else if`, `break`, `continue`, range-based loops
-- Range objects - First-class range support
-- Enhanced LSP - JSON-RPC parser, diagnostics, go-to-definition, hover, document symbols
+### Upcoming (v0.4.0 - Q2 2025)
 
-### Future Versions
-
-**v0.4.0: "Modules & Error Handling" (Q2 2025)**
-
-- Dictionaries/maps - Key-value storage with full operations and iteration
-- Import/module system - Built-in and file-based modules, namespace management
-- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
-- File I/O operations - Complete file system interface (read, write, append, list, path ops)
-- Advanced LSP - Find references, rename symbol, code actions, formatting, workspace symbols
+- Type conversion functions (`to_number()`, `to_bool()`)
+- Dictionaries/maps
+- File-based module system
+- Exception handling
+- File I/O operations
+- Regular expressions
 
 **v0.5.0: "Advanced Language Features" (Q3 2025)**
 
@@ -246,7 +245,7 @@ make clean
 - Cross-platform support (Linux, macOS, Windows)
 - CI/CD pipeline with automated testing
 
-See [MISSING_FEATURES.md](MISSING_FEATURES.md) for detailed feature breakdown with implementation status, or [docs/PROJECT.md](docs/PROJECT.md) for architecture details.
+See [ROADMAP.md](ROADMAP.md) for the roadmap and upcoming features, or [docs/PROJECT.md](docs/PROJECT.md) for architecture details.
 
 ## Contributing
 
