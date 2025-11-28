@@ -1,7 +1,7 @@
 /**
  * @file tokenizer.c
  * @brief Lexical analyzer for Kronos source code
- * 
+ *
  * Converts Kronos source code into a stream of tokens. Handles:
  * - Keywords (set, let, if, for, while, etc.)
  * - Literals (numbers, strings, f-strings, booleans, null)
@@ -27,20 +27,20 @@
  * Must match TokenType enum order exactly
  */
 static const char *token_type_names[] = {
-    "NUMBER",  "STRING", "FSTRING",  "SET",   "LET",   "TO",      "AS",
-    "IF",      "FOR",    "WHILE",    "IN",    "RANGE", "LIST",    "AT",
-    "FROM",    "END",    "FUNCTION", "WITH",  "CALL",  "RETURN",  "TRUE",
-    "FALSE",   "NULL",   "UNDEFINED", "IS",   "EQUAL", "NOT",     "GREATER", "LESS",
-    "THAN",    "AND",    "OR",       "PRINT", "PLUS",  "MINUS",   "TIMES",
-    "DIVIDED", "BY",     "NAME",     "COLON", "COMMA", "NEWLINE", "INDENT",
-    "EOF"};
+    "NUMBER", "STRING",  "FSTRING",   "SET",  "LET",   "TO",     "AS",
+    "IF",     "FOR",     "WHILE",     "IN",   "RANGE", "LIST",   "AT",
+    "FROM",   "END",     "FUNCTION",  "WITH", "CALL",  "RETURN", "TRUE",
+    "FALSE",  "NULL",    "UNDEFINED", "IS",   "EQUAL", "NOT",    "GREATER",
+    "LESS",   "THAN",    "AND",       "OR",   "PRINT", "PLUS",   "MINUS",
+    "TIMES",  "DIVIDED", "BY",        "NAME", "COLON", "COMMA",  "NEWLINE",
+    "INDENT", "EOF"};
 
 /**
  * @brief Allocate and initialize a new token array
- * 
+ *
  * Creates a dynamically-growing array to hold tokens during tokenization.
  * Starts with capacity 32 and grows as needed.
- * 
+ *
  * @return New token array, or NULL on allocation failure
  */
 static TokenArray *token_array_new(void) {
@@ -61,10 +61,10 @@ static TokenArray *token_array_new(void) {
 
 /**
  * @brief Add a token to the array
- * 
+ *
  * Automatically grows the array if needed. On failure, frees the token's
  * text if it was allocated.
- * 
+ *
  * @param arr Token array to add to
  * @param token Token to add (text will be owned by array)
  * @return true on success, false on allocation failure
@@ -91,10 +91,10 @@ static bool token_array_add(TokenArray *arr, Token token) {
 
 /**
  * @brief Determine if a string matches a Kronos keyword
- * 
+ *
  * Checks the string against all known keywords. If no match is found,
  * returns TOK_NAME indicating it's an identifier.
- * 
+ *
  * @param text String to check (not null-terminated)
  * @param len Length of the string
  * @return Token type (keyword type or TOK_NAME if not a keyword)
@@ -104,26 +104,45 @@ static TokenType match_keyword(const char *text, size_t len) {
     const char *keyword;
     TokenType type;
   } keywords[] = {
-      {"set", TOK_SET},         {"let", TOK_LET},
-      {"to", TOK_TO},           {"as", TOK_AS},
-      {"if", TOK_IF},           {"else", TOK_ELSE},
-      {"for", TOK_FOR},         {"while", TOK_WHILE},
-      {"break", TOK_BREAK},     {"continue", TOK_CONTINUE},
+      {"set", TOK_SET},
+      {"let", TOK_LET},
+      {"to", TOK_TO},
+      {"as", TOK_AS},
+      {"if", TOK_IF},
+      {"else", TOK_ELSE},
+      {"for", TOK_FOR},
+      {"while", TOK_WHILE},
+      {"break", TOK_BREAK},
+      {"continue", TOK_CONTINUE},
       {"in", TOK_IN},
-      {"range", TOK_RANGE},     {"list", TOK_LIST},
-      {"at", TOK_AT},           {"from", TOK_FROM},
-      {"end", TOK_END},         {"function", TOK_FUNCTION},
-      {"with", TOK_WITH},       {"call", TOK_CALL},
-      {"return", TOK_RETURN},   {"import", TOK_IMPORT},
+      {"range", TOK_RANGE},
+      {"list", TOK_LIST},
+      {"at", TOK_AT},
+      {"from", TOK_FROM},
+      {"end", TOK_END},
+      {"function", TOK_FUNCTION},
+      {"with", TOK_WITH},
+      {"call", TOK_CALL},
+      {"return", TOK_RETURN},
+      {"import", TOK_IMPORT},
       {"true", TOK_TRUE},
-      {"false", TOK_FALSE},     {"null", TOK_NULL},
-      {"undefined", TOK_UNDEFINED}, {"is", TOK_IS},           {"equal", TOK_EQUAL},
-      {"not", TOK_NOT},         {"greater", TOK_GREATER},
-      {"less", TOK_LESS},       {"than", TOK_THAN},
-      {"and", TOK_AND},         {"or", TOK_OR},
-      {"print", TOK_PRINT},     {"plus", TOK_PLUS},
-      {"minus", TOK_MINUS},     {"times", TOK_TIMES},
-      {"divided", TOK_DIVIDED}, {"by", TOK_BY},
+      {"false", TOK_FALSE},
+      {"null", TOK_NULL},
+      {"undefined", TOK_UNDEFINED},
+      {"is", TOK_IS},
+      {"equal", TOK_EQUAL},
+      {"not", TOK_NOT},
+      {"greater", TOK_GREATER},
+      {"less", TOK_LESS},
+      {"than", TOK_THAN},
+      {"and", TOK_AND},
+      {"or", TOK_OR},
+      {"print", TOK_PRINT},
+      {"plus", TOK_PLUS},
+      {"minus", TOK_MINUS},
+      {"times", TOK_TIMES},
+      {"divided", TOK_DIVIDED},
+      {"by", TOK_BY},
   };
 
   for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
@@ -138,14 +157,14 @@ static TokenType match_keyword(const char *text, size_t len) {
 
 /**
  * @brief Tokenize a single line of source code
- * 
+ *
  * Processes one line, extracting all tokens. Handles:
- * - Numbers (integers and floats)
+ * - Numbers (integers and floats, with optional leading + or -)
  * - Strings and f-strings (with escape sequences)
  * - Keywords and identifiers
  * - Operators and punctuation
  * - Indentation tokens
- * 
+ *
  * @param arr Token array to append tokens to
  * @param line The line to tokenize (should not include leading whitespace)
  * @param indent Indentation level in spaces (already calculated)
@@ -172,9 +191,21 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       break;
 
     // Tokenize numbers (integers and floating-point)
-    // Supports: 42, 3.14, 0.5, etc.
-    if (isdigit(line[col])) {
+    // Supports: 42, 3.14, 0.5, -42, +42, -3.14, etc.
+    // Note: The negative sign (-) is part of the number literal (denotes
+    // negative value), not a subtraction operator. Subtraction is handled by
+    // the 'minus' keyword. Check for optional leading '+' or '-' when followed
+    // by a digit
+    bool has_sign = false;
+    if ((line[col] == '+' || line[col] == '-') && (col + 1 < len) &&
+        isdigit(line[col + 1])) {
+      has_sign = true;
+    }
+    if (has_sign || isdigit(line[col])) {
       size_t start = col;
+      if (has_sign) {
+        col++; // consume sign
+      }
       while (col < len && isdigit(line[col])) {
         col++;
       }
@@ -261,7 +292,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
     // (dots are allowed for module.function syntax like math.sqrt)
     if (isalpha(line[col]) || line[col] == '_') {
       size_t start = col;
-      while (col < len && (isalnum(line[col]) || line[col] == '_' || line[col] == '.')) {
+      while (col < len &&
+             (isalnum(line[col]) || line[col] == '_' || line[col] == '.')) {
         col++;
       }
       size_t word_len = col - start;
@@ -338,9 +370,10 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
 
 /**
  * @brief Free a tokenization error structure
- * 
- * Releases memory allocated for an error message and the error structure itself.
- * 
+ *
+ * Releases memory allocated for an error message and the error structure
+ * itself.
+ *
  * @param err Error structure to free (safe to pass NULL)
  */
 void tokenize_error_free(TokenizeError *err) {
@@ -352,10 +385,10 @@ void tokenize_error_free(TokenizeError *err) {
 
 /**
  * @brief Report a tokenization error
- * 
+ *
  * Creates and stores an error structure with message and position information.
  * Only sets the error if out_err is provided and no error is already set.
- * 
+ *
  * @param out_err Pointer to error output (can be NULL to ignore)
  * @param message Error message (will be copied)
  * @param line Line number where error occurred (1-indexed)
@@ -382,11 +415,11 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
 
 /**
  * @brief Tokenize Kronos source code
- * 
+ *
  * Main entry point for lexical analysis. Splits source into lines, calculates
  * indentation, and tokenizes each line. Handles mixed indentation errors
  * (spaces and tabs in the same block).
- * 
+ *
  * @param source Complete source code to tokenize (must not be NULL)
  * @param out_err Optional pointer to receive error information
  * @return Token array on success, NULL on error
@@ -520,9 +553,9 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
 
 /**
  * @brief Free resources owned by a single token
- * 
+ *
  * Releases the token's text string if it was allocated.
- * 
+ *
  * @param token Token to free (safe to pass NULL)
  */
 void token_free(Token *token) {
@@ -534,9 +567,9 @@ void token_free(Token *token) {
 
 /**
  * @brief Free a token array and all its tokens
- * 
+ *
  * Releases all token text strings and the array structure itself.
- * 
+ *
  * @param array Token array to free (safe to pass NULL)
  */
 void token_array_free(TokenArray *array) {
@@ -552,10 +585,10 @@ void token_array_free(TokenArray *array) {
 
 /**
  * @brief Print a token for debugging
- * 
+ *
  * Outputs the token type and value in a human-readable format.
  * Useful for debugging tokenization issues.
- * 
+ *
  * @param token Token to print (safe to pass NULL)
  */
 void token_print(Token *token) {
