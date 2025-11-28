@@ -1,0 +1,6 @@
+# Test: Range index out of bounds
+# Expected: Fail with "Range index out of bounds"
+
+set r to range 1 to 10
+set invalid to r at 100
+

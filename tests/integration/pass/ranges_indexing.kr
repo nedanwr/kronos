@@ -1,0 +1,23 @@
+# Test: Range indexing (positive and negative)
+# Expected: Pass
+
+set r1 to range 1 to 10
+set r2 to range 0 to 20 by 5
+
+# Positive indices
+set first to r1 at 0
+print first
+
+set third to r1 at 2
+print third
+
+set second_r2 to r2 at 2
+print second_r2
+
+# Negative indices
+set last to r1 at -1
+print last
+
+set second_last to r1 at -2
+print second_last
+

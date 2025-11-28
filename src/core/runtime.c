@@ -12,8 +12,6 @@
 
 #include "runtime.h"
 #include "gc.h"
-#include <float.h>
-#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -262,6 +260,33 @@ KronosValue *value_new_channel(Channel *channel) {
 }
 
 /**
+ * @brief Create a new range value
+ *
+ * Creates a range object representing values from start to end (inclusive)
+ * with the given step. The step defaults to 1.0 if 0.0 is provided.
+ *
+ * @param start Starting value (inclusive)
+ * @param end Ending value (inclusive)
+ * @param step Step size (defaults to 1.0 if 0.0)
+ * @return New range value, or NULL on allocation failure
+ */
+KronosValue *value_new_range(double start, double end, double step) {
+  KronosValue *val = malloc(sizeof(KronosValue));
+  if (!val)
+    return NULL;
+
+  val->type = VAL_RANGE;
+  val->refcount = 1;
+  val->as.range.start = start;
+  val->as.range.end = end;
+  // Default step to 1.0 if 0.0 is provided
+  val->as.range.step = (step == 0.0) ? 1.0 : step;
+
+  gc_track(val);
+  return val;
+}
+
+/**
  * @brief Increment the reference count of a value
  *
  * Call this when storing a value in a new location. Must be paired
@@ -354,6 +379,9 @@ void value_release(KronosValue *val) {
     case VAL_CHANNEL:
       // Channels are currently managed externally.
       break;
+    case VAL_RANGE:
+      // Ranges don't own other values, just store numbers
+      break;
     default:
       break;
     }
@@ -421,6 +449,33 @@ void value_fprint(FILE *out, KronosValue *val) {
   case VAL_CHANNEL:
     fprintf(out, "<channel>");
     break;
+  case VAL_RANGE: {
+    double intpart;
+    double frac_start = modf(val->as.range.start, &intpart);
+    double frac_end = modf(val->as.range.end, &intpart);
+    double frac_step = modf(val->as.range.step, &intpart);
+
+    if (frac_start == 0.0) {
+      fprintf(out, "%.0f", val->as.range.start);
+    } else {
+      fprintf(out, "%g", val->as.range.start);
+    }
+    fprintf(out, " to ");
+    if (frac_end == 0.0) {
+      fprintf(out, "%.0f", val->as.range.end);
+    } else {
+      fprintf(out, "%g", val->as.range.end);
+    }
+    if (val->as.range.step != 1.0) {
+      fprintf(out, " by ");
+      if (frac_step == 0.0) {
+        fprintf(out, "%.0f", val->as.range.step);
+      } else {
+        fprintf(out, "%g", val->as.range.step);
+      }
+    }
+    break;
+  }
   default:
     fprintf(out, "<unknown>");
     break;
@@ -509,6 +564,10 @@ bool value_equals(KronosValue *a, KronosValue *b) {
         return false;
     }
     return true;
+  case VAL_RANGE:
+    return fabs(a->as.range.start - b->as.range.start) < VALUE_COMPARE_EPSILON &&
+           fabs(a->as.range.end - b->as.range.end) < VALUE_COMPARE_EPSILON &&
+           fabs(a->as.range.step - b->as.range.step) < VALUE_COMPARE_EPSILON;
   default:
     return a == b; // Pointer equality for complex types
   }
@@ -584,6 +643,8 @@ bool value_is_type(KronosValue *val, const char *type_name) {
     return val->type == VAL_BOOL;
   } else if (strcmp(type_name, "null") == 0) {
     return val->type == VAL_NIL;
+  } else if (strcmp(type_name, "range") == 0) {
+    return val->type == VAL_RANGE;
   }
 
   return false;

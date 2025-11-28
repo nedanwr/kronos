@@ -1,0 +1,50 @@
+# Test range objects
+
+# Create range objects
+set r1 to range 1 to 10
+set r2 to range 0 to 20 by 5
+set r3 to range 10 to 1 by -2
+
+# Print ranges
+print "Range 1 to 10:"
+print r1
+
+print "Range 0 to 20 by 5:"
+print r2
+
+print "Range 10 to 1 by -2:"
+print r3
+
+# Test range indexing
+print "r1 at 0:"
+print r1 at 0
+
+print "r1 at -1:"
+print r1 at -1
+
+print "r2 at 2:"
+print r2 at 2
+
+# Test range length
+print "len r1:"
+print call len with r1
+
+print "len r2:"
+print call len with r2
+
+# Test range iteration
+print "Iterating over r1:"
+for i in r1:
+    print i
+
+print "Iterating over r2:"
+for i in r2:
+    print i
+
+# Test range slicing
+print "r1 from 2 to 5:"
+print r1 from 2 to 5
+
+print "r2 from 0 to 2:"
+print r2 from 0 to 2
+

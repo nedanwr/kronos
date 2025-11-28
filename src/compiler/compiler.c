@@ -532,6 +532,43 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_RANGE: {
+    // Compile range literal: range start to end [by step]
+    // Compile start, end, and step (if provided) expressions
+    compile_expression(c, node->as.range.start);
+    if (compiler_has_error(c))
+      return;
+
+    compile_expression(c, node->as.range.end);
+    if (compiler_has_error(c))
+      return;
+
+    if (node->as.range.step) {
+      compile_expression(c, node->as.range.step);
+      if (compiler_has_error(c))
+        return;
+    } else {
+      // Default step is 1.0
+      KronosValue *one = value_new_number(1.0);
+      size_t step_idx = add_constant(c, one);
+      if (step_idx == SIZE_MAX || step_idx > UINT16_MAX) {
+        value_release(one);
+        return;
+      }
+      emit_byte(c, OP_LOAD_CONST);
+      emit_uint16(c, (uint16_t)step_idx);
+      if (compiler_has_error(c))
+        return;
+    }
+
+    // Stack: [start, end, step]
+    // OP_RANGE_NEW: pop step, pop end, pop start, create range, push range
+    emit_byte(c, OP_RANGE_NEW);
+    if (compiler_has_error(c))
+      return;
+    break;
+  }
+
   case AST_INDEX: {
     // Compile indexing: list at index
     compile_expression(c, node->as.index.list_expr);

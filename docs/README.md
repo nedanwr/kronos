@@ -50,7 +50,7 @@ Full IDE support:
 
 ### [../tests/README.md](../tests/README.md)
 Test suite documentation:
-- 26 comprehensive tests
+- 71 comprehensive tests (42 passing, 29 error cases)
 - Test runner usage
 - CI/CD integration
 
@@ -63,6 +63,6 @@ See [../examples/](../examples/) for sample programs.
 When adding features:
 1. Update SYNTAX.md with new syntax
 2. Add examples to examples/
-3. Create tests in tests/pass/ or tests/fail/
+3. Create tests in tests/integration/pass/ or tests/integration/fail/
 4. Run `./run_tests.sh` to verify
 5. Update PROJECT.md if architecture changes

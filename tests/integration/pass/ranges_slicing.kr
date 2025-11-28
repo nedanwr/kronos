@@ -1,0 +1,17 @@
+# Test: Range slicing
+# Expected: Pass
+
+set r1 to range 1 to 10
+set r2 to range 0 to 20 by 5
+
+# Basic slicing
+set slice1 to r1 from 2 to 5
+print slice1
+
+set slice2 to r2 from 0 to 2
+print slice2
+
+# Slice with negative end
+set slice3 to r1 from 3 to -1
+print slice3
+
