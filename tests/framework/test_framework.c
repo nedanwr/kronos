@@ -102,7 +102,6 @@ void test_fail(const char *file, int line, const char *message) {
         }
         result->message = strdup(message);
         g_test_suite->failed++;
-        g_test_suite->passed--; // Decrement passed count
       } else {
         // Subsequent failure: just update the failure info without changing
         // counts
