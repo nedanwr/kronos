@@ -1,10 +1,10 @@
 /**
  * @file lsp_server.c
  * @brief Language Server Protocol implementation for Kronos
- * 
+ *
  * Provides comprehensive IDE support for Kronos through the Language Server Protocol.
  * Communicates with editors via stdin/stdout using JSON-RPC 2.0.
- * 
+ *
  * Features:
  * - Code completion (keywords, built-ins, variables, functions)
  * - Diagnostics (syntax errors, undefined variables, type mismatches)
@@ -13,7 +13,7 @@
  * - Document symbols / outline view
  * - Semantic token highlighting
  * - Context-aware completions
- * 
+ *
  * Usage: ./kronos-lsp
  * The server reads JSON-RPC messages from stdin and writes responses to stdout.
  */
@@ -38,7 +38,7 @@ typedef enum {
 
 /**
  * Symbol information structure
- * 
+ *
  * Represents a symbol (variable, function, or parameter) in the source code.
  * Symbols are stored in a linked list for the document's symbol table.
  */
@@ -58,7 +58,7 @@ typedef struct Symbol {
 
 /**
  * Document state structure
- * 
+ *
  * Maintains the current state of an open document, including its text,
  * parsed AST, and symbol table.
  */
@@ -74,14 +74,14 @@ static DocumentState *g_doc = NULL;
 
 /**
  * @section JSON Parsing Utilities
- * 
+ *
  * Lightweight JSON parsing functions for extracting values from LSP messages.
  * These functions handle nested objects, arrays, and string escaping.
  */
 
 /**
  * @brief Skip whitespace characters
- * 
+ *
  * @param s String to skip whitespace in
  * @return Pointer to first non-whitespace character
  */
@@ -94,10 +94,10 @@ static const char *skip_ws(const char *s) {
 
 /**
  * @brief Find the start of a JSON value for a given key
- * 
+ *
  * Searches for a key-value pair in JSON and returns a pointer to the
  * start of the value (after the colon).
- * 
+ *
  * @param json JSON string to search
  * @param key Key to find
  * @return Pointer to value start, or NULL if not found
@@ -126,10 +126,10 @@ static const char *find_value_start(const char *json, const char *key) {
 
 /**
  * @brief Extract a string value from JSON
- * 
+ *
  * Finds a key in JSON and extracts its string value, handling escape sequences.
  * The returned string must be freed by the caller.
- * 
+ *
  * @param json JSON string to parse
  * @param key Key to look up
  * @return Extracted string (caller must free), or NULL if not found
@@ -205,10 +205,10 @@ static char *json_get_string_value(const char *json, const char *key) {
 
 /**
  * @brief Extract an unquoted value from JSON
- * 
+ *
  * Extracts numeric, boolean, or null values (not strings).
  * The returned string must be freed by the caller.
- * 
+ *
  * @param json JSON string to parse
  * @param key Key to look up
  * @return Extracted value as string (caller must free), or NULL if not found
@@ -238,10 +238,10 @@ static char *json_get_unquoted_value(const char *json, const char *key) {
 
 /**
  * @brief Extract the "id" field from a JSON-RPC message
- * 
+ *
  * Handles both string and numeric IDs. The returned value is wrapped
  * in quotes if it was a string, or returned as-is if numeric.
- * 
+ *
  * @param json JSON-RPC message
  * @return ID value (caller must free), or NULL if not found
  */
@@ -266,10 +266,10 @@ static char *json_get_id_value(const char *json) {
 
 /**
  * @brief Extract a nested JSON value using a dot-separated path
- * 
+ *
  * Supports paths like "params.position.line" or "params.contentChanges.0.text".
  * Array indices are specified as numbers in the path.
- * 
+ *
  * @param json JSON string to parse
  * @param path Dot-separated path (e.g., "params.textDocument.uri")
  * @return Extracted value (caller must free), or NULL if not found
@@ -475,16 +475,16 @@ static char *json_get_nested_value(const char *json, const char *path) {
 
 /**
  * @section LSP Message Handling
- * 
+ *
  * Functions for reading and writing JSON-RPC 2.0 messages over stdin/stdout.
  */
 
 /**
  * @brief Read a JSON-RPC message from stdin
- * 
+ *
  * Reads the Content-Length header and then the message body.
  * The body is allocated and must be freed by the caller.
- * 
+ *
  * @param out_body Output parameter for message body (caller must free)
  * @param out_length Output parameter for body length
  * @return true on success, false on error or EOF
@@ -538,9 +538,9 @@ static bool read_lsp_message(char **out_body, size_t *out_length) {
 
 /**
  * @brief Escape special characters in a string for JSON
- * 
+ *
  * Escapes backslashes, quotes, newlines, tabs, and control characters.
- * 
+ *
  * @param input String to escape
  * @param output Output buffer (must be large enough)
  * @param output_size Size of output buffer
@@ -597,9 +597,9 @@ static void json_escape(const char *input, char *output, size_t output_size) {
 
 /**
  * @brief Send a JSON-RPC response
- * 
+ *
  * Formats and sends a response message to stdout with Content-Length header.
- * 
+ *
  * @param id Request ID (JSON value, e.g., "1" or "\"abc\"")
  * @param result Result JSON (can be "null" for void responses)
  */
@@ -620,9 +620,9 @@ static void send_response(const char *id, const char *result) {
 
 /**
  * @brief Send a JSON-RPC notification (no response expected)
- * 
+ *
  * Used for sending diagnostics and other notifications to the client.
- * 
+ *
  * @param method Notification method name (e.g., "textDocument/publishDiagnostics")
  * @param params Parameters JSON object
  */
@@ -667,15 +667,15 @@ static void send_notification(const char *method, const char *params) {
 // Free symbol list
 /**
  * @section Symbol Table Management
- * 
+ *
  * Functions for building and managing the symbol table from the AST.
  */
 
 /**
  * @brief Free a linked list of symbols
- * 
+ *
  * Recursively frees all symbols and their associated strings.
- * 
+ *
  * @param sym Head of symbol linked list
  */
 static void free_symbols(Symbol *sym) {
@@ -690,11 +690,11 @@ static void free_symbols(Symbol *sym) {
 
 /**
  * @brief Estimate position from AST node
- * 
+ *
  * Since AST nodes don't store exact positions, this estimates line/column
  * based on indentation level. This is approximate but sufficient for
  * symbol table purposes.
- * 
+ *
  * @param node AST node
  * @param line Output parameter for line number (1-based)
  * @param col Output parameter for column number (1-based)
@@ -713,9 +713,9 @@ static void get_node_position(ASTNode *node, size_t *line, size_t *col) {
 
 /**
  * @brief Free document state and all its resources
- * 
+ *
  * Releases the URI, text, symbol table, and AST.
- * 
+ *
  * @param doc Document state to free (safe to pass NULL)
  */
 static void free_document_state(DocumentState *doc) {
@@ -757,7 +757,7 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
         }
         existing = existing->next;
       }
-      
+
       // Only create new symbol if it doesn't exist
       if (!existing) {
         sym = malloc(sizeof(Symbol));
@@ -867,10 +867,10 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
 // Build symbol table from AST
 /**
  * @brief Build the complete symbol table for a document
- * 
+ *
  * Processes the AST to extract all symbols (variables, functions, parameters)
  * and stores them in the document state. Also tracks symbol usage (read/written).
- * 
+ *
  * @param doc Document state to populate
  * @param ast Parsed AST
  * @param text Source code text
@@ -3046,13 +3046,13 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
       char pattern[256];
       snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
       find_node_position(NULL, text, pattern, &line, &col);
-      
+
       // If "let" pattern not found, try "set"
       if (line == 1 && col == 0) {
         snprintf(pattern, sizeof(pattern), "set %s to", sym->name);
         find_node_position(NULL, text, pattern, &line, &col);
       }
-      
+
       // If still not found, try to find just the variable name (fallback)
       if (line == 1 && col == 0) {
         find_nth_occurrence(text, sym->name, 1, &line, &col);
@@ -3085,8 +3085,8 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
         const char *pattern_start = line_start + col;
         const char *var_start = pattern_start;
         // Skip "let " or "set "
-        while (*var_start != '\0' && *var_start != '\n' && 
-               (*var_start == ' ' || *var_start == '\t' || 
+        while (*var_start != '\0' && *var_start != '\n' &&
+               (*var_start == ' ' || *var_start == '\t' ||
                 (*var_start >= 'a' && *var_start <= 'z') ||
                 (*var_start >= 'A' && *var_start <= 'Z'))) {
           if (*var_start == ' ') {
@@ -3123,7 +3123,7 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
         !(sym->type == SYMBOL_VARIABLE && sym->written)) {
       // Find the actual position of the symbol in source text
       size_t line = 1, col = 0;
-      
+
       if (sym->type == SYMBOL_FUNCTION) {
         // Find function declaration: "function <name> with"
         char pattern[256];
@@ -3144,7 +3144,7 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
           find_node_position(NULL, text, pattern, &line, &col);
         }
       }
-      
+
       // If still not found, try to find just the name (fallback)
       if (line == 1 && col == 0) {
         find_nth_occurrence(text, sym->name, 1, &line, &col);
@@ -3164,14 +3164,14 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
             }
           }
         }
-        
+
         if (sym->type == SYMBOL_FUNCTION) {
           // Skip "function " to get to function name
           const char *pattern_start = line_start + col;
           const char *name_start = pattern_start;
           // Skip "function "
-          while (*name_start != '\0' && *name_start != '\n' && 
-                 (*name_start == ' ' || *name_start == '\t' || 
+          while (*name_start != '\0' && *name_start != '\n' &&
+                 (*name_start == ' ' || *name_start == '\t' ||
                   (*name_start >= 'a' && *name_start <= 'z') ||
                   (*name_start >= 'A' && *name_start <= 'Z'))) {
             if (*name_start == ' ') {
@@ -3188,8 +3188,8 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
           // Skip "let " or "set " to get to variable name
           const char *pattern_start = line_start + col;
           const char *name_start = pattern_start;
-          while (*name_start != '\0' && *name_start != '\n' && 
-                 (*name_start == ' ' || *name_start == '\t' || 
+          while (*name_start != '\0' && *name_start != '\n' &&
+                 (*name_start == ' ' || *name_start == '\t' ||
                   (*name_start >= 'a' && *name_start <= 'z') ||
                   (*name_start >= 'A' && *name_start <= 'Z'))) {
             if (*name_start == ' ') {
@@ -3336,13 +3336,13 @@ static void check_diagnostics(const char *uri, const char *text) {
 
 /**
  * @section LSP Request Handlers
- * 
+ *
  * Functions that handle specific LSP requests from the client.
  */
 
 /**
  * @brief Handle initialize request
- * 
+ *
  * Responds with server capabilities including:
  * - Text document synchronization
  * - Completion provider
@@ -3350,7 +3350,7 @@ static void check_diagnostics(const char *uri, const char *text) {
  * - Hover provider
  * - Document symbols
  * - Semantic tokens
- * 
+ *
  * @param id Request ID
  */
 static void handle_initialize(const char *id) {
@@ -3377,19 +3377,19 @@ static void handle_initialize(const char *id) {
 
 /**
  * @brief Handle shutdown request
- * 
+ *
  * Acknowledges shutdown. The main loop will exit after this.
- * 
+ *
  * @param id Request ID
  */
 static void handle_shutdown(const char *id) { send_response(id, "null"); }
 
 /**
  * @brief Handle textDocument/didOpen notification
- * 
+ *
  * Called when a document is opened. Parses the document, builds the symbol table,
  * and sends initial diagnostics.
- * 
+ *
  * @param uri Document URI
  * @param text Document text
  */
@@ -3410,10 +3410,10 @@ static void handle_did_open(const char *uri, const char *text) {
 
 /**
  * @brief Handle textDocument/didChange notification
- * 
+ *
  * Called when a document is modified. Updates the document text and
  * re-runs diagnostics.
- * 
+ *
  * @param uri Document URI
  * @param text Updated document text
  */
@@ -3428,9 +3428,9 @@ static void handle_did_change(const char *uri, const char *text) {
 
 /**
  * @brief Find a symbol by name in the current document
- * 
+ *
  * Searches the symbol table for a symbol with the given name.
- * 
+ *
  * @param name Symbol name to find
  * @return Symbol pointer, or NULL if not found
  */
@@ -3448,10 +3448,10 @@ static Symbol *find_symbol(const char *name) {
 
 /**
  * @brief Extract the word at a given position in source code
- * 
+ *
  * Finds the identifier (variable/function name) at the specified line and
  * character position. Handles dots for module.function syntax.
- * 
+ *
  * @param source Source code text
  * @param line Line number (0-based)
  * @param character Character position (0-based)
@@ -3522,10 +3522,10 @@ static char *get_word_at_position(const char *source, size_t line,
 
 /**
  * @brief Handle textDocument/definition request (go-to-definition)
- * 
+ *
  * Finds the definition location of a symbol at the requested position.
  * Returns the file URI and position of the definition.
- * 
+ *
  * @param id Request ID
  * @param body Request body JSON
  */
@@ -3611,10 +3611,10 @@ static const char *get_module_description(const char *module_name) {
 // Handle hover
 /**
  * @brief Handle textDocument/hover request
- * 
+ *
  * Provides hover information for a symbol at the requested position.
  * Returns type information, documentation, and whether the symbol is mutable.
- * 
+ *
  * @param id Request ID
  * @param body Request body JSON
  */
@@ -3784,10 +3784,10 @@ static void handle_hover(const char *id, const char *body) {
 // Handle document symbols
 /**
  * @brief Handle textDocument/documentSymbol request
- * 
+ *
  * Returns all symbols in the document for the outline view.
  * Includes variables, functions, and their hierarchical structure.
- * 
+ *
  * @param id Request ID
  */
 static void handle_document_symbols(const char *id) {
@@ -3838,11 +3838,11 @@ static void handle_document_symbols(const char *id) {
 // Handle semantic tokens request
 /**
  * @brief Handle textDocument/semanticTokens/full request
- * 
+ *
  * Returns semantic token information for syntax highlighting.
  * Identifies variables, functions, and parameters with their modifiers
  * (unused, readonly).
- * 
+ *
  * @param id Request ID
  */
 static void handle_semantic_tokens(const char *id) {
@@ -3856,20 +3856,20 @@ static void handle_semantic_tokens(const char *id) {
   char tokens[16384];
   size_t pos = 0;
   size_t remaining = sizeof(tokens);
-  
+
   pos += snprintf(tokens + pos, remaining - pos, "{\"data\":[");
-  
+
   bool first = true;
   int prev_line = 0;
   int prev_col = 0;
-  
+
   for (Symbol *sym = g_doc->symbols; sym != NULL; sym = sym->next) {
     if (sym->type == SYMBOL_PARAMETER)
       continue;
-    
+
     // Find the actual position of the symbol in source text
     size_t line = 1, col = 0;
-    
+
     if (sym->type == SYMBOL_FUNCTION) {
       char pattern[256];
       snprintf(pattern, sizeof(pattern), "function %s with", sym->name);
@@ -3887,10 +3887,10 @@ static void handle_semantic_tokens(const char *id) {
         find_node_position(NULL, g_doc->text, pattern, &line, &col);
       }
     }
-    
+
     if (line == 1 && col == 0)
       continue; // Skip if not found
-    
+
     // Calculate the column position of the symbol name itself
     size_t name_col = col;
     const char *line_start = g_doc->text;
@@ -3904,12 +3904,12 @@ static void handle_semantic_tokens(const char *id) {
         }
       }
     }
-    
+
     if (sym->type == SYMBOL_FUNCTION) {
       const char *pattern_start = line_start + col;
       const char *name_start = pattern_start;
-      while (*name_start != '\0' && *name_start != '\n' && 
-             (*name_start == ' ' || *name_start == '\t' || 
+      while (*name_start != '\0' && *name_start != '\n' &&
+             (*name_start == ' ' || *name_start == '\t' ||
               (*name_start >= 'a' && *name_start <= 'z') ||
               (*name_start >= 'A' && *name_start <= 'Z'))) {
         if (*name_start == ' ') {
@@ -3925,8 +3925,8 @@ static void handle_semantic_tokens(const char *id) {
     } else {
       const char *pattern_start = line_start + col;
       const char *name_start = pattern_start;
-      while (*name_start != '\0' && *name_start != '\n' && 
-             (*name_start == ' ' || *name_start == '\t' || 
+      while (*name_start != '\0' && *name_start != '\n' &&
+             (*name_start == ' ' || *name_start == '\t' ||
               (*name_start >= 'a' && *name_start <= 'z') ||
               (*name_start >= 'A' && *name_start <= 'Z'))) {
         if (*name_start == ' ') {
@@ -3940,11 +3940,11 @@ static void handle_semantic_tokens(const char *id) {
       }
       name_col = (size_t)(name_start - line_start);
     }
-    
+
     // Determine token type and modifiers
     int token_type = sym->type == SYMBOL_FUNCTION ? 1 : 0; // 0=variable, 1=function
     int token_modifiers = 0;
-    
+
     // Mark as unused if not used (or defined but never read for variables)
     if (sym->type == SYMBOL_VARIABLE) {
       if ((sym->written && !sym->read) || (!sym->used && !sym->written)) {
@@ -3958,22 +3958,22 @@ static void handle_semantic_tokens(const char *id) {
         token_modifiers |= 1; // unused modifier (bit 0)
       }
     }
-    
+
     // Calculate relative positions (delta encoding)
     int delta_line = (int)line - 1 - prev_line;
     int delta_col = delta_line == 0 ? (int)name_col - prev_col : (int)name_col;
-    
+
     if (!first)
       pos += snprintf(tokens + pos, remaining - pos, ",");
     first = false;
-    
+
     pos += snprintf(tokens + pos, remaining - pos, "%d,%d,%zu,%d,%d",
                     delta_line, delta_col, strlen(sym->name), token_type, token_modifiers);
-    
+
     prev_line = (int)line - 1;
     prev_col = (int)name_col;
   }
-  
+
   pos += snprintf(tokens + pos, remaining - pos, "]}");
   send_response(id, tokens);
 }
@@ -3981,11 +3981,11 @@ static void handle_semantic_tokens(const char *id) {
 // Handle completion with context awareness
 /**
  * @brief Handle textDocument/completion request
- * 
+ *
  * Provides code completion suggestions at the requested position.
  * Returns keywords, built-in functions, variables, and functions from
  * the current scope.
- * 
+ *
  * @param id Request ID
  * @param body Request body JSON
  */
@@ -4123,10 +4123,10 @@ static void handle_completion(const char *id, const char *body) {
 
 /**
  * @brief Main LSP server loop
- * 
+ *
  * Reads JSON-RPC messages from stdin and dispatches them to appropriate handlers.
  * Continues until shutdown request is received.
- * 
+ *
  * Supported methods:
  * - initialize: Server initialization
  * - shutdown: Server shutdown
@@ -4137,7 +4137,7 @@ static void handle_completion(const char *id, const char *body) {
  * - textDocument/hover: Hover information
  * - textDocument/documentSymbol: Document outline
  * - textDocument/semanticTokens/full: Semantic highlighting
- * 
+ *
  * @return 0 on normal exit
  */
 int main(void) {

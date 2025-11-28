@@ -1,7 +1,7 @@
 /**
  * @file gc.c
  * @brief Garbage collection and memory tracking
- * 
+ *
  * Provides reference-counting based garbage collection for Kronos values.
  * Tracks all allocated objects and provides statistics. Thread-safe using
  * mutexes for concurrent access.
@@ -72,7 +72,7 @@ static void gc_ensure_capacity_locked(size_t min_capacity) {
 
 /**
  * @brief Initialize the garbage collector
- * 
+ *
  * Allocates the initial object tracking array. Safe to call multiple times
  * (will clean up previous state first).
  */
@@ -90,7 +90,7 @@ void gc_init(void) {
 
 /**
  * @brief Cleanup the garbage collector
- * 
+ *
  * Releases all tracked objects and frees the tracking array.
  * Should only be called when no more values are in use.
  */
@@ -117,10 +117,10 @@ void gc_cleanup(void) {
 
 /**
  * @brief Track a newly allocated object
- * 
+ *
  * Adds the object to the tracking array for leak detection and statistics.
  * Prevents duplicate tracking of the same object.
- * 
+ *
  * @param val Object to track (safe to pass NULL)
  */
 void gc_track(KronosValue *val) {
@@ -151,10 +151,10 @@ void gc_track(KronosValue *val) {
 
 /**
  * @brief Remove an object from tracking
- * 
+ *
  * Called when an object is being freed. Removes it from the tracking array
  * and updates statistics.
- * 
+ *
  * @param val Object to untrack (safe to pass NULL)
  */
 void gc_untrack(KronosValue *val) {
@@ -184,11 +184,11 @@ void gc_untrack(KronosValue *val) {
 
 /**
  * @brief Collect cycles (placeholder for future implementation)
- * 
+ *
  * Currently a no-op. Reference counting cannot detect circular references
  * (e.g., a list containing itself). This will be implemented using
  * mark-and-sweep when needed.
- * 
+ *
  * TODO: Implement mark-and-sweep cycle detection
  */
 void gc_collect_cycles(void) {
@@ -201,10 +201,10 @@ void gc_collect_cycles(void) {
 
 /**
  * @brief Get total allocated memory in bytes
- * 
+ *
  * Returns an approximate count of memory allocated for KronosValue objects.
  * Includes the value structures and string data.
- * 
+ *
  * @return Total allocated bytes
  */
 size_t gc_get_allocated_bytes(void) {
@@ -216,9 +216,9 @@ size_t gc_get_allocated_bytes(void) {
 
 /**
  * @brief Get the number of currently tracked objects
- * 
+ *
  * Useful for debugging and leak detection.
- * 
+ *
  * @return Number of tracked objects
  */
 size_t gc_get_object_count(void) {

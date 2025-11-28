@@ -1,7 +1,7 @@
 /**
  * @file parser.c
  * @brief Parser for Kronos source code
- * 
+ *
  * Implements recursive descent parsing to build an Abstract Syntax Tree (AST)
  * from tokens. Handles all Kronos language constructs:
  * - Expressions (arithmetic, comparisons, logical operators)
@@ -28,7 +28,7 @@ typedef struct {
 
 /**
  * @brief Look ahead at a token without consuming it
- * 
+ *
  * @param p Parser state
  * @param offset How many tokens ahead to look (0 = current token)
  * @return Token pointer, or NULL if out of bounds
@@ -42,10 +42,10 @@ static Token *peek(Parser *p, int offset) {
 
 /**
  * @brief Consume a token of the expected type
- * 
+ *
  * Advances the parser position if the current token matches the expected type.
  * Reports an error if the token doesn't match.
- * 
+ *
  * @param p Parser state
  * @param expected Expected token type
  * @return Token pointer on success, NULL on mismatch or end of input
@@ -68,7 +68,7 @@ static Token *consume(Parser *p, TokenType expected) {
 
 /**
  * @brief Consume any token (advance parser position)
- * 
+ *
  * @param p Parser state
  * @return Token pointer, or NULL if at end of input
  */
@@ -117,10 +117,10 @@ static ASTNode *ast_node_new_checked(ASTNodeType type) {
 
 /**
  * @brief Parse a value (literal or variable reference)
- * 
+ *
  * Handles: numbers, strings, f-strings, booleans, null, variables,
  * list literals, and function calls (when used as expressions).
- * 
+ *
  * @param p Parser state
  * @return AST node, or NULL on error
  */
@@ -206,10 +206,10 @@ static ASTNode *parse_value(Parser *p) {
 
 /**
  * @brief Get operator precedence for expression parsing
- * 
+ *
  * Higher numbers indicate tighter binding (higher precedence).
  * Used by the Pratt parser to correctly handle operator associativity.
- * 
+ *
  * @param type Token type to check
  * @return Precedence value (0 if not a binary operator)
  */
@@ -232,7 +232,7 @@ static int get_precedence(TokenType type) {
 
 /**
  * @brief Match natural-language comparison operators
- * 
+ *
  * Handles Kronos's natural-language comparisons:
  * - "is equal" or "is equal to" -> ==
  * - "is not equal" -> !=
@@ -240,7 +240,7 @@ static int get_precedence(TokenType type) {
  * - "is less than" -> <
  * - "is greater than or equal" -> >=
  * - "is less than or equal" -> <=
- * 
+ *
  * @param p Parser state
  * @param out_op Output parameter for the binary operator type
  * @param tokens_to_consume Output parameter for number of tokens to consume
@@ -305,10 +305,10 @@ static bool match_comparison_operator(Parser *p, BinOp *out_op,
 
 /**
  * @brief Parse a list literal
- * 
+ *
  * Handles: "list 1, 2, 3" or "list" (empty list).
  * Elements are comma-separated expressions.
- * 
+ *
  * @param p Parser state
  * @return AST node for the list, or NULL on error
  */
@@ -388,11 +388,11 @@ static ASTNode *parse_list_literal(Parser *p) {
 
 /**
  * @brief Parse an f-string with embedded expressions
- * 
+ *
  * F-strings allow embedding expressions: f"Hello {name}".
  * Handles nested braces and escape sequences. Each expression
  * is tokenized and parsed separately.
- * 
+ *
  * @param p Parser state
  * @return AST node for the f-string, or NULL on error
  */
@@ -589,11 +589,11 @@ static ASTNode *parse_fstring(Parser *p) {
 
 /**
  * @brief Parse a primary expression with postfix operations
- * 
+ *
  * Parses values, then handles postfix operations:
  * - Indexing: "list at 0"
  * - Slicing: "list from 1 to 5" or "list from 1 to end"
- * 
+ *
  * @param p Parser state
  * @return AST node, or NULL on error
  */
@@ -667,10 +667,10 @@ static ASTNode *parse_primary(Parser *p) {
 
 /**
  * @brief Parse an expression using precedence-climbing (Pratt parser)
- * 
+ *
  * Recursively parses expressions respecting operator precedence and associativity.
  * Handles unary operators (NOT) and binary operators (arithmetic, comparisons, logical).
- * 
+ *
  * @param p Parser state
  * @param min_prec Minimum precedence to parse (stops when encountering lower precedence)
  * @return AST node for the expression, or NULL on error
@@ -796,9 +796,9 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
 
 /**
  * @brief Parse an expression (entry point)
- * 
+ *
  * Starts precedence-climbing parsing with minimum precedence.
- * 
+ *
  * @param p Parser state
  * @return AST node for the expression, or NULL on error
  */
@@ -808,9 +808,9 @@ static ASTNode *parse_expression(Parser *p) {
 
 /**
  * @brief Parse a condition for if/while statements
- * 
+ *
  * Conditions are full expressions (can include comparisons and logical operators).
- * 
+ *
  * @param p Parser state
  * @return AST node for the condition, or NULL on error
  */
@@ -822,10 +822,10 @@ static ASTNode *parse_condition(Parser *p) {
 
 /**
  * @brief Parse a variable assignment statement
- * 
+ *
  * Handles: "set x to 10" (immutable) or "let x to 10" (mutable).
  * Supports optional type annotations: "set x to 10 as number".
- * 
+ *
  * @param p Parser state
  * @param indent Indentation level of this statement
  * @return AST node for the assignment, or NULL on error
@@ -917,10 +917,10 @@ static ASTNode *parse_print(Parser *p, int indent) {
 
 /**
  * @brief Parse a block of indented statements
- * 
+ *
  * Collects all statements with indentation greater than parent_indent.
  * Used for if/for/while bodies and function bodies.
- * 
+ *
  * @param p Parser state
  * @param parent_indent Indentation level of the parent statement
  * @param block_size Output parameter for number of statements in block
@@ -1631,11 +1631,11 @@ static ASTNode *parse_statement(Parser *p) {
 
 /**
  * @brief Parse tokens into an Abstract Syntax Tree
- * 
+ *
  * Main entry point for parsing. Processes all statements in the token stream
  * and builds a complete AST. Handles errors gracefully by skipping to the
  * next line on parse failures.
- * 
+ *
  * @param tokens Token array to parse
  * @return AST containing all statements, or NULL on critical error
  */
@@ -1686,10 +1686,10 @@ AST *parse(TokenArray *tokens) {
 
 /**
  * @brief Free an AST node and all its children
- * 
+ *
  * Recursively frees all memory associated with the node, including
  * strings, arrays, and child nodes.
- * 
+ *
  * @param node Node to free (safe to pass NULL)
  */
 void ast_node_free(ASTNode *node) {
@@ -1821,7 +1821,7 @@ void ast_node_free(ASTNode *node) {
 
 /**
  * @brief Free an AST and all its statements
- * 
+ *
  * @param ast AST to free (safe to pass NULL)
  */
 void ast_free(AST *ast) {

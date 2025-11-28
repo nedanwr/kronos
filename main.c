@@ -1,7 +1,7 @@
 /**
  * @file main.c
  * @brief Main entry point for the Kronos interpreter
- * 
+ *
  * This file provides the public API for executing Kronos programs and manages
  * the REPL (Read-Eval-Print Loop) interface. It orchestrates the compilation
  * pipeline: tokenization -> parsing -> compilation -> execution.
@@ -21,10 +21,10 @@
 
 /**
  * @brief Create a new Kronos VM instance
- * 
+ *
  * Initializes the runtime system and creates a new virtual machine ready
  * to execute Kronos bytecode. The VM includes the built-in Pi constant.
- * 
+ *
  * @return Pointer to the new VM instance, or NULL on failure
  */
 KronosVM *kronos_vm_new(void) {
@@ -39,11 +39,11 @@ KronosVM *kronos_vm_new(void) {
 
 /**
  * @brief Free a Kronos VM instance
- * 
+ *
  * Releases all resources associated with the VM, including global variables,
  * functions, and the runtime system. After calling this, the VM pointer
  * should not be used.
- * 
+ *
  * @param vm The VM instance to free (safe to pass NULL)
  */
 void kronos_vm_free(KronosVM *vm) {
@@ -56,11 +56,11 @@ void kronos_vm_free(KronosVM *vm) {
 
 /**
  * @brief Get the last error message from the VM
- * 
+ *
  * Returns a human-readable error message describing the most recent error
  * that occurred during execution. The message is owned by the VM and should
  * not be freed by the caller.
- * 
+ *
  * @param vm The VM instance
  * @return Error message string, or NULL if no error or vm is NULL
  */
@@ -72,10 +72,10 @@ const char *kronos_get_last_error(KronosVM *vm) {
 
 /**
  * @brief Get the last error code from the VM
- * 
+ *
  * Returns the error code for the most recent error. Use this to distinguish
  * between different types of errors (tokenization, parsing, compilation, runtime).
- * 
+ *
  * @param vm The VM instance
  * @return Error code, or KRONOS_ERR_INVALID_ARGUMENT if vm is NULL
  */
@@ -87,10 +87,10 @@ KronosErrorCode kronos_get_last_error_code(KronosVM *vm) {
 
 /**
  * @brief Set an error callback function
- * 
+ *
  * Registers a callback that will be invoked whenever an error occurs during
  * execution. This allows custom error handling or logging.
- * 
+ *
  * @param vm The VM instance
  * @param callback Function to call on errors, or NULL to disable callbacks
  */
@@ -102,11 +102,11 @@ void kronos_set_error_callback(KronosVM *vm, KronosErrorCallback callback) {
 
 /**
  * @brief Execute Kronos source code from a string
- * 
+ *
  * Compiles and executes Kronos source code in a single call. This function
  * handles the full pipeline: tokenization, parsing, compilation, and execution.
  * Errors are stored in the VM and can be retrieved with kronos_get_last_error().
- * 
+ *
  * @param vm The VM instance to use for execution
  * @param source The Kronos source code to execute (must not be NULL)
  * @return 0 on success, negative error code on failure
@@ -154,10 +154,10 @@ int kronos_run_string(KronosVM *vm, const char *source) {
 
 /**
  * @brief Execute a Kronos program from a file
- * 
+ *
  * Reads the contents of a file and executes it as Kronos source code.
  * Handles file I/O errors and validates file size to prevent memory issues.
- * 
+ *
  * @param vm The VM instance to use for execution
  * @param filepath Path to the .kr file to execute (must not be NULL)
  * @return 0 on success, negative error code on failure
@@ -250,7 +250,7 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 
 /**
  * @brief Start the Kronos REPL (Read-Eval-Print Loop)
- * 
+ *
  * Provides an interactive command-line interface for executing Kronos code.
  * Reads input line by line, executes it, and prints results or errors.
  * Type 'exit' to quit the REPL.
@@ -314,10 +314,10 @@ void kronos_repl(void) {
 
 /**
  * @brief Main entry point for the Kronos interpreter
- * 
+ *
  * If a file path is provided as a command-line argument, executes that file.
  * Otherwise, starts the interactive REPL.
- * 
+ *
  * @param argc Number of command-line arguments
  * @param argv Command-line arguments (argv[1] is optional file path)
  * @return 0 on success, 1 on error

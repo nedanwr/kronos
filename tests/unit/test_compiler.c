@@ -10,7 +10,7 @@ static AST *parse_string(const char *source) {
         if (tok_err) tokenize_error_free(tok_err);
         return NULL;
     }
-    
+
     AST *ast = parse(tokens);
     token_array_free(tokens);
     return ast;
@@ -19,14 +19,14 @@ static AST *parse_string(const char *source) {
 TEST(compile_number) {
     AST *ast = parse_string("print 42");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
     ASSERT_TRUE(bytecode->count > 0);
     ASSERT_TRUE(bytecode->const_count > 0);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -34,12 +34,12 @@ TEST(compile_number) {
 TEST(compile_assignment) {
     AST *ast = parse_string("set x to 10");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -47,12 +47,12 @@ TEST(compile_assignment) {
 TEST(compile_binary_operation) {
     AST *ast = parse_string("10 plus 20");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -60,12 +60,12 @@ TEST(compile_binary_operation) {
 TEST(compile_print) {
     AST *ast = parse_string("print 42");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     // Should have PRINT opcode
     bool has_print = false;
     for (size_t i = 0; i < bytecode->count; i++) {
@@ -75,7 +75,7 @@ TEST(compile_print) {
         }
     }
     ASSERT_TRUE(has_print);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -83,12 +83,12 @@ TEST(compile_print) {
 TEST(compile_if_statement) {
     AST *ast = parse_string("if true:\n    print 1");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     // Should have JUMP_IF_FALSE opcode
     bool has_jump = false;
     for (size_t i = 0; i < bytecode->count; i++) {
@@ -98,7 +98,7 @@ TEST(compile_if_statement) {
         }
     }
     ASSERT_TRUE(has_jump);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -106,12 +106,12 @@ TEST(compile_if_statement) {
 TEST(compile_function_definition) {
     AST *ast = parse_string("function add with x, y:\n    return x plus y");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     // Should have DEFINE_FUNC opcode
     bool has_define = false;
     for (size_t i = 0; i < bytecode->count; i++) {
@@ -121,7 +121,7 @@ TEST(compile_function_definition) {
         }
     }
     ASSERT_TRUE(has_define);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
@@ -129,12 +129,12 @@ TEST(compile_function_definition) {
 TEST(compile_list_literal) {
     AST *ast = parse_string("set mylist to list 1, 2, 3");
     ASSERT_PTR_NOT_NULL(ast);
-    
+
     const char *err = NULL;
     Bytecode *bytecode = compile(ast, &err);
     ASSERT_PTR_NULL(err);
     ASSERT_PTR_NOT_NULL(bytecode);
-    
+
     // Should have LIST_NEW opcode
     bool has_list_new = false;
     for (size_t i = 0; i < bytecode->count; i++) {
@@ -144,7 +144,7 @@ TEST(compile_list_literal) {
         }
     }
     ASSERT_TRUE(has_list_new);
-    
+
     bytecode_free(bytecode);
     ast_free(ast);
 }
