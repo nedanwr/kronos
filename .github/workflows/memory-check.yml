@@ -76,7 +76,7 @@ jobs:
           
           # Check passing tests
           echo "=== Checking Passing Tests ==="
-          for test_file in tests/pass/*.kr; do
+          for test_file in tests/integration/pass/*.kr; do
             if [ -f "$test_file" ]; then
               test_name=$(basename "$test_file" .kr)
               if ! check_with_valgrind "$test_file" "$test_name" false; then
@@ -88,7 +88,7 @@ jobs:
           # Check error tests (program errors are expected, but no memory leaks)
           echo ""
           echo "=== Checking Error Tests ==="
-          for test_file in tests/fail/*.kr; do
+          for test_file in tests/integration/fail/*.kr; do
             if [ -f "$test_file" ]; then
               test_name=$(basename "$test_file" .kr)
               if ! check_with_valgrind "$test_file" "$test_name" true; then
