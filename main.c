@@ -113,8 +113,7 @@ void kronos_set_error_callback(KronosVM *vm, KronosErrorCallback callback) {
  */
 int kronos_run_string(KronosVM *vm, const char *source) {
   if (!vm || !source)
-    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
-                    "VM and source must be non-null");
+    return -(int)KRONOS_ERR_INVALID_ARGUMENT;
 
   vm_clear_error(vm);
 
@@ -165,8 +164,7 @@ int kronos_run_string(KronosVM *vm, const char *source) {
  */
 int kronos_run_file(KronosVM *vm, const char *filepath) {
   if (!vm || !filepath)
-    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
-                    "VM and filepath must be non-null");
+    return -(int)KRONOS_ERR_INVALID_ARGUMENT;
 
   vm_clear_error(vm);
 
