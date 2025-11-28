@@ -1,3 +1,12 @@
+/**
+ * @file gc.c
+ * @brief Garbage collection and memory tracking
+ *
+ * Provides reference-counting based garbage collection for Kronos values.
+ * Tracks all allocated objects and provides statistics. Thread-safe using
+ * mutexes for concurrent access.
+ */
+
 #include "gc.h"
 #include <pthread.h>
 #include <stdint.h>
@@ -5,17 +14,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Simple GC tracking for reference counting
+/** Initial capacity for the object tracking array */
 #define INITIAL_TRACKED_CAPACITY 1024
 
+/**
+ * Garbage collector state
+ * Tracks all allocated KronosValue objects for leak detection and statistics
+ */
 typedef struct {
-  KronosValue **objects;
-  size_t count;
-  size_t capacity;
-  size_t allocated_bytes;
+  KronosValue **objects;  /**< Array of tracked object pointers */
+  size_t count;           /**< Number of currently tracked objects */
+  size_t capacity;        /**< Capacity of the objects array */
+  size_t allocated_bytes; /**< Total bytes allocated (approximate) */
 } GCState;
 
+/** Global GC state (protected by gc_mutex) */
 static GCState gc_state = {0};
+
+/** Mutex for thread-safe GC operations */
 static pthread_mutex_t gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void gc_abort_allocation(void) {
@@ -54,7 +70,12 @@ static void gc_ensure_capacity_locked(size_t min_capacity) {
   gc_state.capacity = new_capacity;
 }
 
-// Initialize GC
+/**
+ * @brief Initialize the garbage collector
+ *
+ * Allocates the initial object tracking array. Safe to call multiple times
+ * (will clean up previous state first).
+ */
 void gc_init(void) {
   pthread_mutex_lock(&gc_mutex);
   // Free any previously allocated memory if gc_init is called multiple times
@@ -67,41 +88,41 @@ void gc_init(void) {
   pthread_mutex_unlock(&gc_mutex);
 }
 
-// Cleanup GC
+/**
+ * @brief Cleanup the garbage collector
+ *
+ * Releases all tracked objects and frees the tracking array.
+ * Should only be called when no more values are in use.
+ */
 void gc_cleanup(void) {
-  // All objects should have been freed by now
-  // This is just a safety check
   pthread_mutex_lock(&gc_mutex);
-  for (size_t i = 0; i < gc_state.count; i++) {
-    KronosValue *obj = gc_state.objects[i];
-    if (!obj)
-      continue;
-
-    gc_state.allocated_bytes -= sizeof(KronosValue);
-
-    if (obj->type == VAL_STRING) {
-      size_t payload = obj->as.string.length + 1;
-      char *data = obj->as.string.data;
-      if (data) {
-        gc_state.allocated_bytes -= payload;
-        free(data);
-        obj->as.string.data = NULL;
-      }
-    }
-
-    // Force free leaked objects
-    free(obj);
-    gc_state.objects[i] = NULL;
-  }
-  gc_state.count = 0;
-  gc_state.allocated_bytes = 0;
-  free(gc_state.objects);
+  KronosValue **objects = gc_state.objects;
+  size_t count = gc_state.count;
   gc_state.objects = NULL;
+  gc_state.count = 0;
   gc_state.capacity = 0;
+  gc_state.allocated_bytes = 0;
   pthread_mutex_unlock(&gc_mutex);
+
+  if (!objects)
+    return;
+
+  for (size_t i = 0; i < count; i++) {
+    KronosValue *obj = objects[i];
+    if (obj)
+      value_release(obj);
+  }
+  free(objects);
 }
 
-// Track a new object
+/**
+ * @brief Track a newly allocated object
+ *
+ * Adds the object to the tracking array for leak detection and statistics.
+ * Prevents duplicate tracking of the same object.
+ *
+ * @param val Object to track (safe to pass NULL)
+ */
 void gc_track(KronosValue *val) {
   if (!val)
     return;
@@ -128,7 +149,14 @@ void gc_track(KronosValue *val) {
   pthread_mutex_unlock(&gc_mutex);
 }
 
-// Untrack an object (when it's being freed)
+/**
+ * @brief Remove an object from tracking
+ *
+ * Called when an object is being freed. Removes it from the tracking array
+ * and updates statistics.
+ *
+ * @param val Object to untrack (safe to pass NULL)
+ */
 void gc_untrack(KronosValue *val) {
   if (!val)
     return;
@@ -154,9 +182,15 @@ void gc_untrack(KronosValue *val) {
   pthread_mutex_unlock(&gc_mutex);
 }
 
-// Cycle detection using mark-and-sweep
-// For now, this is a placeholder since we're focusing on reference counting
-// Full cycle detection will be implemented when we have complex data structures
+/**
+ * @brief Collect cycles (placeholder for future implementation)
+ *
+ * Currently a no-op. Reference counting cannot detect circular references
+ * (e.g., a list containing itself). This will be implemented using
+ * mark-and-sweep when needed.
+ *
+ * TODO: Implement mark-and-sweep cycle detection
+ */
 void gc_collect_cycles(void) {
   // TODO: Implement mark-and-sweep for cycles
   // This will be needed when we have circular references
@@ -165,7 +199,14 @@ void gc_collect_cycles(void) {
   // For now, we rely on pure reference counting
 }
 
-// Get allocated bytes
+/**
+ * @brief Get total allocated memory in bytes
+ *
+ * Returns an approximate count of memory allocated for KronosValue objects.
+ * Includes the value structures and string data.
+ *
+ * @return Total allocated bytes
+ */
 size_t gc_get_allocated_bytes(void) {
   pthread_mutex_lock(&gc_mutex);
   size_t bytes = gc_state.allocated_bytes;
@@ -173,7 +214,13 @@ size_t gc_get_allocated_bytes(void) {
   return bytes;
 }
 
-// Get object count
+/**
+ * @brief Get the number of currently tracked objects
+ *
+ * Useful for debugging and leak detection.
+ *
+ * @return Number of tracked objects
+ */
 size_t gc_get_object_count(void) {
   pthread_mutex_lock(&gc_mutex);
   size_t count = gc_state.count;

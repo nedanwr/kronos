@@ -1,0 +1,24 @@
+# Test: Basic list operations
+# Expected: Pass
+
+# List literal
+set nums to list 1, 2, 3
+print nums
+
+# List indexing
+set first to nums at 0
+print first
+
+set second to nums at 1
+print second
+
+set last to nums at -1
+print last
+
+# List length
+call len with nums
+
+# List iteration
+for num in nums:
+    print num
+

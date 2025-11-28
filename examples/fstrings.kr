@@ -1,0 +1,59 @@
+print "=== Kronos F-Strings ==="
+print ""
+
+print "1. Basic F-String"
+set name to "World"
+set greeting to f"Hello, {name}!"
+print greeting
+print ""
+
+print "2. F-String with Numbers"
+set x to 42
+set message to f"The answer is {x}"
+print message
+print ""
+
+print "3. F-String with Expressions"
+set a to 5
+set b to 10
+set result to f"{a} plus {b} equals {a plus b}"
+print result
+print ""
+
+print "4. F-String with Multiple Variables"
+set first to "John"
+set last to "Doe"
+set full to f"{first} {last}"
+print full
+print ""
+
+print "5. F-String with Function Calls"
+set text to "Hello"
+set info to f"'{text}' has {call len with text} characters"
+print info
+print ""
+
+print "6. F-String with Complex Expressions"
+set x2 to 10
+set y2 to 5
+set calculation to f"{x2} times {y2} divided by 2 equals {(x2 times y2) divided by 2}"
+print calculation
+print ""
+
+print "7. F-String with String Operations"
+set name2 to "alice"
+set greeting2 to f"Hello, {call uppercase with name2}!"
+print greeting2
+print ""
+
+print "8. Mixed F-String Content"
+set item to "apple"
+set count to 3
+set price to 1.5
+set total to count times price
+set receipt to f"You bought {count} {item}s for ${price} each. Total: ${total}"
+print receipt
+print ""
+
+print "=== End of F-Strings ==="
+

@@ -1,0 +1,19 @@
+# Test: List indexing (positive and negative)
+# Expected: Pass
+
+set items to list "first", "second", "third", "fourth"
+
+# Positive indices
+set item0 to items at 0
+print item0
+
+set item2 to items at 2
+print item2
+
+# Negative indices
+set item_last to items at -1
+print item_last
+
+set item_second_last to items at -2
+print item_second_last
+

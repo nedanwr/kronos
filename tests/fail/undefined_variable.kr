@@ -1,5 +1,0 @@
-# Test: Using undefined variable
-# Expected: Error: Undefined variable 'unknown'
-
-print unknown
-

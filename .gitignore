@@ -3,6 +3,7 @@
 *.d
 kronos
 kronos-lsp
+kronos_unit_tests
 *.dSYM/
 
 # OS files

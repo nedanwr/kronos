@@ -1,4 +1,6 @@
 name: Kronos CI
+permissions:
+  contents: read
 
 on:
   push:
@@ -7,8 +9,38 @@ on:
     branches: [main, develop]
 
 jobs:
-  build-and-test:
-    name: Build and Test
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # macOS comes with Xcode command line tools
+          xcode-select --install 2>/dev/null || true
+
+      - name: Build unit tests
+        run: make clean && make test-unit
+
+      - name: Run unit tests
+        run: ./tests/unit/kronos_unit_tests
+
+  integration-tests:
+    name: Integration Tests
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -34,13 +66,28 @@ jobs:
       - name: Build Kronos
         run: make clean && make
 
-      - name: Run tests
-        run: ./run_tests.sh
-
-      - name: Test binary exists
+      - name: Verify binary exists
         run: |
           test -f ./kronos
           echo "✓ Kronos binary created"
+
+      - name: Run passing integration tests
+        run: |
+          for test_file in tests/integration/pass/*.kr; do
+            if [ -f "$test_file" ]; then
+              ./kronos "$test_file" || exit 1
+            fi
+          done
+          echo "✓ All passing integration tests succeeded"
+
+      - name: Run error integration tests
+        run: |
+          for test_file in tests/integration/fail/*.kr; do
+            if [ -f "$test_file" ]; then
+              ./kronos "$test_file" && exit 1 || true
+            fi
+          done
+          echo "✓ All error integration tests correctly failed"
 
       - name: Test REPL mode
         run: |

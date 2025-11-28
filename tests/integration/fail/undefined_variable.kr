@@ -1,0 +1,10 @@
+# Test: Using undefined variable
+# Expected: Error: Undefined variable 'unknown'
+#
+# Verifies that the runtime correctly detects and reports errors when
+# attempting to use a variable that has not been defined. This is a
+# critical error that should prevent execution and provide a clear
+# error message indicating which variable is undefined.
+
+print unknown
+

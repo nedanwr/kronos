@@ -7,6 +7,15 @@
       "include": "#comments"
     },
     {
+      "include": "#imports"
+    },
+    {
+      "include": "#function-definitions"
+    },
+    {
+      "include": "#function-calls"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -19,7 +28,7 @@
       "include": "#constants"
     },
     {
-      "include": "#functions"
+      "include": "#builtin-functions"
     },
     {
       "include": "#operators"
@@ -34,15 +43,34 @@
         }
       ]
     },
+    "imports": {
+      "patterns": [
+        {
+          "begin": "\\b(import)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.import.kronos"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "name": "entity.name.namespace.kronos",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+            }
+          ]
+        }
+      ]
+    },
     "keywords": {
       "patterns": [
         {
           "name": "keyword.control.kronos",
-          "match": "\\b(if|for|while|in|range|function|call|return|with)\\b"
+          "match": "\\b(if|else|for|while|in|range|return|with|break|continue)\\b"
         },
         {
           "name": "keyword.other.kronos",
-          "match": "\\b(print|to|as|is|than|by)\\b"
+          "match": "\\b(print|to|as|is|than|by|at)\\b"
         },
         {
           "name": "storage.type.kronos",
@@ -50,12 +78,130 @@
         },
         {
           "name": "storage.modifier.kronos",
-          "match": "\\b(number|string|boolean|null)\\b"
+          "match": "\\b(number|string|boolean)\\b"
         }
       ]
     },
     "strings": {
       "patterns": [
+        {
+          "name": "string.quoted.double.kronos",
+          "begin": "(f)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string.kronos"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.kronos"
+            }
+          },
+          "end": "(?<!\\\\)\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.kronos"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.kronos",
+              "match": "\\\\."
+            },
+            {
+              "begin": "(\\{)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.expression.begin.kronos"
+                }
+              },
+              "end": "(\\})",
+              "endCaptures": {
+                "1": {
+                  "name": "punctuation.definition.expression.end.kronos"
+                }
+              },
+              "name": "meta.embedded.expression.kronos",
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#function-calls"
+                },
+                {
+                  "include": "#builtin-functions"
+                },
+                {
+                  "include": "#operators"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#constants"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.kronos",
+          "begin": "(f)(')",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string.kronos"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.kronos"
+            }
+          },
+          "end": "(?<!\\\\)'",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.kronos"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.kronos",
+              "match": "\\\\."
+            },
+            {
+              "begin": "(\\{)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.expression.begin.kronos"
+                }
+              },
+              "end": "(\\})",
+              "endCaptures": {
+                "1": {
+                  "name": "punctuation.definition.expression.end.kronos"
+                }
+              },
+              "name": "meta.embedded.expression.kronos",
+              "patterns": [
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#function-calls"
+                },
+                {
+                  "include": "#builtin-functions"
+                },
+                {
+                  "include": "#operators"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#constants"
+                }
+              ]
+            }
+          ]
+        },
         {
           "name": "string.quoted.double.kronos",
           "begin": "\"",
@@ -81,15 +227,63 @@
       "patterns": [
         {
           "name": "constant.language.kronos",
-          "match": "\\b(true|false|null|Pi)\\b"
+          "match": "\\b(true|false|null|undefined|Pi)\\b"
         }
       ]
     },
-    "functions": {
+    "function-definitions": {
       "patterns": [
         {
-          "name": "entity.name.function.kronos",
-          "match": "\\b(add|subtract|multiply|divide)\\b"
+          "begin": "\\b(function)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.kronos"
+            }
+          },
+          "end": "\\b(with)\\b",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.control.kronos"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.function.kronos",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+            }
+          ]
+        }
+      ]
+    },
+    "function-calls": {
+      "patterns": [
+        {
+          "begin": "\\b(call)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.kronos"
+            }
+          },
+          "end": "\\b(with)\\b",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.control.kronos"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.function.call.kronos",
+              "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)?\\b"
+            }
+          ]
+        }
+      ]
+    },
+    "builtin-functions": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.kronos",
+          "match": "\\b(add|subtract|multiply|divide|len|uppercase|lowercase|trim|split|join|contains|starts_with|ends_with|replace|to_string|to_number|to_bool|reverse|sort|sqrt|power|abs|round|floor|ceil|rand|min|max)\\b"
         }
       ]
     },

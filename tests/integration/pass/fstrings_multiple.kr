@@ -1,0 +1,15 @@
+# Test: F-strings with multiple expressions
+# Expected: Pass
+
+set name to "Alice"
+set age to 30
+set city to "NYC"
+set info to f"Name: {name}, Age: {age}, City: {city}"
+print info
+
+set x to 10
+set y to 20
+set z to 30
+set total to f"Sum: {x plus y plus z}"
+print total
+

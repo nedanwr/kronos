@@ -1,0 +1,7 @@
+# Test: Type errors for string methods
+# Expected: Fail with type error
+
+# contains requires strings
+set x to 5
+set result to call contains with x, "test"
+

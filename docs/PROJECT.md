@@ -14,8 +14,8 @@ A comprehensive overview of the Kronos programming language implementation.
 
 ## Status & Statistics
 
-**Version:** 0.2.0  
-**Status:** Production Ready ✅
+**Version:** 0.3.0 (In Development)  
+**Status:** Core Features Complete ✅ | Logical Operators Implemented
 
 ```
 Language:        C
@@ -23,7 +23,7 @@ Binary Size:     ~57KB
 LOC (Source):    ~3,500 lines
 File Extension:  .kr
 Standards:       C11
-Test Coverage:   26 tests (14 pass, 12 error)
+Test Coverage:   27 tests (15 pass, 12 error)
 ```
 
 ## Implemented Features
@@ -31,6 +31,7 @@ Test Coverage:   26 tests (14 pass, 12 error)
 ✅ Variables (immutable `set`, mutable `let`, typed `as <type>`)  
 ✅ Data types (numbers, strings, booleans, null)  
 ✅ Arithmetic & comparison operators  
+✅ Logical operators (`and`, `or`, `not`)  
 ✅ Control flow (if, for, while)  
 ✅ Functions (definitions, calls, parameters, returns)  
 ✅ Built-ins (Pi constant, math functions)  
@@ -358,15 +359,18 @@ value_release(val);
 
 ### ✅ Implemented
 
-- [x] Variables (`set x to value`)
+- [x] Variables (`set x to value`, `let x to value`)
 - [x] Numbers (integers & floats)
-- [x] Strings
+- [x] Strings with f-strings (`f"text {expression}"`)
+- [x] Lists/Arrays (literals, indexing, slicing, iteration)
 - [x] Print statements
 - [x] Arithmetic (`plus`, `minus`, `times`, `divided by`)
 - [x] Comparisons (`is equal`, `is greater than`, `is less than`)
+- [x] Logical operators (`and`, `or`, `not`)
 - [x] If statements
-- [x] For loops (`for i in range start to end`)
+- [x] For loops (`for i in range start to end`, `for item in list`)
 - [x] While loops
+- [x] String operations (concatenation, indexing, slicing, built-in functions)
 - [x] Nested structures
 - [x] REPL mode
 - [x] File execution
@@ -376,11 +380,10 @@ value_release(val);
 #### Phase 4: Enhanced Language Features
 
 - [ ] Else/else if statements
-- [ ] Logical operators (AND, OR, NOT)
-- [ ] String data type
-- [ ] Lists/arrays
-- [ ] Comments
-- [ ] String concatenation and operations
+- [ ] Break and continue statements
+- [ ] Dictionaries/maps
+- [ ] Module system
+- [ ] Exception handling
 
 #### Phase 5: Concurrency
 
@@ -489,32 +492,100 @@ for f in examples/*.kr; do ./kronos "$f"; done
 - Zero warnings in production build
 - One benign warning (unused function declaration)
 
-## Future Roadmap
+## Roadmap: v0.3.0 → v1.0.0
 
-### Version 0.3.0 (Next Release)
+### Version 0.3.0: "Data Structures & Control Flow" (Current - In Progress)
 
-- String data type with operations
-- Lists/arrays and indexing
-- Logical operators (AND, OR, NOT)
-- Else/else if statements
-- Comments support
-- Enhanced LSP (proper JSON-RPC, diagnostics, go-to-definition)
+**Theme:** Essential data structures, string manipulation, and improved control flow
 
-### Version 0.4.0
+**Status:** Logical operators ✅ | Lists/Arrays ✅ | String Operations ✅ | Enhanced Standard Library ✅
 
-- Error handling (try/catch)
-- Module system
-- File I/O
-- Standard library expansion
-- Advanced LSP features (rename, code actions, formatting)
+**Completed:**
+- ✅ Logical operators (`and`, `or`, `not`) - **COMPLETED**
+- ✅ Lists/Arrays - List literals, indexing, slicing, iteration - **COMPLETED**
+- ✅ String Operations - Concatenation, indexing, slicing, built-in functions, f-strings, string methods - **COMPLETED**
+- ✅ Enhanced Standard Library - Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), list utilities (reverse, sort) - **COMPLETED**
 
-### Version 1.0.0
+**Language Features:**
+- 🔄 **Control Flow Enhancements** - `else if`, `break`, `continue`, range-based loops
+- 🔄 **Control Flow Enhancements** - `else if`, `break`, `continue`, range-based loops
+- 🔄 **Range Objects** - First-class range support
 
-- Full goroutine support
-- Exception handling
-- Supervisor trees
-- Complete documentation
-- Production ready
+**LSP Improvements:**
+- Proper JSON-RPC parser, accurate diagnostics, go to definition, hover, smart completions, document symbols
+
+**Target:** Q1 2025
+
+---
+
+### Version 0.4.0: "Modules & Error Handling" (Planned)
+
+**Theme:** Code organization, error management, and file operations
+
+**Language Features:**
+- **Dictionaries/Maps** - Key-value storage with hash table, full operations, iteration
+- **Import/Module System** - Built-in and file-based modules, namespace management
+- **Exception Handling** - `try`/`catch`/`finally`, exception types, custom exceptions
+- **File I/O Operations** - Complete file system interface (read, write, append, list)
+- **Path Operations** - File path utilities, cross-platform support
+
+**LSP Improvements:**
+- Find all references, rename symbol, code actions & quick fixes, document formatting, workspace symbols, code lens
+
+**Target:** Q2 2025
+
+---
+
+### Version 0.5.0: "Advanced Language Features" (Planned)
+
+**Theme:** Modern language features, functional programming, and developer experience
+
+**Language Features:**
+- **String Interpolation** - Template strings with expressions and format specifiers
+- **Multiple Return Values** - Tuple returns and destructuring
+- **Function Enhancements** - Default parameters, variadic functions, named arguments
+- **Anonymous Functions / Lambdas** - First-class functions, higher-order functions
+- **List Comprehensions** - Concise list creation with conditionals
+- **Pattern Matching** - Advanced control flow with match expressions
+- **Type System Enhancements** - Generic types, type aliases, better inference
+- **Debugging Support** - Debug built-in, improved stack traces, variable inspection
+
+**LSP Improvements:**
+- Signature help, semantic tokens, inlay hints, call hierarchy, code folding, bracket pair colorization, improved error messages
+
+**Target:** Q3 2025
+
+---
+
+### Version 1.0.0: "Production Release" (Planned)
+
+**Theme:** Concurrency, complete standard library, and production-ready tooling
+
+**Language Features:**
+- **Concurrency** - Goroutines and channels (Go-inspired), `select` statements, worker pools
+- **Complete Standard Library** - 50+ functions (math, string, date/time, collections, JSON, system)
+- **Method Chaining** - Fluent API support
+- **Performance Optimizations** - Bytecode optimization, constant folding, inline caching
+- **Standard Library Modules** - `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
+
+**LSP Complete:**
+- All previous LSP features, workspace symbols, call hierarchy, multi-root workspace support
+
+**Tooling:**
+- Package manager (basic), formatter, linter, test runner, documentation generator
+
+**Target:** Q4 2025
+
+**Release Criteria:**
+- All core language features implemented
+- Complete standard library (50+ functions)
+- Production-ready LSP with all major features
+- Comprehensive test coverage (150+ tests)
+- Full documentation (user guide, API reference, tutorials)
+- Performance benchmarks met (startup < 20ms, execution competitive)
+- Memory safety verified (valgrind clean, no leaks)
+- Cross-platform support (Linux, macOS, Windows)
+- CI/CD pipeline with automated testing
 
 ## Performance Goals vs Reality
 
@@ -581,6 +652,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Production Ready (Core Features)  
+**Project Status:** ✅ Core Features Complete (v0.3.0 In Progress)  
 **Last Updated:** November 2025  
-**Version:** 0.2.0
+**Version:** 0.3.0 (Development)

@@ -1,0 +1,36 @@
+# Test: String manipulation methods
+# Expected: Pass
+
+set text to "Hello World"
+
+# contains
+set has_ello to call contains with text, "ello"
+print has_ello
+
+set has_xyz to call contains with text, "xyz"
+print has_xyz
+
+# starts_with
+set starts_hello to call starts_with with text, "Hello"
+print starts_hello
+
+set starts_xyz to call starts_with with text, "xyz"
+print starts_xyz
+
+# ends_with
+set ends_world to call ends_with with text, "World"
+print ends_world
+
+set ends_xyz to call ends_with with text, "xyz"
+print ends_xyz
+
+# replace
+set replaced1 to call replace with text, "World", "Kronos"
+print replaced1
+
+set replaced2 to call replace with "banana", "a", "o"
+print replaced2
+
+set replaced3 to call replace with "hello hello", "hello", "hi"
+print replaced3
+

@@ -20,12 +20,25 @@ typedef enum {
   OP_LT,            // Less than
   OP_GTE,           // Greater than or equal
   OP_LTE,           // Less than or equal
+  OP_AND,           // Logical AND (short-circuit)
+  OP_OR,            // Logical OR (short-circuit)
+  OP_NOT,           // Logical NOT (unary)
   OP_JUMP,          // Unconditional jump
   OP_JUMP_IF_FALSE, // Jump if top of stack is false
+  OP_BREAK,         // Break out of loop
+  OP_CONTINUE,      // Continue to next loop iteration
   OP_DEFINE_FUNC,   // Define function
   OP_CALL_FUNC,     // Call function
   OP_RETURN_VAL,    // Return from function with value
   OP_POP,           // Pop value from stack
+  OP_LIST_NEW,      // Create new list (arg: element count)
+  OP_LIST_GET,      // Get element at index (list/string, index -> value)
+  OP_LIST_SET,      // Set element at index (list, index, value -> list)
+  OP_LIST_APPEND,   // Append element (list, value -> list)
+  OP_LIST_LEN,      // Get list/string length (list/string -> length)
+  OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
+  OP_LIST_ITER,     // Start list iteration (list -> iterator)
+  OP_LIST_NEXT,     // Get next item from iterator (iterator -> item, has_more)
   OP_HALT,          // End program
 } OpCode;
 

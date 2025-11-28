@@ -1,3 +1,15 @@
+/**
+ * @file runtime.c
+ * @brief Runtime value system and memory management
+ *
+ * Provides the core value representation system for Kronos. Handles:
+ * - Value creation (numbers, strings, booleans, lists, functions)
+ * - Reference counting for automatic memory management
+ * - String interning for optimization
+ * - Value comparison and type checking
+ * - Value printing and formatting
+ */
+
 #include "runtime.h"
 #include "gc.h"
 #include <float.h>
@@ -7,13 +19,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** Epsilon value for floating-point comparisons (handles rounding errors) */
 #define VALUE_COMPARE_EPSILON (1e-9)
 
-// String interning table
+/** Size of the string interning hash table */
 #define INTERN_TABLE_SIZE 1024
+
+/** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 
-// Hash function for strings
+/**
+ * @brief Hash function for strings (FNV-1a algorithm)
+ *
+ * Used for string interning to quickly find existing strings.
+ *
+ * @param str String to hash
+ * @param len Length of the string
+ * @return 32-bit hash value
+ */
 static uint32_t hash_string(const char *str, size_t len) {
   uint32_t hash = 2166136261u;
   for (size_t i = 0; i < len; i++) {
@@ -23,16 +46,24 @@ static uint32_t hash_string(const char *str, size_t len) {
   return hash;
 }
 
-// Initialize runtime
+/**
+ * @brief Initialize the runtime system
+ *
+ * Must be called before creating any values. Initializes the string
+ * interning table and garbage collector.
+ */
 void runtime_init(void) {
   memset(intern_table, 0, sizeof(intern_table));
   gc_init();
 }
 
-// Cleanup runtime.
-// NOTE: This must only run after every external reference to interned strings
-// has been released. We drop the intern table's own references via
-// value_release(), which decrements refcounts and frees only when they reach 0.
+/**
+ * @brief Cleanup the runtime system
+ *
+ * Releases all interned strings and shuts down the garbage collector.
+ * IMPORTANT: This must only be called after all external references to
+ * interned strings have been released, otherwise values may be freed prematurely.
+ */
 void runtime_cleanup(void) {
   // Free interned strings
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
@@ -44,7 +75,15 @@ void runtime_cleanup(void) {
   gc_cleanup();
 }
 
-// Create a new number value
+/**
+ * @brief Create a new number value
+ *
+ * Allocates a KronosValue representing a floating-point number.
+ * The value is tracked by the garbage collector and uses reference counting.
+ *
+ * @param num The numeric value
+ * @return New value, or NULL on allocation failure
+ */
 KronosValue *value_new_number(double num) {
   KronosValue *val = malloc(sizeof(KronosValue));
   if (!val)
@@ -58,7 +97,16 @@ KronosValue *value_new_number(double num) {
   return val;
 }
 
-// Create a new string value
+/**
+ * @brief Create a new string value
+ *
+ * Allocates a KronosValue containing a copy of the provided string.
+ * The string data is stored with a null terminator for C compatibility.
+ *
+ * @param str String data (may contain null bytes, will be copied)
+ * @param len Length of the string (not including null terminator)
+ * @return New value, or NULL on allocation failure
+ */
 KronosValue *value_new_string(const char *str, size_t len) {
   KronosValue *val = malloc(sizeof(KronosValue));
   if (!val)
@@ -81,7 +129,12 @@ KronosValue *value_new_string(const char *str, size_t len) {
   return val;
 }
 
-// Create a new boolean value
+/**
+ * @brief Create a new boolean value
+ *
+ * @param val Boolean value (true or false)
+ * @return New value, or NULL on allocation failure
+ */
 KronosValue *value_new_bool(bool val) {
   KronosValue *v = malloc(sizeof(KronosValue));
   if (!v)
@@ -95,7 +148,14 @@ KronosValue *value_new_bool(bool val) {
   return v;
 }
 
-// Create a new nil value
+/**
+ * @brief Create a new nil (null) value
+ *
+ * Represents the absence of a value. Used for uninitialized variables
+ * and as a default return value.
+ *
+ * @return New nil value, or NULL on allocation failure
+ */
 KronosValue *value_new_nil(void) {
   KronosValue *val = malloc(sizeof(KronosValue));
   if (!val)
@@ -108,7 +168,17 @@ KronosValue *value_new_nil(void) {
   return val;
 }
 
-// Create a new function value
+/**
+ * @brief Create a new function value
+ *
+ * Stores compiled bytecode for a user-defined function. The bytecode
+ * is copied into the value.
+ *
+ * @param bytecode Function bytecode (will be copied)
+ * @param length Length of bytecode in bytes
+ * @param arity Number of parameters the function expects
+ * @return New function value, or NULL on allocation failure
+ */
 KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
   if (!bytecode || length == 0)
     return NULL;
@@ -134,7 +204,15 @@ KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
   return val;
 }
 
-// Create a new list value
+/**
+ * @brief Create a new list value
+ *
+ * Allocates a dynamically-growing array to hold list elements.
+ * Starts with the specified capacity (or 4 if 0) and grows as needed.
+ *
+ * @param initial_capacity Initial capacity (0 means use default of 4)
+ * @return New empty list, or NULL on allocation failure
+ */
 KronosValue *value_new_list(size_t initial_capacity) {
   size_t capacity = initial_capacity == 0 ? 4 : initial_capacity;
 
@@ -158,7 +236,15 @@ KronosValue *value_new_list(size_t initial_capacity) {
   return val;
 }
 
-// Create a new channel value
+/**
+ * @brief Create a new channel value
+ *
+ * Wraps a channel for inter-thread communication (future feature).
+ * The channel is not owned by the value and must be managed separately.
+ *
+ * @param channel Channel to wrap (must not be NULL)
+ * @return New channel value, or NULL on allocation failure
+ */
 KronosValue *value_new_channel(Channel *channel) {
   if (!channel)
     return NULL;
@@ -175,7 +261,14 @@ KronosValue *value_new_channel(Channel *channel) {
   return val;
 }
 
-// Retain a value (increment refcount)
+/**
+ * @brief Increment the reference count of a value
+ *
+ * Call this when storing a value in a new location. Must be paired
+ * with value_release() when the reference is no longer needed.
+ *
+ * @param val Value to retain (safe to pass NULL)
+ */
 void value_retain(KronosValue *val) {
   if (val) {
     if (val->refcount == UINT32_MAX) {
@@ -203,7 +296,15 @@ static void release_stack_push(KronosValue ***stack, size_t *count,
   (*stack)[(*count)++] = val;
 }
 
-// Release a value (decrement refcount, free if 0)
+/**
+ * @brief Decrement the reference count of a value
+ *
+ * Call this when removing a reference to a value. When the refcount
+ * reaches zero, the value and its owned memory are automatically freed.
+ * Uses iterative release to handle nested structures (lists containing lists).
+ *
+ * @param val Value to release (safe to pass NULL)
+ */
 void value_release(KronosValue *val) {
   if (!val)
     return;
@@ -263,7 +364,19 @@ void value_release(KronosValue *val) {
   free(stack);
 }
 
-// Print a value to a stream
+/**
+ * @brief Print a value to a file stream
+ *
+ * Formats the value in a human-readable way:
+ * - Numbers: printed as integers if whole, otherwise as floats
+ * - Strings: printed as-is
+ * - Booleans: "true" or "false"
+ * - Nil: "null"
+ * - Lists: [item1, item2, ...]
+ *
+ * @param out File stream to print to (defaults to stdout if NULL)
+ * @param val Value to print (prints "null" if NULL)
+ */
 void value_fprint(FILE *out, KronosValue *val) {
   if (!out)
     out = stdout;
@@ -314,9 +427,28 @@ void value_fprint(FILE *out, KronosValue *val) {
   }
 }
 
+/**
+ * @brief Print a value to stdout
+ *
+ * Convenience wrapper for value_fprint(stdout, val).
+ *
+ * @param val Value to print
+ */
 void value_print(KronosValue *val) { value_fprint(stdout, val); }
 
-// Check if a value is truthy
+/**
+ * @brief Check if a value is truthy
+ *
+ * Used for conditionals and boolean operations:
+ * - Nil: false
+ * - Boolean: its value
+ * - Number: false if 0.0, true otherwise
+ * - String: false if empty, true otherwise
+ * - Other types: true
+ *
+ * @param val Value to check
+ * @return true if truthy, false otherwise
+ */
 bool value_is_truthy(KronosValue *val) {
   if (!val)
     return false;
@@ -335,7 +467,21 @@ bool value_is_truthy(KronosValue *val) {
   }
 }
 
-// Check if two values are equal
+/**
+ * @brief Check if two values are equal
+ *
+ * Performs deep equality checking:
+ * - Same pointer: always equal
+ * - Different types: never equal
+ * - Numbers: compared with epsilon tolerance for floating-point
+ * - Strings: byte-by-byte comparison
+ * - Lists: recursive element-by-element comparison
+ * - Other types: pointer equality
+ *
+ * @param a First value
+ * @param b Second value
+ * @return true if equal, false otherwise
+ */
 bool value_equals(KronosValue *a, KronosValue *b) {
   if (a == b)
     return true;
@@ -355,12 +501,33 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     return a->as.boolean == b->as.boolean;
   case VAL_NIL:
     return true;
+  case VAL_LIST:
+    if (a->as.list.count != b->as.list.count)
+      return false;
+    for (size_t i = 0; i < a->as.list.count; i++) {
+      if (!value_equals(a->as.list.items[i], b->as.list.items[i]))
+        return false;
+    }
+    return true;
   default:
     return a == b; // Pointer equality for complex types
   }
 }
 
-// String interning
+/**
+ * @brief Intern a string (deduplicate identical strings)
+ *
+ * Returns an existing string value if one with the same content exists,
+ * otherwise creates a new one. This reduces memory usage when the same
+ * string appears multiple times (e.g., variable names, keywords).
+ *
+ * Uses linear probing for collision resolution. Falls back to creating
+ * a non-interned string if the table is full.
+ *
+ * @param str String to intern
+ * @param len Length of the string
+ * @return Interned string value (may be existing or newly created)
+ */
 KronosValue *string_intern(const char *str, size_t len) {
   uint32_t hash = hash_string(str, len);
   size_t index = hash % INTERN_TABLE_SIZE;
@@ -392,7 +559,19 @@ KronosValue *string_intern(const char *str, size_t len) {
   return value_new_string(str, len);
 }
 
-// Check if a value matches a type name
+/**
+ * @brief Check if a value matches a type name
+ *
+ * Used for type annotations and type checking. Supports:
+ * - "number" for VAL_NUMBER
+ * - "string" for VAL_STRING
+ * - "boolean" for VAL_BOOL
+ * - "null" for VAL_NIL
+ *
+ * @param val Value to check
+ * @param type_name Type name string (e.g., "number", "string")
+ * @return true if value matches the type, false otherwise
+ */
 bool value_is_type(KronosValue *val, const char *type_name) {
   if (!val || !type_name)
     return false;

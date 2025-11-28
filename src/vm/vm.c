@@ -1,11 +1,39 @@
+/**
+ * @file vm.c
+ * @brief Virtual machine for executing Kronos bytecode
+ *
+ * Implements a stack-based virtual machine that executes compiled bytecode.
+ * Features:
+ * - Stack-based execution model
+ * - Global and local variable management
+ * - Function call stack with local scoping
+ * - Built-in functions (math, string operations, list operations)
+ * - Error handling and reporting
+ * - Break/continue support in loops
+ */
+
 #define _POSIX_C_SOURCE 200809L
 #include "vm.h"
+#include <ctype.h>
 #include <errno.h>
+#include <limits.h>
+#include <math.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * @brief Finalize error state in the VM
+ *
+ * Internal helper to set error code and message, and invoke error callback.
+ *
+ * @param vm VM instance
+ * @param code Error code
+ * @param owned_message Error message (will be owned by VM, can be NULL)
+ * @param fallback_msg Fallback message if owned_message is NULL
+ */
 static void vm_finalize_error(KronosVM *vm, KronosErrorCode code,
                               char *owned_message, const char *fallback_msg) {
   if (!vm)
@@ -88,7 +116,14 @@ static int vm_propagate_error(KronosVM *vm, KronosErrorCode fallback) {
   return code == KRONOS_OK ? -(int)fallback : -(int)code;
 }
 
-// Create new VM
+/**
+ * @brief Create a new virtual machine instance
+ *
+ * Initializes a VM with empty stack, no globals, and the built-in Pi constant.
+ * The VM is ready to execute bytecode after creation.
+ *
+ * @return New VM instance, or NULL on allocation failure
+ */
 KronosVM *vm_new(void) {
   KronosVM *vm = malloc(sizeof(KronosVM));
   if (!vm)
@@ -144,7 +179,14 @@ KronosVM *vm_new(void) {
   return vm;
 }
 
-// Free VM
+/**
+ * @brief Free a VM instance and all its resources
+ *
+ * Releases all values on the stack, call frames, global variables,
+ * and functions. After calling this, the VM pointer should not be used.
+ *
+ * @param vm VM instance to free (safe to pass NULL)
+ */
 void vm_free(KronosVM *vm) {
   if (!vm)
     return;
@@ -229,7 +271,14 @@ Function *vm_get_function(KronosVM *vm, const char *name) {
   return NULL;
 }
 
-// Stack operations
+/**
+ * @brief Push a value onto the VM stack
+ *
+ * Retains the value while it's on the stack. Fails if stack overflow occurs.
+ *
+ * @param vm VM instance
+ * @param value Value to push (will be retained)
+ */
 static void push(KronosVM *vm, KronosValue *value) {
   if (vm->stack_top >= vm->stack + STACK_MAX) {
     vm_set_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -241,6 +290,15 @@ static void push(KronosVM *vm, KronosValue *value) {
   value_retain(value); // Retain while on stack
 }
 
+/**
+ * @brief Pop a value from the VM stack
+ *
+ * Returns the value without releasing it (caller must handle reference
+ * counting). Fails if stack underflow occurs.
+ *
+ * @param vm VM instance
+ * @return Popped value, or NULL on underflow
+ */
 static KronosValue *pop(KronosVM *vm) {
   if (vm->stack_top <= vm->stack) {
     vm_set_error(vm, KRONOS_ERR_RUNTIME,
@@ -277,7 +335,19 @@ static KronosValue *peek(KronosVM *vm, int distance) {
   return vm->stack_top[-1 - distance];
 }
 
-// Global variable management
+/**
+ * @brief Set or create a global variable
+ *
+ * Creates a new global variable or updates an existing mutable one.
+ * Enforces immutability and type checking if type_name was specified.
+ *
+ * @param vm VM instance
+ * @param name Variable name
+ * @param value Value to assign (will be retained by VM)
+ * @param is_mutable Whether the variable can be reassigned
+ * @param type_name Optional type annotation (e.g., "number", "string")
+ * @return 0 on success, negative error code on failure
+ */
 int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
                   bool is_mutable, const char *type_name) {
   if (!vm || !name || !value) {
@@ -504,7 +574,56 @@ static KronosValue *read_constant(KronosVM *vm) {
   return vm->bytecode->constants[idx];
 }
 
+// Helper function to convert a value to a string representation
+// Returns a newly allocated string that the caller must free
+static char *value_to_string_repr(KronosValue *val) {
+  if (val->type == VAL_STRING) {
+    char *str = malloc(val->as.string.length + 1);
+    if (!str)
+      return NULL;
+    memcpy(str, val->as.string.data, val->as.string.length);
+    str[val->as.string.length] = '\0';
+    return str;
+  } else if (val->type == VAL_NUMBER) {
+    char *str_buf = malloc(64);
+    if (!str_buf)
+      return NULL;
+    double intpart;
+    double frac = modf(val->as.number, &intpart);
+    size_t len;
+    if (frac == 0.0) {
+      len = (size_t)snprintf(str_buf, 64, "%.0f", val->as.number);
+    } else {
+      len = (size_t)snprintf(str_buf, 64, "%g", val->as.number);
+    }
+    // Reallocate to exact size
+    char *result = realloc(str_buf, len + 1);
+    return result ? result : str_buf;
+  } else if (val->type == VAL_BOOL) {
+    return strdup(val->as.boolean ? "true" : "false");
+  } else if (val->type == VAL_NIL) {
+    return strdup("null");
+  }
+  return strdup(""); // Unknown type
+}
+
 // Execute bytecode
+/**
+ * @brief Execute bytecode on the virtual machine
+ *
+ * Main execution loop. Reads instructions from bytecode and executes them
+ * using a stack-based model. Handles all instruction types including:
+ * - Stack operations (push, pop)
+ * - Variable operations (load, store)
+ * - Arithmetic and comparison operations
+ * - Control flow (jumps, conditionals)
+ * - Function calls and returns
+ * - Built-in function invocations
+ *
+ * @param vm VM instance to execute on
+ * @param bytecode Compiled bytecode to execute
+ * @return 0 on success, negative error code on failure
+ */
 int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   if (!vm) {
     return -(int)KRONOS_ERR_INVALID_ARGUMENT;
@@ -541,6 +660,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       }
       KronosValue *value = vm_get_variable(vm, name_val->as.string.data);
       if (!value) {
+        // Debug: check what error was set
+        if (vm->last_error_code == KRONOS_ERR_NOT_FOUND) {
+          fprintf(stderr, "DEBUG: OP_LOAD_VAR failed to find variable '%s'\n",
+                  name_val->as.string.data);
+        }
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       push(vm, value);
@@ -623,15 +747,58 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       }
 
       if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
+        // Numeric addition
         KronosValue *result = value_new_number(a->as.number + b->as.number);
         push(vm, result);
         value_release(result); // Push retains it
       } else {
-        int err = vm_error(vm, KRONOS_ERR_RUNTIME,
-                           "Cannot add - both values must be numbers");
-        value_release(a);
-        value_release(b);
-        return err;
+        // String concatenation (handles string+string, number+string,
+        // string+number) Order matters: left operand first, then right operand
+        char *str_a = value_to_string_repr(a);
+        char *str_b = value_to_string_repr(b);
+
+        if (!str_a || !str_b) {
+          free(str_a);
+          free(str_b);
+          value_release(a);
+          value_release(b);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to allocate memory for string conversion");
+        }
+
+        size_t len_a = strlen(str_a);
+        size_t len_b = strlen(str_b);
+        size_t total_len = len_a + len_b;
+
+        char *concat = malloc(total_len + 1);
+        if (!concat) {
+          free(str_a);
+          free(str_b);
+          value_release(a);
+          value_release(b);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to allocate memory for string concatenation");
+        }
+
+        // Concatenate in order: left operand first, then right operand
+        memcpy(concat, str_a, len_a);
+        memcpy(concat + len_a, str_b, len_b);
+        concat[total_len] = '\0';
+
+        KronosValue *result = value_new_string(concat, total_len);
+        free(concat);
+        free(str_a);
+        free(str_b);
+
+        if (!result) {
+          value_release(a);
+          value_release(b);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+
+        push(vm, result);
+        value_release(result);
       }
 
       value_release(a);
@@ -883,6 +1050,68 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_AND: {
+      KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // Both operands must be truthy for AND to be true
+      bool a_truthy = value_is_truthy(a);
+      bool b_truthy = value_is_truthy(b);
+      bool result = a_truthy && b_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      value_release(b);
+      break;
+    }
+
+    case OP_OR: {
+      KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // At least one operand must be truthy for OR to be true
+      bool a_truthy = value_is_truthy(a);
+      bool b_truthy = value_is_truthy(b);
+      bool result = a_truthy || b_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      value_release(b);
+      break;
+    }
+
+    case OP_NOT: {
+      KronosValue *a = pop(vm);
+      if (!a) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // NOT returns the opposite of the truthiness
+      bool a_truthy = value_is_truthy(a);
+      bool result = !a_truthy;
+      KronosValue *res = value_new_bool(result);
+      push(vm, res);
+      value_release(res);
+      value_release(a);
+      break;
+    }
+
     case OP_JUMP: {
       int8_t offset = (int8_t)read_byte(vm);
       uint8_t *new_ip = vm->ip + offset;
@@ -1112,6 +1341,37 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       // Check for built-in functions first
       const char *func_name = name_val->as.string.data;
 
+      // Check for module.function syntax (e.g., math.sqrt)
+      const char *dot = strchr(func_name, '.');
+      if (dot) {
+        // Split module and function name
+        size_t module_len = (size_t)(dot - func_name);
+        char *module_name = malloc(module_len + 1);
+        if (!module_name) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        strncpy(module_name, func_name, module_len);
+        module_name[module_len] = '\0';
+
+        const char *actual_func_name = dot + 1;
+
+        // Map module functions to built-in functions
+        // math module: sqrt, power, abs, round, floor, ceil, rand, min, max
+        // Note: String functions are global built-ins (no string module)
+        if (strcmp(module_name, "math") == 0) {
+          // Math functions are already implemented as built-ins
+          // Just route to the built-in function by name
+          free(module_name);
+          // Continue to built-in function checks below with actual_func_name
+          func_name = actual_func_name;
+        } else {
+          int err = vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Unknown module '%s'",
+                              module_name);
+          free(module_name);
+          return err;
+        }
+      }
+
       // Built-in: add(a, b)
       if (strcmp(func_name, "add") == 0) {
         if (arg_count != 2) {
@@ -1252,6 +1512,1216 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         break;
       }
 
+      // Built-in: len(list/string)
+      if (strcmp(func_name, "len") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'len' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type == VAL_LIST) {
+          KronosValue *result = value_new_number((double)arg->as.list.count);
+          push(vm, result);
+          value_release(result);
+        } else if (arg->type == VAL_STRING) {
+          KronosValue *result = value_new_number((double)arg->as.string.length);
+          push(vm, result);
+          value_release(result);
+        } else {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'len' requires a list or string argument");
+          value_release(arg);
+          return err;
+        }
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: uppercase(string)
+      if (strcmp(func_name, "uppercase") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'uppercase' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'uppercase' requires a string argument");
+          value_release(arg);
+          return err;
+        }
+
+        char *upper = malloc(arg->as.string.length + 1);
+        if (!upper) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        for (size_t i = 0; i < arg->as.string.length; i++) {
+          upper[i] = (char)toupper((unsigned char)arg->as.string.data[i]);
+        }
+        upper[arg->as.string.length] = '\0';
+
+        KronosValue *result = value_new_string(upper, arg->as.string.length);
+        free(upper);
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: lowercase(string)
+      if (strcmp(func_name, "lowercase") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'lowercase' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'lowercase' requires a string argument");
+          value_release(arg);
+          return err;
+        }
+
+        char *lower = malloc(arg->as.string.length + 1);
+        if (!lower) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        for (size_t i = 0; i < arg->as.string.length; i++) {
+          lower[i] = (char)tolower((unsigned char)arg->as.string.data[i]);
+        }
+        lower[arg->as.string.length] = '\0';
+
+        KronosValue *result = value_new_string(lower, arg->as.string.length);
+        free(lower);
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: trim(string)
+      if (strcmp(func_name, "trim") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'trim' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'trim' requires a string argument");
+          value_release(arg);
+          return err;
+        }
+
+        // Find start (skip leading whitespace)
+        size_t start = 0;
+        while (start < arg->as.string.length &&
+               isspace((unsigned char)arg->as.string.data[start])) {
+          start++;
+        }
+
+        // Find end (skip trailing whitespace)
+        size_t end = arg->as.string.length;
+        while (end > start &&
+               isspace((unsigned char)arg->as.string.data[end - 1])) {
+          end--;
+        }
+
+        size_t trimmed_len = end - start;
+        char *trimmed = malloc(trimmed_len + 1);
+        if (!trimmed) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        memcpy(trimmed, arg->as.string.data + start, trimmed_len);
+        trimmed[trimmed_len] = '\0';
+
+        KronosValue *result = value_new_string(trimmed, trimmed_len);
+        free(trimmed);
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: split(string, delimiter)
+      if (strcmp(func_name, "split") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'split' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *delim = pop(vm);
+        if (!delim) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *str = pop(vm);
+        if (!str) {
+          value_release(delim);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (str->type != VAL_STRING || delim->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'split' requires two string arguments");
+          value_release(str);
+          value_release(delim);
+          return err;
+        }
+
+        // Create result list
+        KronosValue *result = value_new_list(4);
+        if (!result) {
+          value_release(str);
+          value_release(delim);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+
+        // Split string by delimiter
+        const char *str_data = str->as.string.data;
+        const char *delim_data = delim->as.string.data;
+        size_t str_len = str->as.string.length;
+        size_t delim_len = delim->as.string.length;
+
+        if (delim_len == 0) {
+          // Empty delimiter: split into individual characters
+          for (size_t i = 0; i < str_len; i++) {
+            char ch_str[2] = {str_data[i], '\0'};
+            KronosValue *ch_val = value_new_string(ch_str, 1);
+            if (!ch_val) {
+              value_release(result);
+              value_release(str);
+              value_release(delim);
+              return vm_error(vm, KRONOS_ERR_INTERNAL,
+                              "Failed to create string value");
+            }
+
+            // Grow list if needed
+            if (result->as.list.count >= result->as.list.capacity) {
+              size_t new_cap = result->as.list.capacity * 2;
+              KronosValue **new_items = realloc(
+                  result->as.list.items, sizeof(KronosValue *) * new_cap);
+              if (!new_items) {
+                value_release(ch_val);
+                value_release(result);
+                value_release(str);
+                value_release(delim);
+                return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+              }
+              result->as.list.items = new_items;
+              result->as.list.capacity = new_cap;
+            }
+
+            value_retain(ch_val);
+            result->as.list.items[result->as.list.count++] = ch_val;
+            value_release(ch_val);
+          }
+        } else {
+          // Split by delimiter
+          size_t start = 0;
+          while (start < str_len) {
+            // Find next delimiter
+            size_t pos = start;
+            bool found = false;
+            while (pos + delim_len <= str_len) {
+              if (memcmp(str_data + pos, delim_data, delim_len) == 0) {
+                found = true;
+                break;
+              }
+              pos++;
+            }
+
+            size_t end = found ? pos : str_len;
+            size_t part_len = end - start;
+
+            // Create substring
+            char *part = malloc(part_len + 1);
+            if (!part) {
+              value_release(result);
+              value_release(str);
+              value_release(delim);
+              return vm_error(vm, KRONOS_ERR_INTERNAL,
+                              "Failed to allocate memory");
+            }
+            memcpy(part, str_data + start, part_len);
+            part[part_len] = '\0';
+
+            KronosValue *part_val = value_new_string(part, part_len);
+            free(part);
+            if (!part_val) {
+              value_release(result);
+              value_release(str);
+              value_release(delim);
+              return vm_error(vm, KRONOS_ERR_INTERNAL,
+                              "Failed to create string value");
+            }
+
+            // Grow list if needed
+            if (result->as.list.count >= result->as.list.capacity) {
+              size_t new_cap = result->as.list.capacity * 2;
+              KronosValue **new_items = realloc(
+                  result->as.list.items, sizeof(KronosValue *) * new_cap);
+              if (!new_items) {
+                value_release(part_val);
+                value_release(result);
+                value_release(str);
+                value_release(delim);
+                return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+              }
+              result->as.list.items = new_items;
+              result->as.list.capacity = new_cap;
+            }
+
+            value_retain(part_val);
+            result->as.list.items[result->as.list.count++] = part_val;
+            value_release(part_val);
+
+            start = found ? pos + delim_len : str_len;
+          }
+        }
+
+        push(vm, result);
+        value_release(result);
+        value_release(str);
+        value_release(delim);
+        break;
+      }
+
+      // Built-in: join(list, delimiter)
+      if (strcmp(func_name, "join") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'join' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *delim = pop(vm);
+        if (!delim) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *list = pop(vm);
+        if (!list) {
+          value_release(delim);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (list->type != VAL_LIST || delim->type != VAL_STRING) {
+          int err = vm_errorf(
+              vm, KRONOS_ERR_RUNTIME,
+              "Function 'join' requires a list and a string delimiter");
+          value_release(list);
+          value_release(delim);
+          return err;
+        }
+
+        // Calculate total length
+        size_t total_len = 0;
+        for (size_t i = 0; i < list->as.list.count; i++) {
+          KronosValue *item = list->as.list.items[i];
+          if (item->type != VAL_STRING) {
+            value_release(list);
+            value_release(delim);
+            return vm_error(vm, KRONOS_ERR_RUNTIME,
+                            "All list items must be strings for join");
+          }
+          total_len += item->as.string.length;
+          if (i > 0) {
+            total_len += delim->as.string.length;
+          }
+        }
+
+        // Build joined string
+        char *joined = malloc(total_len + 1);
+        if (!joined) {
+          value_release(list);
+          value_release(delim);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+
+        size_t offset = 0;
+        for (size_t i = 0; i < list->as.list.count; i++) {
+          if (i > 0) {
+            memcpy(joined + offset, delim->as.string.data,
+                   delim->as.string.length);
+            offset += delim->as.string.length;
+          }
+          KronosValue *item = list->as.list.items[i];
+          memcpy(joined + offset, item->as.string.data, item->as.string.length);
+          offset += item->as.string.length;
+        }
+        joined[total_len] = '\0';
+
+        KronosValue *result = value_new_string(joined, total_len);
+        free(joined);
+        if (!result) {
+          value_release(list);
+          value_release(delim);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(list);
+        value_release(delim);
+        break;
+      }
+
+      // Built-in: to_string(value)
+      if (strcmp(func_name, "to_string") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'to_string' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+
+        char *str_buf = NULL;
+        size_t str_len = 0;
+
+        if (arg->type == VAL_STRING) {
+          // Already a string, just return it
+          value_retain(arg);
+          push(vm, arg);
+          value_release(arg);
+          break;
+        } else if (arg->type == VAL_NUMBER) {
+          // Convert number to string
+          // Use a reasonable buffer size
+          str_buf = malloc(64);
+          if (!str_buf) {
+            value_release(arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to allocate memory");
+          }
+
+          // Check if it's a whole number
+          double intpart;
+          double frac = modf(arg->as.number, &intpart);
+          if (frac == 0.0) {
+            str_len = (size_t)snprintf(str_buf, 64, "%.0f", arg->as.number);
+          } else {
+            str_len = (size_t)snprintf(str_buf, 64, "%g", arg->as.number);
+          }
+        } else if (arg->type == VAL_BOOL) {
+          if (arg->as.boolean) {
+            str_buf = strdup("true");
+            str_len = 4;
+          } else {
+            str_buf = strdup("false");
+            str_len = 5;
+          }
+          if (!str_buf) {
+            value_release(arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to allocate memory");
+          }
+        } else if (arg->type == VAL_NIL) {
+          str_buf = strdup("null");
+          str_len = 4;
+          if (!str_buf) {
+            value_release(arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to allocate memory");
+          }
+        } else {
+          value_release(arg);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Cannot convert type to string");
+        }
+
+        KronosValue *result = value_new_string(str_buf, str_len);
+        free(str_buf); // Always free our buffer (value_new_string copies it)
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: contains(string, substring)
+      if (strcmp(func_name, "contains") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'contains' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *substring = pop(vm);
+        if (!substring) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *str = pop(vm);
+        if (!str) {
+          value_release(substring);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (str->type != VAL_STRING || substring->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'contains' requires two string arguments");
+          value_release(str);
+          value_release(substring);
+          return err;
+        }
+
+        // Use strstr to check if substring exists
+        bool found =
+            (strstr(str->as.string.data, substring->as.string.data) != NULL);
+        KronosValue *result = value_new_bool(found);
+        push(vm, result);
+        value_release(result);
+        value_release(str);
+        value_release(substring);
+        break;
+      }
+
+      // Built-in: starts_with(string, prefix)
+      if (strcmp(func_name, "starts_with") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'starts_with' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *prefix = pop(vm);
+        if (!prefix) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *str = pop(vm);
+        if (!str) {
+          value_release(prefix);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (str->type != VAL_STRING || prefix->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'starts_with' requires two string arguments");
+          value_release(str);
+          value_release(prefix);
+          return err;
+        }
+
+        bool starts = false;
+        if (prefix->as.string.length <= str->as.string.length) {
+          starts = (memcmp(str->as.string.data, prefix->as.string.data,
+                           prefix->as.string.length) == 0);
+        }
+        KronosValue *result = value_new_bool(starts);
+        push(vm, result);
+        value_release(result);
+        value_release(str);
+        value_release(prefix);
+        break;
+      }
+
+      // Built-in: ends_with(string, suffix)
+      if (strcmp(func_name, "ends_with") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'ends_with' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *suffix = pop(vm);
+        if (!suffix) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *str = pop(vm);
+        if (!str) {
+          value_release(suffix);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (str->type != VAL_STRING || suffix->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'ends_with' requires two string arguments");
+          value_release(str);
+          value_release(suffix);
+          return err;
+        }
+
+        bool ends = false;
+        if (suffix->as.string.length <= str->as.string.length) {
+          size_t start_pos = str->as.string.length - suffix->as.string.length;
+          ends =
+              (memcmp(str->as.string.data + start_pos, suffix->as.string.data,
+                      suffix->as.string.length) == 0);
+        }
+        KronosValue *result = value_new_bool(ends);
+        push(vm, result);
+        value_release(result);
+        value_release(str);
+        value_release(suffix);
+        break;
+      }
+
+      // Built-in: replace(string, old, new)
+      if (strcmp(func_name, "replace") == 0) {
+        if (arg_count != 3) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'replace' expects 3 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *new_str = pop(vm);
+        if (!new_str) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *old_str = pop(vm);
+        if (!old_str) {
+          value_release(new_str);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *str = pop(vm);
+        if (!str) {
+          value_release(old_str);
+          value_release(new_str);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (str->type != VAL_STRING || old_str->type != VAL_STRING ||
+            new_str->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'replace' requires three string arguments");
+          value_release(str);
+          value_release(old_str);
+          value_release(new_str);
+          return err;
+        }
+
+        // Handle empty old string (return original string)
+        if (old_str->as.string.length == 0) {
+          value_retain(str);
+          push(vm, str);
+          value_release(str);
+          value_release(old_str);
+          value_release(new_str);
+          break;
+        }
+
+        // Calculate maximum possible result size
+        // old_len == 0 is already handled above, so we know old_len > 0 here
+        size_t str_len = str->as.string.length;
+        size_t old_len = old_str->as.string.length;
+        size_t new_len = new_str->as.string.length;
+        size_t max_result_len = str_len;
+
+        if (new_len > old_len) {
+          // Worst case: maximum non-overlapping occurrences
+          // Maximum occurrences is at most str_len / old_len
+          // Each occurrence adds (new_len - old_len) characters
+          // Safe upper bound: str_len + (str_len / old_len + 1) * (new_len -
+          // old_len) But we need to check for overflow
+          size_t max_occurrences = str_len / old_len;
+          size_t growth_per_occurrence = new_len - old_len;
+
+          // Check for overflow: max_occurrences * growth_per_occurrence
+          if (max_occurrences > 0 &&
+              growth_per_occurrence > SIZE_MAX / max_occurrences) {
+            // Overflow would occur, use a conservative upper bound
+            max_result_len = SIZE_MAX;
+          } else {
+            size_t total_growth = max_occurrences * growth_per_occurrence;
+            // Check if str_len + total_growth would overflow
+            if (total_growth > SIZE_MAX - str_len) {
+              max_result_len = SIZE_MAX;
+            } else {
+              max_result_len = str_len + total_growth;
+            }
+          }
+        }
+
+        // Check for overflow before malloc (max_result_len + 1)
+        if (max_result_len == SIZE_MAX || max_result_len + 1 < max_result_len) {
+          value_release(str);
+          value_release(old_str);
+          value_release(new_str);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Result string too large");
+        }
+
+        char *result_buf = malloc(max_result_len + 1);
+        if (!result_buf) {
+          value_release(str);
+          value_release(old_str);
+          value_release(new_str);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+
+        size_t result_len = 0;
+        const char *search_start = str->as.string.data;
+        const char *search_end = str->as.string.data + str->as.string.length;
+
+        while (search_start < search_end) {
+          const char *found = strstr(search_start, old_str->as.string.data);
+          if (!found || found >= search_end) {
+            // No more occurrences, copy rest of string
+            size_t remaining = search_end - search_start;
+            memcpy(result_buf + result_len, search_start, remaining);
+            result_len += remaining;
+            break;
+          }
+
+          // Copy part before match
+          size_t before_len = found - search_start;
+          memcpy(result_buf + result_len, search_start, before_len);
+          result_len += before_len;
+
+          // Copy replacement
+          memcpy(result_buf + result_len, new_str->as.string.data,
+                 new_str->as.string.length);
+          result_len += new_str->as.string.length;
+
+          // Move past the old substring
+          search_start = found + old_str->as.string.length;
+        }
+
+        result_buf[result_len] = '\0';
+
+        KronosValue *result = value_new_string(result_buf, result_len);
+        free(result_buf);
+        if (!result) {
+          value_release(str);
+          value_release(old_str);
+          value_release(new_str);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(str);
+        value_release(old_str);
+        value_release(new_str);
+        break;
+      }
+
+      // Built-in: sqrt(number)
+      if (strcmp(func_name, "sqrt") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'sqrt' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'sqrt' requires a number argument");
+          value_release(arg);
+          return err;
+        }
+        if (arg->as.number < 0) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'sqrt' requires a non-negative number");
+          value_release(arg);
+          return err;
+        }
+        KronosValue *result = value_new_number(sqrt(arg->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: power(base, exponent)
+      if (strcmp(func_name, "power") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'power' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *exponent = pop(vm);
+        if (!exponent) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *base = pop(vm);
+        if (!base) {
+          value_release(exponent);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (base->type != VAL_NUMBER || exponent->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'power' requires two number arguments");
+          value_release(base);
+          value_release(exponent);
+          return err;
+        }
+        KronosValue *result =
+            value_new_number(pow(base->as.number, exponent->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(base);
+        value_release(exponent);
+        break;
+      }
+
+      // Built-in: abs(number)
+      if (strcmp(func_name, "abs") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'abs' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'abs' requires a number argument");
+          value_release(arg);
+          return err;
+        }
+        KronosValue *result = value_new_number(fabs(arg->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: round(number)
+      if (strcmp(func_name, "round") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'round' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'round' requires a number argument");
+          value_release(arg);
+          return err;
+        }
+        KronosValue *result = value_new_number(round(arg->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: floor(number)
+      if (strcmp(func_name, "floor") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'floor' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'floor' requires a number argument");
+          value_release(arg);
+          return err;
+        }
+        KronosValue *result = value_new_number(floor(arg->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: ceil(number)
+      if (strcmp(func_name, "ceil") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'ceil' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_NUMBER) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'ceil' requires a number argument");
+          value_release(arg);
+          return err;
+        }
+        KronosValue *result = value_new_number(ceil(arg->as.number));
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: rand()
+      if (strcmp(func_name, "rand") == 0) {
+        if (arg_count != 0) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'rand' expects 0 arguments, got %d",
+                           arg_count);
+        }
+        // Generate random number between 0.0 and 1.0
+        double random_val = (double)rand() / (double)RAND_MAX;
+        KronosValue *result = value_new_number(random_val);
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: min(...)
+      if (strcmp(func_name, "min") == 0) {
+        if (arg_count < 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'min' expects at least 1 argument, got %d",
+                           arg_count);
+        }
+        // Pop all arguments
+        KronosValue **args = malloc(sizeof(KronosValue *) * arg_count);
+        if (!args) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        for (int i = arg_count - 1; i >= 0; i--) {
+          args[i] = pop(vm);
+          if (!args[i]) {
+            // Clean up already popped args
+            for (int j = i + 1; j < arg_count; j++) {
+              value_release(args[j]);
+            }
+            free(args);
+            return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+          }
+          if (args[i]->type != VAL_NUMBER) {
+            int err = vm_errorf(
+                vm, KRONOS_ERR_RUNTIME,
+                "Function 'min' requires all arguments to be numbers");
+            for (int j = 0; j < arg_count; j++) {
+              value_release(args[j]);
+            }
+            free(args);
+            return err;
+          }
+        }
+        // Find minimum
+        double min_val = args[0]->as.number;
+        for (int i = 1; i < arg_count; i++) {
+          if (args[i]->as.number < min_val) {
+            min_val = args[i]->as.number;
+          }
+        }
+        // Release all args
+        for (int i = 0; i < arg_count; i++) {
+          value_release(args[i]);
+        }
+        free(args);
+        KronosValue *result = value_new_number(min_val);
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: max(...)
+      if (strcmp(func_name, "max") == 0) {
+        if (arg_count < 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'max' expects at least 1 argument, got %d",
+                           arg_count);
+        }
+        // Pop all arguments
+        KronosValue **args = malloc(sizeof(KronosValue *) * arg_count);
+        if (!args) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+        for (int i = arg_count - 1; i >= 0; i--) {
+          args[i] = pop(vm);
+          if (!args[i]) {
+            // Clean up already popped args
+            for (int j = i + 1; j < arg_count; j++) {
+              value_release(args[j]);
+            }
+            free(args);
+            return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+          }
+          if (args[i]->type != VAL_NUMBER) {
+            int err = vm_errorf(
+                vm, KRONOS_ERR_RUNTIME,
+                "Function 'max' requires all arguments to be numbers");
+            for (int j = 0; j < arg_count; j++) {
+              value_release(args[j]);
+            }
+            free(args);
+            return err;
+          }
+        }
+        // Find maximum
+        double max_val = args[0]->as.number;
+        for (int i = 1; i < arg_count; i++) {
+          if (args[i]->as.number > max_val) {
+            max_val = args[i]->as.number;
+          }
+        }
+        // Release all args
+        for (int i = 0; i < arg_count; i++) {
+          value_release(args[i]);
+        }
+        free(args);
+        KronosValue *result = value_new_number(max_val);
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: to_number(string)
+      if (strcmp(func_name, "to_number") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'to_number' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type == VAL_NUMBER) {
+          // Already a number, just return it
+          value_retain(arg);
+          push(vm, arg);
+          value_release(arg);
+          break;
+        } else if (arg->type == VAL_STRING) {
+          // Convert string to number
+          char *endptr;
+          double num = strtod(arg->as.string.data, &endptr);
+          // Check if conversion was successful (endptr should point to end of
+          // string)
+          if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r') {
+            int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                                "Cannot convert string to number: '%s'",
+                                arg->as.string.data);
+            value_release(arg);
+            return err;
+          }
+          KronosValue *result = value_new_number(num);
+          push(vm, result);
+          value_release(result);
+          value_release(arg);
+          break;
+        } else {
+          int err = vm_errorf(
+              vm, KRONOS_ERR_RUNTIME,
+              "Function 'to_number' requires a string or number argument");
+          value_release(arg);
+          return err;
+        }
+      }
+
+      // Built-in: to_bool(value)
+      if (strcmp(func_name, "to_bool") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'to_bool' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        bool bool_val = false;
+        if (arg->type == VAL_BOOL) {
+          // Already a boolean, just return it
+          bool_val = arg->as.boolean;
+        } else if (arg->type == VAL_STRING) {
+          // Convert string to boolean
+          // "true" (case-insensitive) -> true, everything else -> false
+          if (arg->as.string.length == 4 &&
+              (arg->as.string.data[0] == 't' ||
+               arg->as.string.data[0] == 'T') &&
+              (arg->as.string.data[1] == 'r' ||
+               arg->as.string.data[1] == 'R') &&
+              (arg->as.string.data[2] == 'u' ||
+               arg->as.string.data[2] == 'U') &&
+              (arg->as.string.data[3] == 'e' ||
+               arg->as.string.data[3] == 'E')) {
+            bool_val = true;
+          } else {
+            bool_val = false;
+          }
+        } else if (arg->type == VAL_NUMBER) {
+          // Number: 0 -> false, everything else -> true
+          bool_val = (arg->as.number != 0.0);
+        } else if (arg->type == VAL_NIL) {
+          // null -> false
+          bool_val = false;
+        } else {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Cannot convert type to boolean");
+          value_release(arg);
+          return err;
+        }
+        value_release(arg);
+        KronosValue *result = value_new_bool(bool_val);
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: reverse(list)
+      if (strcmp(func_name, "reverse") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'reverse' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_LIST) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'reverse' requires a list argument");
+          value_release(arg);
+          return err;
+        }
+        // Create new list with reversed items
+        KronosValue *result = value_new_list(arg->as.list.count);
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+        // Copy items in reverse order
+        for (int i = (int)arg->as.list.count - 1; i >= 0; i--) {
+          value_retain(arg->as.list.items[i]);
+          // Grow list if needed
+          if (result->as.list.count >= result->as.list.capacity) {
+            size_t new_cap = result->as.list.capacity * 2;
+            KronosValue **new_items =
+                realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+            if (!new_items) {
+              value_release(arg->as.list.items[i]);
+              value_release(result);
+              value_release(arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+            }
+            result->as.list.items = new_items;
+            result->as.list.capacity = new_cap;
+          }
+          result->as.list.items[result->as.list.count++] =
+              arg->as.list.items[i];
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
+      // Built-in: sort(list)
+      if (strcmp(func_name, "sort") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'sort' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *arg = pop(vm);
+        if (!arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (arg->type != VAL_LIST) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'sort' requires a list argument");
+          value_release(arg);
+          return err;
+        }
+        // Create new list with sorted items
+        KronosValue *result = value_new_list(arg->as.list.count);
+        if (!result) {
+          value_release(arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+        // Copy items
+        for (size_t i = 0; i < arg->as.list.count; i++) {
+          value_retain(arg->as.list.items[i]);
+          // Grow list if needed
+          if (result->as.list.count >= result->as.list.capacity) {
+            size_t new_cap = result->as.list.capacity * 2;
+            KronosValue **new_items =
+                realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+            if (!new_items) {
+              value_release(arg->as.list.items[i]);
+              value_release(result);
+              value_release(arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+            }
+            result->as.list.items = new_items;
+            result->as.list.capacity = new_cap;
+          }
+          result->as.list.items[result->as.list.count++] =
+              arg->as.list.items[i];
+        }
+        // Sort the new list in-place
+        // Simple bubble sort (can be optimized later)
+        for (size_t i = 0; i < result->as.list.count; i++) {
+          for (size_t j = 0; j < result->as.list.count - i - 1; j++) {
+            KronosValue *a = result->as.list.items[j];
+            KronosValue *b = result->as.list.items[j + 1];
+            bool should_swap = false;
+            if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
+              should_swap = a->as.number > b->as.number;
+            } else if (a->type == VAL_STRING && b->type == VAL_STRING) {
+              should_swap = strcmp(a->as.string.data, b->as.string.data) > 0;
+            } else {
+              int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                                  "Function 'sort' requires list items to be "
+                                  "all numbers or all strings");
+              value_release(result);
+              value_release(arg);
+              return err;
+            }
+            if (should_swap) {
+              result->as.list.items[j] = b;
+              result->as.list.items[j + 1] = a;
+            }
+          }
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(arg);
+        break;
+      }
+
       // Get user-defined function
       Function *func = vm_get_function(vm, func_name);
       if (!func) {
@@ -1389,6 +2859,403 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       value_release(value);
+      break;
+    }
+
+    case OP_LIST_NEW: {
+      // Read element count from bytecode
+      uint16_t count = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+      KronosValue *list = value_new_list(count);
+      if (!list) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+      }
+      push(vm, list);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_APPEND: {
+      KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(value);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for append");
+      }
+
+      // Grow list if needed
+      if (list->as.list.count >= list->as.list.capacity) {
+        size_t new_capacity =
+            list->as.list.capacity == 0 ? 4 : list->as.list.capacity * 2;
+        KronosValue **new_items =
+            realloc(list->as.list.items, sizeof(KronosValue *) * new_capacity);
+        if (!new_items) {
+          value_release(value);
+          value_release(list);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+        }
+        list->as.list.items = new_items;
+        list->as.list.capacity = new_capacity;
+      }
+
+      // Append value
+      value_retain(value);
+      list->as.list.items[list->as.list.count++] = value;
+      push(vm, list);
+      value_release(list);
+      value_release(value);
+      break;
+    }
+
+    case OP_LIST_GET: {
+      KronosValue *index_val = pop(vm);
+      if (!index_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *container = pop(vm);
+      if (!container) {
+        value_release(index_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (index_val->type != VAL_NUMBER) {
+        value_release(index_val);
+        value_release(container);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Index must be a number");
+      }
+
+      // Handle negative indices
+      int64_t idx = (int64_t)index_val->as.number;
+
+      if (container->type == VAL_LIST) {
+        if (idx < 0) {
+          idx = (int64_t)container->as.list.count + idx;
+        }
+
+        if (idx < 0 || (size_t)idx >= container->as.list.count) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "List index out of bounds");
+        }
+
+        KronosValue *item = container->as.list.items[(size_t)idx];
+        value_retain(item);
+        push(vm, item);
+        value_release(item);
+      } else if (container->type == VAL_STRING) {
+        // String indexing
+        if (idx < 0) {
+          idx = (int64_t)container->as.string.length + idx;
+        }
+
+        if (idx < 0 || (size_t)idx >= container->as.string.length) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "String index out of bounds");
+        }
+
+        // Create a single-character string
+        char ch = container->as.string.data[(size_t)idx];
+        char str[2] = {ch, '\0'};
+        KronosValue *char_str = value_new_string(str, 1);
+        if (!char_str) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, char_str);
+        value_release(char_str);
+      } else {
+        value_release(index_val);
+        value_release(container);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Indexing only supported for lists and strings");
+      }
+
+      value_release(index_val);
+      value_release(container);
+      break;
+    }
+
+    case OP_LIST_LEN: {
+      KronosValue *container = pop(vm);
+      if (!container) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (container->type == VAL_LIST) {
+        KronosValue *len = value_new_number((double)container->as.list.count);
+        push(vm, len);
+        value_release(len);
+      } else if (container->type == VAL_STRING) {
+        KronosValue *len =
+            value_new_number((double)container->as.string.length);
+        push(vm, len);
+        value_release(len);
+      } else {
+        value_release(container);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Expected list or string for length");
+      }
+
+      value_release(container);
+      break;
+    }
+
+    case OP_LIST_SLICE: {
+      KronosValue *end_val = pop(vm);
+      if (!end_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *start_val = pop(vm);
+      if (!start_val) {
+        value_release(end_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *container = pop(vm);
+      if (!container) {
+        value_release(start_val);
+        value_release(end_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (start_val->type != VAL_NUMBER || end_val->type != VAL_NUMBER) {
+        value_release(container);
+        value_release(start_val);
+        value_release(end_val);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Slice indices must be numbers");
+      }
+
+      int64_t start = (int64_t)start_val->as.number;
+      int64_t end = (int64_t)end_val->as.number;
+
+      if (container->type == VAL_LIST) {
+        size_t len = container->as.list.count;
+
+        // Handle negative indices
+        if (start < 0) {
+          start = (int64_t)len + start;
+        }
+        if (end < 0) {
+          if (end == -1) {
+            // Special marker for "to end"
+            end = (int64_t)len;
+          } else {
+            end = (int64_t)len + end;
+          }
+        }
+
+        // Clamp to valid range
+        if (start < 0)
+          start = 0;
+        if (end < 0)
+          end = 0;
+        if ((size_t)start > len)
+          start = (int64_t)len;
+        if ((size_t)end > len)
+          end = (int64_t)len;
+        if (start > end)
+          start = end;
+
+        // Create new list with sliced elements
+        size_t slice_len = (size_t)(end - start);
+        KronosValue *slice = value_new_list(slice_len);
+        if (!slice) {
+          value_release(container);
+          value_release(start_val);
+          value_release(end_val);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+
+        for (size_t i = 0; i < slice_len; i++) {
+          KronosValue *item = container->as.list.items[(size_t)start + i];
+          value_retain(item);
+          slice->as.list.items[slice->as.list.count++] = item;
+        }
+
+        push(vm, slice);
+        value_release(slice);
+      } else if (container->type == VAL_STRING) {
+        size_t len = container->as.string.length;
+
+        // Handle negative indices
+        if (start < 0) {
+          start = (int64_t)len + start;
+        }
+        if (end < 0) {
+          if (end == -1) {
+            // Special marker for "to end"
+            end = (int64_t)len;
+          } else {
+            end = (int64_t)len + end;
+          }
+        }
+
+        // Clamp to valid range
+        if (start < 0)
+          start = 0;
+        if (end < 0)
+          end = 0;
+        if ((size_t)start > len)
+          start = (int64_t)len;
+        if ((size_t)end > len)
+          end = (int64_t)len;
+        if (start > end)
+          start = end;
+
+        // Create new string with sliced characters
+        size_t slice_len = (size_t)(end - start);
+        char *slice_data = malloc(slice_len + 1);
+        if (!slice_data) {
+          value_release(container);
+          value_release(start_val);
+          value_release(end_val);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to allocate memory for string slice");
+        }
+
+        memcpy(slice_data, container->as.string.data + start, slice_len);
+        slice_data[slice_len] = '\0';
+
+        KronosValue *slice = value_new_string(slice_data, slice_len);
+        free(slice_data);
+        if (!slice) {
+          value_release(container);
+          value_release(start_val);
+          value_release(end_val);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+
+        push(vm, slice);
+        value_release(slice);
+      } else {
+        value_release(container);
+        value_release(start_val);
+        value_release(end_val);
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Slicing only supported for lists and strings");
+      }
+
+      value_release(container);
+      value_release(start_val);
+      value_release(end_val);
+      break;
+    }
+
+    case OP_LIST_ITER: {
+      KronosValue *list = pop(vm);
+      if (!list) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for iteration");
+      }
+
+      // Create iterator (just push the list and current index)
+      // For simplicity, we'll use a list value with a special marker
+      // Actually, we need to track iteration state. Let's use a simple
+      // approach: Push list, then push index 0
+      value_retain(list);
+      push(vm, list);
+      KronosValue *index = value_new_number(0);
+      push(vm, index);
+      value_release(index);
+      value_release(list);
+      break;
+    }
+
+    case OP_LIST_NEXT: {
+      // Stack: [list, index] (list on bottom, index on top)
+      // Verify stack has at least 2 items before popping
+      size_t stack_depth = (size_t)(vm->stack_top - vm->stack);
+      if (stack_depth < 2) {
+        return vm_errorf(
+            vm, KRONOS_ERR_RUNTIME,
+            "Stack underflow in list iteration: expected 2 items, got %zu. "
+            "This usually means iterator variables were not loaded correctly.",
+            stack_depth);
+      }
+      KronosValue *index_val = pop(vm);
+      if (!index_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(index_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST || index_val->type != VAL_NUMBER) {
+        value_release(index_val);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterator state");
+      }
+
+      size_t idx = (size_t)index_val->as.number;
+      bool has_more = idx < list->as.list.count;
+
+      if (has_more) {
+        // Push in order: [list, index+1, item, has_more]
+        // This way, after popping has_more, item is on top for OP_STORE_VAR
+        // After storing item, we have [list, index+1] for next iteration
+
+        // Push in order: [list, index+1, item, has_more]
+        // This way, after popping has_more, item is on top for OP_STORE_VAR
+        // After storing item, we have [list, index+1] for next iteration
+
+        // Push list first (bottom of stack)
+        value_retain(list);
+        push(vm, list);
+        value_release(list);
+
+        // Update and push index
+        KronosValue *next_index = value_new_number((double)(idx + 1));
+        push(vm, next_index);
+        value_release(next_index);
+
+        // Push item
+        KronosValue *item = list->as.list.items[idx];
+        value_retain(item);
+        push(vm, item);
+        value_release(item);
+
+        // Push has_more flag (true) on top
+        KronosValue *has_more_val = value_new_bool(true);
+        push(vm, has_more_val);
+        value_release(has_more_val);
+      } else {
+        // No more items - push iterator state back, then has_more flag (false)
+        // Push list back (for cleanup)
+        value_retain(list);
+        push(vm, list);
+        value_release(list);
+
+        // Push index back (for cleanup)
+        value_retain(index_val);
+        push(vm, index_val);
+        value_release(index_val);
+
+        // Push has_more flag (false) on top
+        KronosValue *has_more_val = value_new_bool(false);
+        push(vm, has_more_val);
+        value_release(has_more_val);
+      }
+
+      value_release(index_val);
+      value_release(list);
       break;
     }
 

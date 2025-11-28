@@ -1,0 +1,42 @@
+# Test: Logical operators (AND, OR, NOT)
+# Expected: Pass
+
+# Test AND operator
+set x to 7
+if x is greater than 5 and x is less than 10:
+    print "AND: x is between 5 and 10"
+
+# Test OR operator
+set isActive to true
+set isAdmin to false
+if isActive or isAdmin:
+    print "OR: access granted"
+
+# Test NOT operator
+set isDisabled to false
+if not isDisabled:
+    print "NOT: enabled"
+
+# Test complex AND expression
+set a to 5
+set b to 10
+if a is greater than 3 and b is less than 15:
+    print "Complex AND: both conditions true"
+
+# Test complex OR expression
+set score1 to 95
+set score2 to 75
+if score1 is greater than 90 or score2 is greater than 80:
+    print "Complex OR: at least one condition true"
+
+# Test NOT with comparison
+set value to 5
+if not (value is equal 10):
+    print "NOT with comparison: value is not 10"
+
+# Test nested logical operators
+set x2 to 7
+set y2 to 8
+if x2 is greater than 5 and (y2 is less than 10 or y2 is greater than 15):
+    print "Nested: complex condition"
+

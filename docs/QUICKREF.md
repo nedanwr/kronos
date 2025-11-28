@@ -2,6 +2,12 @@
 
 Fast reference guide for Kronos syntax.
 
+## Imports
+```kronos
+import math
+# String functions are global (no import needed)
+```
+
 ## Variables
 ```kronos
 set name to value
@@ -9,13 +15,87 @@ set name to value
 
 ## Data Types
 - **Numbers:** `42`, `3.14`, `-10`
-- **Strings:** `"Hello, World!"`
-- **Booleans:** `true`, `false` (future)
-- **Nil:** `nil` (future)
+- **Strings:** `"Hello, World!"`, `f"Hello, {name}!"` (f-strings)
+- **Booleans:** `true`, `false`
+- **Null:** `null`
+- **Lists:** `list 1, 2, 3`
 
 ## Print
 ```kronos
 print expression
+```
+
+## Strings
+```kronos
+# Concatenation
+set msg to "Hello" plus " " plus "World"
+
+# Indexing
+set char to text at 0
+set last to text at -1
+
+# Slicing
+set slice to text from 0 to 5
+set rest to text from 3 to end
+
+# F-strings
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+```
+
+## String Functions
+```kronos
+call len with "hello"              # Length
+call uppercase with "hello"        # "HELLO"
+call lowercase with "HELLO"        # "hello"
+call trim with "  hello  "         # "hello"
+call split with "a,b,c", ","       # list ["a", "b", "c"]
+call join with list "a", "b", "c", "-"  # "a-b-c"
+call contains with "hello", "ell"  # true
+call starts_with with "hello", "he"  # true
+call ends_with with "hello", "lo"  # true
+call replace with "hello", "l", "L"  # "heLLo"
+call to_string with 42             # "42"
+```
+
+## Module Functions
+```kronos
+import math
+call math.sqrt with 16             # 4
+call math.power with 2, 8          # 256
+
+# String functions are available globally (no import needed)
+call uppercase with "hello"        # "HELLO"
+call trim with "  text  "          # "text"
+```
+
+## Math Functions
+```kronos
+call sqrt with 16                  # 4
+call power with 2, 8               # 256
+call abs with -10                  # 10
+call round with 3.7                # 4
+call floor with 3.9                # 3
+call ceil with 3.1                 # 4
+call rand with                     # Random 0.0-1.0
+call min with 5, 10, 3             # 3
+call max with 5, 10, 3             # 10
+```
+
+## Type Conversion
+```kronos
+call to_number with "123"          # 123
+call to_bool with "true"           # true
+call to_bool with 42               # true
+call to_bool with 0                # false
+call to_bool with null             # false
+```
+
+## List Utilities
+```kronos
+set original to list 1, 2, 3
+call reverse with original         # [3, 2, 1]
+call sort with list 3, 1, 2        # [1, 2, 3]
 ```
 
 ## Arithmetic

@@ -1,0 +1,21 @@
+# Test: String built-in functions
+# Expected: Pass
+
+set text to "Hello World"
+
+set upper to call uppercase with text
+print upper
+
+set lower to call lowercase with text
+print lower
+
+set trimmed to call trim with "  hello  "
+print trimmed
+
+set parts to call split with "a,b,c", ","
+print parts
+
+set words to list "Hello", "World"
+set joined to call join with words, "-"
+print joined
+

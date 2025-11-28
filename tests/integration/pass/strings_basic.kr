@@ -1,0 +1,16 @@
+# Test: Basic string operations
+# Expected: Pass
+
+set text to "Hello"
+set char to text at 0
+print char
+
+set slice to text from 1 to 3
+print slice
+
+set concat to "Hello" plus " " plus "World"
+print concat
+
+set len_result to call len with "Hello"
+print len_result
+

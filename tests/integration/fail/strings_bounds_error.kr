@@ -1,0 +1,6 @@
+# Test: String index out of bounds
+# Expected: Fail with bounds error
+
+set text to "Hello"
+set x to text at 10
+

@@ -1,0 +1,49 @@
+# Test type conversion functions
+
+# to_number
+set num1 to call to_number with "123"
+print num1
+# Expected: 123
+
+set num2 to call to_number with "45.67"
+print num2
+# Expected: 45.67
+
+# to_number with already a number
+set num3 to call to_number with 789
+print num3
+# Expected: 789
+
+# to_bool
+set b1 to call to_bool with "true"
+print b1
+# Expected: true
+
+set b2 to call to_bool with "false"
+print b2
+# Expected: false
+
+set b3 to call to_bool with "anything"
+print b3
+# Expected: false
+
+set b4 to call to_bool with 1
+print b4
+# Expected: true
+
+set b5 to call to_bool with 0
+print b5
+# Expected: false
+
+set b6 to call to_bool with null
+print b6
+# Expected: false
+
+set b7 to call to_bool with true
+print b7
+# Expected: true
+
+set b8 to call to_bool with false
+print b8
+# Expected: false
+

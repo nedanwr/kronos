@@ -1,0 +1,12 @@
+# Test: List length function
+# Expected: Pass
+
+set empty to list
+call len with empty
+
+set single to list 42
+call len with single
+
+set multiple to list 1, 2, 3, 4, 5
+call len with multiple
+

@@ -1,0 +1,6 @@
+# Test sqrt function argument count error
+
+# sqrt with no args
+set x to call sqrt
+# Expected: Runtime error - sqrt expects 1 argument
+

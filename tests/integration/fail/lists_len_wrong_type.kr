@@ -1,0 +1,5 @@
+# Test: len() requires a list
+# Expected: Fail with "Function 'len' requires a list argument"
+
+call len with 42
+

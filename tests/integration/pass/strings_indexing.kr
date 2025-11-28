@@ -1,0 +1,26 @@
+# Test: String indexing and slicing
+# Expected: Pass
+
+set text to "Hello"
+
+# Positive indices
+set first to text at 0
+print first
+
+set last to text at 4
+print last
+
+# Negative indices
+set last_char to text at -1
+print last_char
+
+# Slicing
+set slice1 to text from 1 to 3
+print slice1
+
+set slice2 to text from 0 to 2
+print slice2
+
+set slice3 to text from 2 to 5
+print slice3
+

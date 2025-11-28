@@ -1,0 +1,6 @@
+# Test max function argument count error
+
+# max with no args
+set mx to call max
+# Expected: Runtime error - max expects at least 1 argument
+

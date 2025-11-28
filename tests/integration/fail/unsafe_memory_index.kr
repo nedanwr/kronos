@@ -1,0 +1,6 @@
+# Test: Unsafe memory access - indexing into null
+# Expected: Error: Unsafe memory access: cannot index into null/undefined
+
+let my_list to null
+print my_list at 0
+

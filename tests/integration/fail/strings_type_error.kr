@@ -1,0 +1,7 @@
+# Test: Type errors for string operations
+# Expected: Fail with type error
+
+# Cannot index number
+set x to 5
+set y to x at 0
+

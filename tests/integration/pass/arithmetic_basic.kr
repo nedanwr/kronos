@@ -1,0 +1,23 @@
+# Test: Basic arithmetic operations
+# Expected: Pass
+#
+# Verifies that the four basic arithmetic operations work correctly:
+# - Addition (plus)
+# - Subtraction (minus)
+# - Multiplication (times)
+# - Division (divided by)
+#
+# Expected output:
+# 15
+# 5
+# 50
+# 2
+
+set a to 10
+set b to 5
+
+print a plus b
+print a minus b
+print a times b
+print a divided by b
+

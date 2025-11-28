@@ -1,0 +1,28 @@
+# Test math module imports
+
+import math
+
+set x to call math.sqrt with 16
+print x
+
+set y to call math.power with 2, 8
+print y
+
+set z to call math.abs with -10
+print z
+
+set r to call math.round with 3.7
+print r
+
+set f to call math.floor with 3.9
+print f
+
+set c to call math.ceil with 3.1
+print c
+
+set m to call math.min with 5, 10, 3
+print m
+
+set mx to call math.max with 5, 10, 3
+print mx
+

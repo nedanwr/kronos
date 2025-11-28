@@ -1,0 +1,26 @@
+# Test list utility functions
+
+# reverse
+set original to list 1, 2, 3, 4, 5
+set reversed to call reverse with original
+print reversed
+# Expected: [5, 4, 3, 2, 1]
+
+# reverse with strings
+set words to list "a", "b", "c"
+set rev_words to call reverse with words
+print rev_words
+# Expected: ["c", "b", "a"]
+
+# sort numbers
+set unsorted to list 3, 1, 4, 1, 5
+set sorted to call sort with unsorted
+print sorted
+# Expected: [1, 1, 3, 4, 5]
+
+# sort strings
+set unsorted_str to list "zebra", "apple", "banana"
+set sorted_str to call sort with unsorted_str
+print sorted_str
+# Expected: ["apple", "banana", "zebra"]
+

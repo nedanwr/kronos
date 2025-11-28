@@ -1,0 +1,6 @@
+# Test min function argument count error
+
+# min with no args
+set m to call min
+# Expected: Runtime error - min expects at least 1 argument
+

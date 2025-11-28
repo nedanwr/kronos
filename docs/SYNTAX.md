@@ -9,13 +9,15 @@ Complete syntax guide for the Kronos programming language - a human-readable lan
 3. [Printing](#printing)
 4. [Arithmetic Operations](#arithmetic-operations)
 5. [Comparison Operators](#comparison-operators)
-6. [Conditional Statements](#conditional-statements)
-7. [Loops](#loops)
-8. [Built-in Constants and Functions](#built-in-constants-and-functions)
-9. [Functions](#functions)
-10. [Safety & Error Handling](#safety--error-handling)
-11. [Comments](#comments)
-12. [Indentation](#indentation)
+6. [Logical Operators](#logical-operators)
+7. [Conditional Statements](#conditional-statements)
+8. [Loops](#loops)
+9. [Built-in Constants and Functions](#built-in-constants-and-functions)
+10. [Functions](#functions)
+11. [String Operations](#string-operations)
+12. [Safety & Error Handling](#safety--error-handling)
+13. [Comments](#comments)
+14. [Indentation](#indentation)
 
 ---
 
@@ -123,6 +125,27 @@ set greeting to "Hello, World!"
 set empty to ""
 set multiword to "This is a sentence"
 ```
+
+**F-Strings (Formatted String Literals):**
+
+F-strings allow embedding expressions inside strings using `f"..."` or `f'...'` syntax.
+
+```kronos
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+print greeting  # Output: Hello, Alice!
+
+set x to 5
+set y to 10
+set result to f"{x} plus {y} equals {x plus y}"
+print result  # Output: 5 plus 10 equals 15
+```
+
+**Features:**
+- Expression evaluation inside `{ }` blocks
+- Automatic type conversion (numbers, booleans, null → strings)
+- Multiple expressions in a single f-string
+- Nested expressions and function calls
 
 ### Booleans
 
@@ -331,6 +354,96 @@ if temperature is less than 50:
 
 ---
 
+## Logical Operators
+
+Kronos supports logical operators for combining boolean expressions: `and`, `or`, and `not`.
+
+### AND Operator
+
+The `and` operator returns `true` only if both operands are `true`.
+
+**Syntax:**
+```
+<expression> and <expression>
+```
+
+**Examples:**
+```kronos
+set x to 7
+if x is greater than 5 and x is less than 10:
+    print "x is between 5 and 10"
+
+set age to 25
+set hasLicense to true
+if age is greater than 18 and hasLicense is equal true:
+    print "Can drive"
+```
+
+### OR Operator
+
+The `or` operator returns `true` if at least one operand is `true`.
+
+**Syntax:**
+```
+<expression> or <expression>
+```
+
+**Examples:**
+```kronos
+set x to 0
+set y to 5
+if x is equal 0 or y is equal 0:
+    print "At least one is zero"
+
+set isAdmin to true
+set isModerator to false
+if isAdmin is equal true or isModerator is equal true:
+    print "access granted"
+```
+
+### NOT Operator
+
+The `not` operator negates a boolean expression.
+
+**Syntax:**
+```
+not <expression>
+```
+
+**Examples:**
+```kronos
+set isDisabled to false
+if not isDisabled:
+    print "enabled"
+
+set x to 10
+if not (x is equal 5):
+    print "x is not 5"
+```
+
+### Operator Precedence
+
+Logical operators have lower precedence than comparison operators, so comparisons are evaluated first:
+
+```kronos
+# This is evaluated as: (x > 5) and (x < 10)
+if x is greater than 5 and x is less than 10:
+    print "between"
+
+# Use parentheses for clarity when needed
+if (x is equal 0 or y is equal 0) and z is greater than 0:
+    print "condition met"
+```
+
+### Notes
+
+- Logical operators work with boolean values
+- Non-boolean values are converted to booleans using truthiness rules
+- `and` and `or` support short-circuit evaluation
+- `not` is a unary operator (takes one operand)
+
+---
+
 ## Conditional Statements
 
 Execute code based on conditions.
@@ -383,7 +496,62 @@ if x is greater than 5:
         print "x is also less than 15"
 ```
 
-**Note:** Currently, only `if` is supported. `else` and `else if` are planned for future releases.
+### Else If Statement
+
+Chain multiple conditions together.
+
+**Syntax:**
+
+```
+if <condition>:
+    <indented block>
+else if <condition>:
+    <indented block>
+else if <condition>:
+    <indented block>
+else:
+    <indented block>
+```
+
+**Examples:**
+
+Grade assignment:
+
+```kronos
+set score to 85
+
+if score is greater than 90:
+    print "A"
+else if score is greater than 80:
+    print "B"
+else if score is greater than 70:
+    print "C"
+else:
+    print "F"
+```
+
+### Else Statement
+
+Execute code when the condition is false.
+
+**Syntax:**
+
+```
+if <condition>:
+    <indented block>
+else:
+    <indented block>
+```
+
+**Examples:**
+
+```kronos
+set age to 18
+if age is greater than 17:
+    print "You are an adult"
+else:
+    print "You are a minor"
+```
 
 ---
 
@@ -398,9 +566,11 @@ Iterate over a range of numbers.
 **Syntax:**
 
 ```
-for <variable> in range <start> to <end>:
+for <variable> in range <start> to <end> [by <step>]:
     <indented block>
 ```
+
+The `by <step>` clause is optional. If omitted, the step defaults to 1.
 
 **Examples:**
 
@@ -435,10 +605,26 @@ for i in range 1 to 3:
         print product
 ```
 
+Range with step:
+
+```kronos
+# Count by 2s
+for i in range 0 to 10 by 2:
+    print i
+# Prints: 0, 2, 4, 6, 8, 10
+
+# Count by 5s
+for i in range 0 to 100 by 5:
+    print i
+# Prints: 0, 5, 10, 15, ..., 100
+```
+
 **Range behavior:**
 
 - `range <start> to <end>` is inclusive on both ends
 - `range 1 to 5` includes 1, 2, 3, 4, and 5
+- The step value determines the increment between iterations
+- Step defaults to 1 if not specified
 
 ### While Loop
 
@@ -483,6 +669,88 @@ while x is less than limit:
 
 **Warning:** Be careful to update variables in the loop to avoid infinite loops!
 
+### Break Statement
+
+Exit a loop early.
+
+**Syntax:**
+
+```
+break
+```
+
+**Examples:**
+
+```kronos
+for i in range 1 to 10:
+    if i is equal 5:
+        break
+    print i
+# Prints: 1, 2, 3, 4
+```
+
+### Continue Statement
+
+Skip to the next iteration of a loop.
+
+**Syntax:**
+
+```
+continue
+```
+
+**Examples:**
+
+```kronos
+for i in range 1 to 10:
+    if i is equal 5:
+        continue
+    print i
+# Prints: 1, 2, 3, 4, 6, 7, 8, 9, 10
+```
+
+**Note:** `break` and `continue` can only be used inside loops (`for` or `while`).
+
+---
+
+## Modules and Imports
+
+Kronos supports importing built-in modules to organize functions into namespaces.
+
+### Importing Modules
+
+**Syntax:**
+```
+import <module_name>
+```
+
+**Available Built-in Modules:**
+- `math` - Mathematical functions (sqrt, power, abs, round, floor, ceil, rand, min, max)
+
+**Note:** String functions (uppercase, lowercase, trim, split, join, contains, starts_with, ends_with, replace, len, to_string) are available globally and do not require an import.
+
+**Examples:**
+```kronos
+import math
+# String functions are global (no import needed)
+```
+
+### Using Module Functions
+
+After importing a module, access its functions using the `module.function` syntax:
+
+```kronos
+import math
+set result to call math.sqrt with 16        # Returns 4
+set power to call math.power with 2, 8      # Returns 256
+
+# String functions are available globally (no import needed)
+set upper to call uppercase with "hello"    # Returns "HELLO"
+set trimmed to call trim with "  text  "    # Returns "text"
+```
+
+**Note:** Math functions can be accessed via the `math` module namespace. String functions are always available globally without any import, similar to Python and TypeScript.
+
 ---
 
 ## Built-in Constants and Functions
@@ -522,6 +790,15 @@ The Pi constant is available globally and can be used in any calculation.
 - `subtract(a, b)` - Subtracts b from a
 - `multiply(a, b)` - Multiplies two numbers
 - `divide(a, b)` - Divides a by b
+- `sqrt(number)` - Square root of a number (requires non-negative number)
+- `power(base, exponent)` - Raises base to the power of exponent
+- `abs(number)` - Absolute value of a number
+- `round(number)` - Rounds number to nearest integer
+- `floor(number)` - Floor (rounds down) of a number
+- `ceil(number)` - Ceiling (rounds up) of a number
+- `rand()` - Returns a random number between 0.0 and 1.0
+- `min(...)` - Returns the minimum of one or more numbers
+- `max(...)` - Returns the maximum of one or more numbers
 
 **Examples:**
 
@@ -530,14 +807,84 @@ call add with 10, 5        # Returns 15
 call subtract with 10, 5   # Returns 5
 call multiply with 10, 5   # Returns 50
 call divide with 10, 5     # Returns 2
+call sqrt with 16          # Returns 4
+call power with 2, 8       # Returns 256
+call abs with -10          # Returns 10
+call round with 3.7        # Returns 4
+call floor with 3.9        # Returns 3
+call ceil with 3.1         # Returns 4
+call rand with             # Returns random number 0.0-1.0
+call min with 5, 10, 3     # Returns 3
+call max with 5, 10, 3     # Returns 10
+```
+
+**String Operations:**
+
+- `len(value)` - Get length of string or list
+- `uppercase(string)` - Convert string to uppercase
+- `lowercase(string)` - Convert string to lowercase
+- `trim(string)` - Remove leading and trailing whitespace
+- `split(string, delimiter)` - Split string into list by delimiter
+- `join(list, delimiter)` - Join list of strings with delimiter
+- `to_string(value)` - Convert any value to string representation
+- `contains(string, substring)` - Check if string contains substring (returns boolean)
+- `starts_with(string, prefix)` - Check if string starts with prefix (returns boolean)
+- `ends_with(string, suffix)` - Check if string ends with suffix (returns boolean)
+- `replace(string, old, new)` - Replace all occurrences of old substring with new
+
+**Type Conversion:**
+
+- `to_string(value)` - Convert any value to string representation
+- `to_number(string)` - Convert string to number (also accepts numbers)
+- `to_bool(value)` - Convert value to boolean (strings "true"/"false", numbers, null)
+
+**List Utilities:**
+
+- `reverse(list)` - Returns a new list with elements in reverse order
+- `sort(list)` - Returns a new sorted list (numbers or strings only, all same type)
+
+**String Function Examples:**
+
+```kronos
+set text to "Hello World"
+set length to call len with text              # Returns 11
+set upper to call uppercase with text         # Returns "HELLO WORLD"
+set trimmed to call trim with "  hello  "     # Returns "hello"
+set parts to call split with "a,b,c", ","     # Returns list ["a", "b", "c"]
+set joined to call join with parts, "-"       # Returns "a-b-c"
+set has_ello to call contains with text, "ello"  # Returns true
+set replaced to call replace with text, "World", "Kronos"  # Returns "Hello Kronos"
+```
+
+**Type Conversion Examples:**
+
+```kronos
+set num_str to "123"
+set num_val to call to_number with num_str    # Returns 123
+set bool_val to call to_bool with "true"      # Returns true
+set bool_val2 to call to_bool with 42         # Returns true
+set bool_val3 to call to_bool with 0          # Returns false
+set bool_val4 to call to_bool with null       # Returns false
+```
+
+**List Utility Examples:**
+
+```kronos
+set original to list 1, 2, 3, 4, 5
+set reversed to call reverse with original    # Returns [5, 4, 3, 2, 1]
+set unsorted to list 3, 1, 4, 1, 5
+set sorted to call sort with unsorted         # Returns [1, 1, 3, 4, 5]
+set words to list "zebra", "apple", "banana"
+set sorted_words to call sort with words      # Returns ["apple", "banana", "zebra"]
 ```
 
 **Notes:**
 
 - Built-in functions require exact argument counts
 - All math functions require numeric arguments
+- String functions require string arguments (except `len` which also works with lists)
 - Division by zero returns nil and prints an error
-- Function names `add`, `subtract`, `multiply`, `divide` are reserved
+- Function names are reserved and cannot be used as variable names
 
 ---
 
@@ -687,12 +1034,86 @@ print "=== Done ==="
 
 ### Notes
 
-- Function calls are statements, not expressions (currently can't be used in assignments)
+- Function calls can be used as expressions (can be used in assignments)
 - Parameters are passed by value
 - All parameters are required (no default values yet)
 - Recursive functions are supported
 - Functions must be defined before they are called
-- Cannot override built-in function names (`add`, `subtract`, `multiply`, `divide`)
+- Cannot override built-in function names
+
+---
+
+## String Operations
+
+Kronos provides comprehensive string manipulation capabilities including concatenation, indexing, slicing, and built-in functions.
+
+### String Concatenation
+
+Use the `plus` operator to concatenate strings:
+
+```kronos
+set greeting to "Hello"
+set name to "World"
+set message to greeting plus ", " plus name plus "!"
+print message  # Output: Hello, World!
+```
+
+### String Indexing
+
+Access individual characters using the `at` operator:
+
+```kronos
+set text to "Hello"
+set first to text at 0      # Returns "H"
+set last to text at 4       # Returns "o"
+set last_char to text at -1 # Returns "o" (negative index from end)
+```
+
+**Notes:**
+- Indices start at 0
+- Negative indices count from the end (-1 is last character)
+- Returns a single-character string
+
+### String Slicing
+
+Extract substrings using the `from ... to` syntax:
+
+```kronos
+set text to "Hello World"
+set slice1 to text from 0 to 5    # Returns "Hello"
+set slice2 to text from 6 to 11   # Returns "World"
+set slice3 to text from 0 to end  # Returns "Hello World"
+```
+
+**Notes:**
+- `from <start> to <end>` extracts characters from start (inclusive) to end (exclusive)
+- Use `end` keyword to slice to the end of the string
+- Returns a new string
+
+### F-Strings (Formatted String Literals)
+
+F-strings allow embedding expressions inside strings:
+
+```kronos
+set name to "Alice"
+set age to 30
+set greeting to f"Hello, {name}! You are {age} years old."
+print greeting  # Output: Hello, Alice! You are 30 years old.
+
+set x to 5
+set y to 10
+set result to f"{x} plus {y} equals {x plus y}"
+print result  # Output: 5 plus 10 equals 15
+```
+
+**Features:**
+- Syntax: `f"text {expression} more text"` or `f'text {expression}'`
+- Expression evaluation inside `{ }` blocks
+- Automatic type conversion (numbers, booleans, null → strings)
+- Multiple expressions in a single f-string
+- Nested expressions and function calls
+
+For complete list of string built-in functions, see [Built-in Constants and Functions](#built-in-constants-and-functions).
 
 ---
 
@@ -854,50 +1275,79 @@ print max
 
 ---
 
-## Future Features (Version 0.3.0)
+## Future Features
 
-The following features are planned for the next release:
+### Version 0.3.0: "Data Structures & Control Flow" (In Progress)
 
-### Else Statements
+**Completed:**
+- ✅ Logical operators (`and`, `or`, `not`) - **COMPLETED**
 
+**Planned Features:**
+- 🔄 Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
+- 🔄 String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
+- 🔄 Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- 🔄 Control flow - `else if`, `break`, `continue`, range-based loops
+- 🔄 Range objects - First-class range support
+
+**Example:**
 ```kronos
-if x is greater than 10:
-    print "x is large"
+# Else if (planned)
+if score is greater than 90:
+    print "A"
+else if score is greater than 80:
+    print "B"
 else:
-    print "x is small"
-```
+    print "C"
 
-### Logical Operators
-
-```kronos
-if x is greater than 5 and x is less than 10:
-    print "x is between 5 and 10"
-
-if x is equal 0 or y is equal 0:
-    print "At least one is zero"
-```
-
-### Lists
-
-```kronos
+# Lists (planned)
 set numbers to list 1, 2, 3, 4, 5
 set first to numbers at 0
 ```
 
-### Concurrency (Goroutines)
+### Version 0.4.0: "Modules & Error Handling" (Planned)
 
+**Planned Features:**
+- Dictionaries/Maps - Key-value storage with full operations and iteration
+- Import/module system - Built-in and file-based modules, namespace management
+- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
+- File I/O operations - Complete file system interface (read, write, append, list, path ops)
+
+**Example:**
 ```kronos
-spawn task with:
-    print "Running in parallel"
-```
-
-### Exception Handling
-
-```kronos
+# Exception handling (planned)
 try:
     set result to x divided by 0
 catch error:
     print "Division by zero"
+```
+
+### Version 0.5.0: "Advanced Language Features" (Planned)
+
+**Planned Features:**
+- String interpolation - Template strings with expressions and format specifiers
+- Multiple return values - Tuple returns and destructuring
+- Function enhancements - Default parameters, variadic functions, named arguments
+- Anonymous functions / Lambdas - First-class functions, higher-order functions
+- List comprehensions - Concise list creation with conditionals
+- Pattern matching - Advanced control flow with match expressions
+- Type system enhancements - Generic types, type aliases, better inference
+- Debugging support - Debug built-in, improved stack traces
+
+### Version 1.0.0: "Production Release" (Planned)
+
+**Planned Features:**
+- Concurrency - Goroutines and channels with `spawn`, `send`, `receive`, `select`, worker pools
+- Complete standard library - 50+ functions (math, string, date/time, collections, JSON, system)
+- Method chaining - Fluent API support
+- Performance optimizations - Bytecode optimization, constant folding, inline caching
+- Standard library modules - `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
+- Tooling - Package manager, formatter, linter, test runner, documentation generator
+
+**Example:**
+```kronos
+# Concurrency (planned)
+spawn task with:
+    print "Running in parallel"
 ```
 
 ---
@@ -1000,4 +1450,4 @@ Execute a file:
 ---
 
 _Last updated: November 2025_
-_Kronos Language Version: 0.1.0_
+_Kronos Language Version: 0.3.0 (In Development)_

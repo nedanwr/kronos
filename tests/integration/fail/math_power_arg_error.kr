@@ -1,0 +1,6 @@
+# Test power function argument count error
+
+# power with one arg
+set y to call power with 2
+# Expected: Runtime error - power expects 2 arguments
+

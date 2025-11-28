@@ -1,0 +1,42 @@
+import math
+
+print "Control Flow Enhancements Demo"
+print "------------------------------"
+
+print ""
+print "Else / Else If / Else:"
+set score to 82
+if score is greater than 90:
+    print "Grade: A"
+else if score is greater than 80:
+    print "Grade: B"
+else if score is greater than 70:
+    print "Grade: C"
+else:
+    print "Grade: Needs improvement"
+
+print ""
+print "Break inside a loop (stop at 4):"
+for i in range 1 to 10:
+    if i is greater than 4:
+        break
+    print i
+
+print ""
+print "Continue inside a loop (skip 5):"
+for i in range 1 to 10:
+    if i is equal 5:
+        continue
+    print i
+
+print ""
+print "Range with by step (0 to 20 by 5):"
+for i in range 0 to 20 by 5:
+    print i
+
+print ""
+print "Using math module (sqrt(49)):"
+set result to call math.sqrt with 49
+print result
+
+

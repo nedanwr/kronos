@@ -11,15 +11,22 @@ typedef enum {
   AST_IF,
   AST_FOR,
   AST_WHILE,
+  AST_BREAK,
+  AST_CONTINUE,
   AST_FUNCTION,
   AST_CALL,
   AST_RETURN,
+  AST_IMPORT,
   AST_NUMBER,
   AST_STRING,
+  AST_FSTRING,
   AST_BOOL,
   AST_NULL,
   AST_VAR,
   AST_BINOP,
+  AST_LIST,
+  AST_INDEX,
+  AST_SLICE,
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -36,6 +43,9 @@ typedef enum {
   BINOP_LT,
   BINOP_GTE,
   BINOP_LTE,
+  BINOP_AND,
+  BINOP_OR,
+  BINOP_NOT,
 } BinOp;
 
 struct ASTNode {
@@ -48,6 +58,15 @@ struct ASTNode {
       char *value;
       size_t length;
     } string;
+    struct {
+      // F-string parts: alternating string literals and expressions
+      // parts[0] is always a string (may be empty)
+      // parts[1] is an expression (if present)
+      // parts[2] is a string (if present)
+      // etc.
+      ASTNode **parts;
+      size_t part_count;
+    } fstring;
     bool boolean;
     char *var_name;
 
@@ -76,12 +95,23 @@ struct ASTNode {
       ASTNode *condition;
       ASTNode **block;
       size_t block_size;
+      // Else-if chain: list of (condition, block) pairs
+      ASTNode **else_if_conditions;
+      ASTNode ***else_if_blocks;
+      size_t *else_if_block_sizes;
+      size_t else_if_count;
+      // Else block (optional)
+      ASTNode **else_block;
+      size_t else_block_size;
     } if_stmt;
 
     struct {
       char *var;
-      ASTNode *start;
-      ASTNode *end;
+      ASTNode *iterable; // For range: contains range expression, for list: list
+                         // expression
+      bool is_range;     // true for range iteration, false for list iteration
+      ASTNode *end;      // Only used for range (end value), NULL for list
+      ASTNode *step;     // Only used for range (step value), NULL means step=1
       ASTNode **block;
       size_t block_size;
     } for_stmt;
@@ -110,6 +140,30 @@ struct ASTNode {
     struct {
       ASTNode *value;
     } return_stmt;
+
+    // Import: import module_name
+    struct {
+      char *module_name;
+    } import;
+
+    // List literal: list 1, 2, 3
+    struct {
+      ASTNode **elements;
+      size_t element_count;
+    } list;
+
+    // Indexing: list at 0
+    struct {
+      ASTNode *list_expr;
+      ASTNode *index;
+    } index;
+
+    // Slicing: list from 1 to 3 or list from 2 to end
+    struct {
+      ASTNode *list_expr;
+      ASTNode *start; // NULL means from beginning
+      ASTNode *end;   // NULL means to end
+    } slice;
   } as;
 };
 
