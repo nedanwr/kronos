@@ -24,7 +24,7 @@ if a is greater than 3 and b is less than 15:
     print "Complex AND: both conditions true"
 
 # Test complex OR expression
-set score1 to 85
+set score1 to 95
 set score2 to 75
 if score1 is greater than 90 or score2 is greater than 80:
     print "Complex OR: at least one condition true"
@@ -36,7 +36,7 @@ if not (value is equal 10):
 
 # Test nested logical operators
 set x2 to 7
-set y2 to 12
+set y2 to 8
 if x2 is greater than 5 and (y2 is less than 10 or y2 is greater than 15):
     print "Nested: complex condition"
 
