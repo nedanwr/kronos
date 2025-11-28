@@ -39,6 +39,7 @@ typedef enum {
   OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
   OP_LIST_ITER,     // Start list iteration (list -> iterator)
   OP_LIST_NEXT,     // Get next item from iterator (iterator -> item, has_more)
+  OP_RANGE_NEW,     // Create new range (start, end, step -> range)
   OP_HALT,          // End program
 } OpCode;
 
