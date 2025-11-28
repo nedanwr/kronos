@@ -4,20 +4,30 @@ A high-performance programming language built in C with human-readable syntax, f
 
 ## Features
 
+### Language Features
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
 - **Optional Type Annotations**: Enforce types with the `as` keyword
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
 - **Lists & Arrays**: List literals, indexing, slicing, and iteration
+- **Range Objects**: First-class range support with indexing, slicing, and iteration
 - **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort)
 - **Module System**: Import built-in modules (`import math`) and use namespaced functions (`math.sqrt`). String functions are global built-ins.
+- **Control Flow**: If/else-if/else, for/while loops, break/continue statements
+- **Functions**: First-class functions with parameters, return values, and local scoping
+
+### Runtime & Performance
 - **Fast Execution**: Bytecode VM with optimized execution (Python/JS performance levels)
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
 - **Interactive REPL**: Test code snippets interactively
+- **Small Binary**: ~58KB compiled binary, ~15ms startup time
+
+### Developer Experience
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
-- **LSP Support**: Real-time error checking (in development)
+- **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
+- **Comprehensive Testing**: 71 tests (42 passing, 29 error cases) ensuring reliability
 
 ## Quick Start
 
@@ -49,7 +59,7 @@ Run the comprehensive test suite:
 ./run_tests.sh
 ```
 
-This runs 27 tests covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs 71 tests (42 passing, 29 error cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
@@ -63,36 +73,72 @@ Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details
 
 ## Language Syntax
 
-Kronos uses human-readable syntax with natural language keywords. Here's a quick example:
+Kronos uses human-readable syntax with natural language keywords. Here's a comprehensive example:
 
 ```kronos
-# Immutable variable
-set x to 10
+# Variables
+set x to 10                    # Immutable
+let counter to 0               # Mutable
+let counter to counter plus 1  # Can reassign
 
-# Mutable variable
-let counter to 0
-let counter to counter plus 1
-
-# Type-annotated variables
+# Type annotations
 let age to 25 as number
 set name to "Alice" as string
 
-# Booleans and null
+# Data types
 set isActive to true
 set result to null
+set numbers to list 1, 2, 3
+set range_obj to range 1 to 10
+
+# Strings and f-strings
+set greeting to "Hello"
+set message to f"Hello, {name}!"
+set first_char to greeting at 0
+set slice to greeting from 0 to 3
 
 # Functions
 function greet with name:
-    print "Hello,"
-    print name
+    print f"Hello, {name}!"
     return name
 
 call greet with "World"
 
+# Control flow
+if x is greater than 5:
+    print "Large"
+else if x is equal 5:
+    print "Medium"
+else:
+    print "Small"
+
 # Loops
 for i in range 1 to 5:
     print i
+
+for item in numbers:
+    print item
+
+while counter is less than 10:
+    print counter
+    let counter to counter plus 1
+    if counter is equal 5:
+        break
+
+# Lists and ranges
+set my_list to list 1, 2, 3, 4, 5
+print my_list at 0           # First element
+print my_list at -1          # Last element
+print my_list from 1 to 3    # Slice
+
+set r to range 0 to 20 by 5
+print r at 2                 # Index into range
+print call len with r        # Range length
+for i in r:                  # Iterate range
+    print i
 ```
+
+See [docs/SYNTAX.md](docs/SYNTAX.md) for the complete syntax reference or [docs/QUICKREF.md](docs/QUICKREF.md) for a quick reference card.
 
 ## Documentation
 
@@ -186,66 +232,6 @@ make clean
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the complete roadmap and upcoming features.
-
-### Current Version (0.3.0)
-
-✅ **Completed:**
-- Core language features (variables, types, operators, control flow)
-- Functions with parameters and return values
-- Built-in constants and functions
-- Logical operators (`and`, `or`, `not`)
-- Lists/arrays with full operations (indexing, slicing, iteration)
-- String operations (concatenation, indexing, slicing, built-ins)
-- F-strings (string interpolation)
-- Enhanced standard library and module system
-- Enhanced control flow (else-if, break, continue)
-- LSP support (error checking, go-to-definition, hover, completions)
-- Range objects (literals, indexing, slicing, iteration, length)
-- REPL and file execution
-
-### Upcoming (v0.4.0 - Q2 2025)
-
-- Type conversion functions (`to_number()`, `to_bool()`)
-- Dictionaries/maps
-- File-based module system
-- Exception handling
-- File I/O operations
-- Regular expressions
-
-**v0.5.0: "Advanced Language Features" (Q3 2025)**
-
-- String interpolation - Template strings with expressions and format specifiers
-- Multiple return values - Tuple returns and destructuring
-- Function enhancements - Default parameters, variadic functions, named arguments
-- Anonymous functions / Lambdas - First-class functions, higher-order functions
-- List comprehensions - Concise list creation with conditionals
-- Pattern matching - Advanced control flow with match expressions
-- Type system enhancements - Generic types, type aliases, better inference
-- Debugging support - Debug built-in, improved stack traces
-- Enhanced LSP - Signature help, semantic tokens, inlay hints, call hierarchy
-
-**v1.0.0: "Production Release" (Q4 2025)**
-
-- Concurrency - Goroutines and channels with `spawn`, `send`, `receive`, `select`, worker pools
-- Complete standard library - 50+ functions (math, string, date/time, collections, JSON, system)
-- Method chaining - Fluent API support
-- Performance optimizations - Bytecode optimization, constant folding, inline caching
-- Standard library modules - `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
-- Production-ready LSP - All features, multi-root workspace support
-- Tooling - Package manager, formatter, linter, test runner, documentation generator
-
-**Release Criteria:**
-- All core language features implemented
-- Complete standard library (50+ functions)
-- Production-ready LSP with all major features
-- Comprehensive test coverage (150+ tests)
-- Full documentation (user guide, API reference, tutorials)
-- Performance benchmarks met (startup < 20ms, execution competitive)
-- Memory safety verified (valgrind clean, no leaks)
-- Cross-platform support (Linux, macOS, Windows)
-- CI/CD pipeline with automated testing
-
-See [ROADMAP.md](ROADMAP.md) for the roadmap and upcoming features, or [docs/PROJECT.md](docs/PROJECT.md) for architecture details.
 
 ## Contributing
 
