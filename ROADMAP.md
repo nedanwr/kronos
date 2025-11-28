@@ -1,0 +1,369 @@
+# Kronos Roadmap
+
+This document outlines the planned features and release schedule for Kronos.
+
+## Current Status
+
+**Current Version:** 0.3.0  
+**Status:** ✅ Stable - Core language features complete
+
+### What's Available Now
+
+- ✅ Core language features (variables, types, operators, control flow)
+- ✅ Functions with parameters and return values
+- ✅ Logical operators (`and`, `or`, `not`)
+- ✅ Lists/arrays with full operations (indexing, slicing, iteration)
+- ✅ String operations (concatenation, indexing, slicing, built-ins)
+- ✅ F-strings (string interpolation)
+- ✅ Enhanced standard library (math functions, type conversion, list utilities)
+- ✅ Module system (built-in modules like `math`)
+- ✅ Enhanced control flow (else-if, break, continue)
+- ✅ LSP support (error checking, go-to-definition, hover, completions)
+- ✅ Range objects (literals, indexing, slicing, iteration, length)
+
+---
+
+## Upcoming Releases
+
+### Version 0.4.0: "Modules & Error Handling"
+
+**Target:** Q4 2025  
+**Status:** 🚧 In Progress
+
+#### Planned Features
+
+- ✅ **Range Objects** - First-class range support (completed)
+
+  - Range literals: `range 1 to 10`, `range 0 to 100 by 5`
+  - Range indexing: `r at 0`, `r at -1` (supports positive and negative indices)
+  - Range length: `call len with r`
+  - Range iteration: `for i in r:`
+  - Range slicing: `r from 2 to 5`
+
+- 🔄 **Type Conversion Functions** - Complete type conversion utilities
+
+  - `to_number()` - Convert string to number
+  - `to_bool()` - Convert string/number to boolean
+  - `to_string()` - ✅ Already implemented
+
+- 🔄 **Dictionaries/Maps** - Key-value storage with hash table implementation
+
+  ```kronos
+  set person to map name: "Alice", age: 30, city: "NYC"
+  print person at "name"
+  let person at "age" to 31
+  for key, value in person:
+      print key, value
+  ```
+
+- 🔄 **File-based Module System** - Import code from other `.kr` files
+
+  ```kronos
+  import utils from "mylib.kr"
+  from math import sqrt, power
+  ```
+
+- 🔄 **Exception Handling** - Try/catch/finally blocks for better error management
+
+  ```kronos
+  try:
+      set result to x divided by 0
+  catch error:
+      print "Division by zero!"
+  finally:
+      print "Cleanup"
+  ```
+
+- 🔄 **File I/O Operations** - Complete file system interface
+
+  ```kronos
+  set content to read_file "data.txt"
+  write_file "output.txt", content
+  set lines to read_lines "data.txt"
+  set exists to file_exists "data.txt"
+  set files to list_files "."
+  ```
+
+- 🔄 **Path Operations** - File path utilities
+
+  ```kronos
+  set full_path to join_path "dir", "file.txt"
+  set dir to dirname "/path/to/file.txt"
+  set file to basename "/path/to/file.txt"
+  ```
+
+- 🔄 **Regular Expressions** - Pattern matching and text processing
+
+  ```kronos
+  import regex
+  set matches to call regex.match with "hello", "h.*o"
+  set result to call regex.search with "hello world", "world"
+  set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
+  ```
+
+- 🔄 **LSP Improvements**
+  - Find all references
+  - Rename symbol
+  - Code actions & quick fixes
+  - Document formatting
+  - Workspace symbols
+  - Code lens
+
+---
+
+### Version 0.5.0: "Advanced Language Features"
+
+**Target:** N/A  
+**Status:** 📋 Planned
+
+#### Planned Features
+
+- **String Interpolation Enhancements** - Advanced formatting features
+
+  ```kronos
+  set price to 19.99
+  set formatted to f"Price: {price:.2f}"  # Format specifiers
+  ```
+
+- **Multiple Return Values** - Tuple returns and destructuring
+
+  ```kronos
+  function divide_with_remainder with a, b:
+      return q, r
+
+  set q, r to call divide_with_remainder with 10, 3
+  set x, y to y, x  # Swap
+  ```
+
+- **Function Enhancements**
+
+  - Default parameter values: `function greet with name, greeting="Hello":`
+  - Variadic functions: `function sum with ...numbers:`
+  - Named arguments: `call create_user with name: "Alice", age: 30`
+
+- **Anonymous Functions / Lambdas** - First-class functions
+
+  ```kronos
+  set double to function with x: return x times 2
+  set doubled to map numbers with function with x: return x times 2
+  ```
+
+- **List Utilities (Higher-Order)** - `filter()` and `map()` functions
+
+  ```kronos
+  set evens to filter numbers with function with x: return (x divided by 2) times 2 is equal x
+  set doubled to map numbers with function with x: return x times 2
+  ```
+
+- **List Comprehensions** - Concise list creation
+
+  ```kronos
+  set squares to [x times x for x in range 1 to 10]
+  set evens to [x for x in range 1 to 20 if (x divided by 2) times 2 is equal x]
+  ```
+
+- **Pattern Matching** - Advanced control flow
+
+  ```kronos
+  match value:
+      case 1:
+          print "One"
+      case 2:
+          print "Two"
+      default:
+          print "Other"
+  ```
+
+- **Type System Enhancements**
+
+  - Generic types: `list<number>`, `map<string, number>`
+  - Type aliases: `type Point to map x: number, y: number`
+  - Multi-type support: `as number or string`
+
+- **Debugging Support**
+
+  ```kronos
+  debug "Variable x:", x
+  ```
+
+- **LSP Improvements**
+  - Signature help
+  - Semantic tokens
+  - Inlay hints
+  - Call hierarchy
+  - Code folding
+  - Bracket pair colorization
+
+---
+
+### Version 1.0.0: "Production Release"
+
+**Target:** N/A  
+**Status:** 📋 Planned
+
+#### Planned Features
+
+- **Concurrency** - Goroutines and channels (Go-inspired)
+
+  ```kronos
+  spawn task with:
+      for i in range 1 to 10:
+          print "Task:", i
+
+  set ch to channel
+  spawn sender with ch:
+      send ch, "hello"
+  set msg to receive ch
+  ```
+
+- **Complete Standard Library** - 50+ functions across multiple modules
+
+  - **Math:** `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan()`, `log()`, `log10()`, `exp()`, `cbrt()`
+  - **String:** `find()`, `rfind()`, `count()`, `capitalize()`, `title()`
+  - **Date/Time:** `now()`, `format_date()`, `parse_date()`, `sleep()`
+  - **Collections:** `zip()`, `enumerate()`, `any()`, `all()`, `sum()`
+  - **System:** `exit()`, `args()`, `env()`
+  - **JSON:** `parse_json()`, `to_json()`
+  - **CSV:** `read_csv()`, `write_csv()`, `parse_csv()`, `to_csv()`
+  - **Test Framework:** `assert`, `test`, `run_tests`
+  - **Crypto:** `md5()`, `sha1()`, `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
+  - **HTTP:** `http_get()`, `http_post()`, HTTP server (requires concurrency)
+  - **CLI:** `parse_args()`, argument parsing utilities
+
+- **Method Chaining** - Fluent API support
+
+  ```kronos
+  set result to text.uppercase().trim().split(" ")
+  set processed to list 1, 2, 3.filter(function with x: return x is greater than 2).map(function with x: return x times 2)
+  ```
+
+- **Performance Optimizations**
+
+  - Bytecode optimization passes
+  - Constant folding
+  - Dead code elimination
+  - Inline caching for method calls
+  - Profile-guided optimization
+
+- **Standard Library Modules**
+
+  - `math` - Complete mathematical functions
+  - `string` - String utilities
+  - `os` - Operating system interface
+  - `json` - JSON parsing and generation
+  - `csv` - CSV parsing and generation
+  - `test` - Testing framework
+  - `crypto` - Cryptographic functions
+  - `http` - HTTP client and server
+  - `cli` - Command-line argument parsing
+  - `time` - Time and date operations
+  - `collections` - Collection utilities
+  - `regex` - Regular expressions
+
+- **Package Manager** - Install and manage packages
+
+  ```bash
+  kronos install <package>
+  kronos list
+  kronos remove <package>
+  ```
+
+- **Code Formatter** - Opinionated formatter (like `gofmt`/`rustfmt`)
+
+  ```bash
+  kronos format <file>
+  kronos format --check <file>
+  ```
+
+- **Linter** - Code quality checks
+
+  ```bash
+  kronos lint <file>
+  kronos lint --fix <file>
+  ```
+
+- **Test Runner** - Built-in testing framework
+
+  ```bash
+  kronos test
+  kronos test --verbose
+  ```
+
+- **Documentation Generator** - Generate docs from code
+
+  ```bash
+  kronos doc
+  kronos doc --output docs/
+  ```
+
+- **LSP Complete** - Full language server protocol support
+  - All previous LSP features
+  - Workspace symbols
+  - Call hierarchy
+  - Multi-root workspace support
+  - Production-ready performance
+
+---
+
+## Post-1.0.0 (Future)
+
+### Advanced Features
+
+- **Supervisor Trees / Fault Tolerance** (Erlang-style)
+
+  - Process supervision
+  - Restart strategies
+  - Fault isolation
+
+- **Package Manager (Advanced)**
+
+  - Version resolution
+  - Dependency graph
+  - Lock files (`kronos.lock`)
+  - Package caching
+  - Offline mode support
+  - Parallel package installation
+  - Dependency conflict resolution
+
+- **First-Party Installable Packages**
+
+  - `@kronos/yaml` - YAML parsing and generation
+  - `@kronos/toml` - TOML parsing and generation
+  - `@kronos/xml` - XML parsing and generation
+  - `@kronos/websocket` - WebSocket client and server
+  - `@kronos/math-advanced` - Advanced mathematical functions
+  - `@kronos/collections-advanced` - Advanced data structures
+  - `@kronos/debug` - Enhanced debugging utilities
+
+- **Web Templating Engine** (Blade-like)
+
+  - Template inheritance
+  - Component system
+  - HTML escaping
+  - Control flow directives
+
+- **Performance Optimizations**
+
+  - JIT compilation
+  - Hot path optimization
+  - Profile-guided optimization
+
+- **Advanced Type System**
+  - Optional static typing
+  - Type inference
+  - Generic types
+  - Type constraints
+
+---
+
+## Feature Requests & Feedback
+
+Have a feature idea? We'd love to hear from you! Please open an issue on GitHub to discuss.
+
+## Contributing
+
+Interested in contributing? Check out our [contributing guidelines](CONTRIBUTING.md) (coming soon) or review the [development documentation](docs/PROJECT.md).
+
+---
+
+**Last Updated:** November 2025
