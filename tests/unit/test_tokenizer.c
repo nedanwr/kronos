@@ -466,11 +466,8 @@ TEST(tokenize_invalid_string) {
   TokenizeError *err = NULL;
   TokenArray *tokens = tokenize("\"unclosed string", &err);
 
-  // Should either return NULL or set error
-  if (tokens == NULL) {
-    ASSERT_PTR_NOT_NULL(err);
-    tokenize_error_free(err);
-  } else {
-    token_array_free(tokens);
-  }
+  // Tokenizer must return NULL and set error for unterminated string
+  ASSERT_PTR_NULL(tokens);
+  ASSERT_PTR_NOT_NULL(err);
+  tokenize_error_free(err);
 }
