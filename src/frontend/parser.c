@@ -94,6 +94,7 @@ static ASTNode *parse_import(Parser *p, int indent);
 static ASTNode *parse_break(Parser *p, int indent);
 static ASTNode *parse_continue(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
+static ASTNode *parse_range_literal(Parser *p);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
 
@@ -192,6 +193,10 @@ static ASTNode *parse_value(Parser *p) {
 
   if (tok->type == TOK_LIST) {
     return parse_list_literal(p);
+  }
+
+  if (tok->type == TOK_RANGE) {
+    return parse_range_literal(p);
   }
 
   if (tok->type == TOK_CALL) {
@@ -383,6 +388,57 @@ static ASTNode *parse_list_literal(Parser *p) {
   ASTNode *node = ast_node_new_checked(AST_LIST);
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
+  return node;
+}
+
+/**
+ * @brief Parse a range literal
+ *
+ * Handles: "range start to end" or "range start to end by step".
+ * The step is optional and defaults to 1.0.
+ *
+ * @param p Parser state
+ * @return AST node for the range, or NULL on error
+ */
+static ASTNode *parse_range_literal(Parser *p) {
+  consume(p, TOK_RANGE); // consume "range"
+
+  // Parse start expression
+  ASTNode *start = parse_expression(p);
+  if (!start) {
+    return NULL;
+  }
+
+  // Expect "to" keyword
+  if (!consume(p, TOK_TO)) {
+    ast_node_free(start);
+    return NULL;
+  }
+
+  // Parse end expression
+  ASTNode *end = parse_expression(p);
+  if (!end) {
+    ast_node_free(start);
+    return NULL;
+  }
+
+  // Check for optional "by step" clause
+  ASTNode *step = NULL;
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_BY) {
+    consume_any(p); // consume "by"
+    step = parse_expression(p);
+    if (!step) {
+      ast_node_free(start);
+      ast_node_free(end);
+      return NULL;
+    }
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_RANGE);
+  node->as.range.start = start;
+  node->as.range.end = end;
+  node->as.range.step = step; // NULL means step=1
   return node;
 }
 
@@ -1796,6 +1852,13 @@ void ast_node_free(ASTNode *node) {
       ast_node_free(node->as.list.elements[i]);
     }
     free(node->as.list.elements);
+    break;
+  case AST_RANGE:
+    ast_node_free(node->as.range.start);
+    ast_node_free(node->as.range.end);
+    if (node->as.range.step) {
+      ast_node_free(node->as.range.step);
+    }
     break;
   case AST_INDEX:
     ast_node_free(node->as.index.list_expr);
