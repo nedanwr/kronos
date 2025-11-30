@@ -1,0 +1,7 @@
+# Test error when indexing map with wrong type
+
+set m to map name: "Alice"
+set list_key to list 1, 2, 3
+print m at list_key
+# Expected: Runtime error - Map key not found (or type error)
+
