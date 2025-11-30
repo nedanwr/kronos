@@ -108,5 +108,15 @@ print "Final sum:"
 print sum
 print ""
 
+print "10. Maps (Dictionaries)"
+set person to map name: "Alice", age: 30, city: "NYC"
+print "Person map:"
+print person
+print "Name:"
+print person at "name"
+print "Age:"
+print person at "age"
+print ""
+
 print "=== End of Showcase ==="
 
