@@ -26,6 +26,7 @@ typedef enum {
   TOK_IN,
   TOK_RANGE,
   TOK_LIST,
+  TOK_MAP,
   TOK_AT,
   TOK_FROM,
   TOK_END,
