@@ -416,3 +416,84 @@ TEST(value_fprint_range) {
 
   value_release(r);
 }
+
+TEST(value_new_map) {
+  KronosValue *map = value_new_map(0);
+  ASSERT_PTR_NOT_NULL(map);
+  ASSERT_INT_EQ(map->type, VAL_MAP);
+  ASSERT_INT_EQ(map->as.map.count, 0);
+  ASSERT_TRUE(map->as.map.capacity > 0);
+  ASSERT_INT_EQ(map->refcount, 1);
+  value_release(map);
+}
+
+TEST(map_set_and_get) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *key = value_new_string("name", 4);
+  KronosValue *value = value_new_string("Alice", 5);
+
+  int result = map_set(map, key, value);
+  ASSERT_INT_EQ(result, 0);
+  ASSERT_INT_EQ(map->as.map.count, 1);
+
+  KronosValue *retrieved = map_get(map, key);
+  ASSERT_PTR_NOT_NULL(retrieved);
+  ASSERT_STR_EQ(retrieved->as.string.data, "Alice");
+
+  value_release(map);
+  value_release(key);
+  value_release(value);
+}
+
+TEST(map_get_nonexistent) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *key = value_new_string("nonexistent", 11);
+
+  KronosValue *retrieved = map_get(map, key);
+  ASSERT_PTR_NULL(retrieved);
+
+  value_release(map);
+  value_release(key);
+}
+
+TEST(map_set_overwrite) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *key = value_new_string("age", 3);
+  KronosValue *value1 = value_new_number(30.0);
+  KronosValue *value2 = value_new_number(31.0);
+
+  map_set(map, key, value1);
+  ASSERT_INT_EQ(map->as.map.count, 1);
+
+  map_set(map, key, value2);
+  ASSERT_INT_EQ(map->as.map.count, 1); // Count should not increase
+
+  KronosValue *retrieved = map_get(map, key);
+  ASSERT_PTR_NOT_NULL(retrieved);
+  ASSERT_DOUBLE_EQ(retrieved->as.number, 31.0);
+
+  value_release(map);
+  value_release(key);
+  value_release(value1);
+  value_release(value2);
+}
+
+TEST(map_delete) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *key = value_new_string("key", 3);
+  KronosValue *value = value_new_string("value", 5);
+
+  map_set(map, key, value);
+  ASSERT_INT_EQ(map->as.map.count, 1);
+
+  bool deleted = map_delete(map, key);
+  ASSERT_TRUE(deleted);
+  ASSERT_INT_EQ(map->as.map.count, 0);
+
+  KronosValue *retrieved = map_get(map, key);
+  ASSERT_PTR_NULL(retrieved);
+
+  value_release(map);
+  value_release(key);
+  value_release(value);
+}
