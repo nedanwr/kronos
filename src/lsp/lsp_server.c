@@ -2,8 +2,8 @@
  * @file lsp_server.c
  * @brief Language Server Protocol implementation for Kronos
  *
- * Provides comprehensive IDE support for Kronos through the Language Server Protocol.
- * Communicates with editors via stdin/stdout using JSON-RPC 2.0.
+ * Provides comprehensive IDE support for Kronos through the Language Server
+ * Protocol. Communicates with editors via stdin/stdout using JSON-RPC 2.0.
  *
  * Features:
  * - Code completion (keywords, built-ins, variables, functions)
@@ -43,17 +43,17 @@ typedef enum {
  * Symbols are stored in a linked list for the document's symbol table.
  */
 typedef struct Symbol {
-  char *name;              /**< Symbol name */
-  SymbolType type;         /**< Type of symbol */
-  size_t line;             /**< 1-based line number where symbol is defined */
-  size_t column;           /**< 1-based column number where symbol is defined */
-  char *type_name;         /**< Optional type annotation (e.g., "number", "string") */
-  bool is_mutable;         /**< For variables: true for 'let', false for 'set' */
-  size_t param_count;      /**< For functions: number of parameters */
-  bool used;               /**< @deprecated Use read/written instead */
-  bool written;            /**< Track if variable has been assigned to */
-  bool read;               /**< Track if variable has been read from */
-  struct Symbol *next;     /**< Next symbol in linked list */
+  char *name;      /**< Symbol name */
+  SymbolType type; /**< Type of symbol */
+  size_t line;     /**< 1-based line number where symbol is defined */
+  size_t column;   /**< 1-based column number where symbol is defined */
+  char *type_name; /**< Optional type annotation (e.g., "number", "string") */
+  bool is_mutable; /**< For variables: true for 'let', false for 'set' */
+  size_t param_count;  /**< For functions: number of parameters */
+  bool used;           /**< @deprecated Use read/written instead */
+  bool written;        /**< Track if variable has been assigned to */
+  bool read;           /**< Track if variable has been read from */
+  struct Symbol *next; /**< Next symbol in linked list */
 } Symbol;
 
 /**
@@ -63,10 +63,10 @@ typedef struct Symbol {
  * parsed AST, and symbol table.
  */
 typedef struct {
-  char *uri;        /**< Document URI (file path) */
-  char *text;       /**< Full document text */
-  Symbol *symbols;  /**< Linked list of symbols in the document */
-  AST *ast;         /**< Parsed Abstract Syntax Tree */
+  char *uri;       /**< Document URI (file path) */
+  char *text;      /**< Full document text */
+  Symbol *symbols; /**< Linked list of symbols in the document */
+  AST *ast;        /**< Parsed Abstract Syntax Tree */
 } DocumentState;
 
 /** Global document state (currently supports single file) */
@@ -617,13 +617,13 @@ static void send_response(const char *id, const char *result) {
   fflush(stdout);
 }
 
-
 /**
  * @brief Send a JSON-RPC notification (no response expected)
  *
  * Used for sending diagnostics and other notifications to the client.
  *
- * @param method Notification method name (e.g., "textDocument/publishDiagnostics")
+ * @param method Notification method name (e.g.,
+ * "textDocument/publishDiagnostics")
  * @param params Parameters JSON object
  */
 static void send_notification(const char *method, const char *params) {
@@ -662,7 +662,6 @@ static void send_notification(const char *method, const char *params) {
   if (allocated)
     free(buffer);
 }
-
 
 // Free symbol list
 /**
@@ -749,7 +748,8 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
       // Check if symbol already exists (for reassignments)
       Symbol *existing = head ? *head : NULL;
       while (existing) {
-        if (existing->name && strcmp(existing->name, node->as.assign.name) == 0 &&
+        if (existing->name &&
+            strcmp(existing->name, node->as.assign.name) == 0 &&
             existing->type == SYMBOL_VARIABLE) {
           // Update existing symbol: mark as written
           existing->written = true;
@@ -768,7 +768,8 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
         sym->is_mutable = node->as.assign.is_mutable;
 
         // Only use explicit type annotation - don't infer types from values
-        // Variables initialized with null or no value can be reassigned to any type
+        // Variables initialized with null or no value can be reassigned to any
+        // type
         if (node->as.assign.type_name) {
           sym->type_name = strdup(node->as.assign.type_name);
         } else {
@@ -778,7 +779,7 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
 
         sym->param_count = 0;
         sym->used = false;
-        sym->written = true;  // Initial assignment counts as a write
+        sym->written = true; // Initial assignment counts as a write
         sym->read = false;
         get_node_position(node, &line, &col);
         sym->line = line;
@@ -819,7 +820,7 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
         param->type_name = NULL;
         param->param_count = 0;
         param->used = false;
-        param->written = false;  // Parameters are passed in, not written
+        param->written = false; // Parameters are passed in, not written
         param->read = false;
         param->line = line;
         param->column = col;
@@ -830,8 +831,8 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
 
       // Recursively process function body to add local variables
       if (node->as.function.block && node->as.function.block_size > 0) {
-        process_statements_for_symbols(node->as.function.block,
-                                       node->as.function.block_size, tail, head);
+        process_statements_for_symbols(
+            node->as.function.block, node->as.function.block_size, tail, head);
       }
       break;
     }
@@ -843,11 +844,12 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
           break;
         sym->name = strdup(node->as.for_stmt.var);
         sym->type = SYMBOL_VARIABLE;
-        sym->is_mutable = false; // Loop variables are immutable (assigned by loop)
+        sym->is_mutable =
+            false; // Loop variables are immutable (assigned by loop)
         sym->type_name = NULL; // Type depends on what's being iterated
         sym->param_count = 0;
         sym->used = false;
-        sym->written = false;  // Loop variables are assigned by the loop
+        sym->written = false; // Loop variables are assigned by the loop
         sym->read = false;
         get_node_position(node, &line, &col);
         sym->line = line;
@@ -869,7 +871,8 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
  * @brief Build the complete symbol table for a document
  *
  * Processes the AST to extract all symbols (variables, functions, parameters)
- * and stores them in the document state. Also tracks symbol usage (read/written).
+ * and stores them in the document state. Also tracks symbol usage
+ * (read/written).
  *
  * @param doc Document state to populate
  * @param ast Parsed AST
@@ -910,8 +913,10 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
     }
   }
 
-  // Process top-level statements (which will recursively process function bodies)
-  process_statements_for_symbols(ast->statements, ast->count, &tail, &doc->symbols);
+  // Process top-level statements (which will recursively process function
+  // bodies)
+  process_statements_for_symbols(ast->statements, ast->count, &tail,
+                                 &doc->symbols);
 
   free(line_starts);
 }
@@ -926,6 +931,7 @@ typedef enum {
   TYPE_NUMBER,
   TYPE_STRING,
   TYPE_LIST,
+  TYPE_MAP,
   TYPE_BOOL,
   TYPE_NULL
 } ExprType;
@@ -956,6 +962,8 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
     return TYPE_NULL;
   case AST_LIST:
     return TYPE_LIST;
+  case AST_MAP:
+    return TYPE_MAP;
   case AST_VAR: {
     Symbol *sym = find_symbol(node->as.var_name);
     if (sym && sym->type_name) {
@@ -965,6 +973,8 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
         return TYPE_STRING;
       if (strcmp(sym->type_name, "list") == 0)
         return TYPE_LIST;
+      if (strcmp(sym->type_name, "map") == 0)
+        return TYPE_MAP;
       if (strcmp(sym->type_name, "bool") == 0)
         return TYPE_BOOL;
     }
@@ -981,8 +991,10 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
   case AST_BINOP:
     // Plus can return number (addition) or string (concatenation)
     if (node->as.binop.op == BINOP_ADD) {
-      ExprType left_type = infer_type_with_ast(node->as.binop.left, symbols, ast);
-      ExprType right_type = infer_type_with_ast(node->as.binop.right, symbols, ast);
+      ExprType left_type =
+          infer_type_with_ast(node->as.binop.left, symbols, ast);
+      ExprType right_type =
+          infer_type_with_ast(node->as.binop.right, symbols, ast);
       // If either operand is a string, result is string (concatenation)
       // This handles: string + string, string + number, number + string
       if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
@@ -1003,9 +1015,17 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
       return TYPE_BOOL;
     }
     return TYPE_UNKNOWN;
-  case AST_INDEX:
-    // List/string indexing - infer from list/string type
-    return infer_type_with_ast(node->as.index.list_expr, symbols, ast);
+  case AST_INDEX: {
+    // List/string/map indexing - for maps, return TYPE_UNKNOWN (value type)
+    // For lists/strings, return the element type
+    ExprType container_type =
+        infer_type_with_ast(node->as.index.list_expr, symbols, ast);
+    if (container_type == TYPE_MAP) {
+      // Map indexing returns the value type, which we can't infer statically
+      return TYPE_UNKNOWN;
+    }
+    return container_type;
+  }
   default:
     return TYPE_UNKNOWN;
   }
@@ -1353,6 +1373,21 @@ static bool find_call_argument_position(const char *text, const char *func_name,
     }
     break;
   }
+  case AST_MAP: {
+    // Find "map" keyword and the map entries
+    if (strncmp(arg_end, "map", 3) == 0) {
+      arg_end += 3;
+      // Skip whitespace
+      while (*arg_end == ' ' || *arg_end == '\t') {
+        arg_end++;
+      }
+      // Find the end of the map (until newline or end of statement)
+      while (*arg_end != '\0' && *arg_end != '\n') {
+        arg_end++;
+      }
+    }
+    break;
+  }
   case AST_VAR: {
     // Find the variable name
     const char *var_name = arg_node->as.var_name;
@@ -1391,8 +1426,8 @@ static bool find_call_argument_position(const char *text, const char *func_name,
 
 // Check function call argument counts in AST
 static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
-                                 char *diagnostics, size_t *pos, size_t *remaining,
-                                 bool *has_diagnostics) {
+                                 char *diagnostics, size_t *pos,
+                                 size_t *remaining, bool *has_diagnostics) {
   if (!ast || !ast->statements)
     return;
 
@@ -1549,8 +1584,8 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
       if (node->as.if_stmt.block) {
         AST temp_ast = {node->as.if_stmt.block, node->as.if_stmt.block_size,
                         node->as.if_stmt.block_size};
-        check_function_calls(&temp_ast, text, symbols, diagnostics, pos, remaining,
-                             has_diagnostics);
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics);
       }
       // Check else-if blocks
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
@@ -1558,8 +1593,8 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           AST temp_ast = {node->as.if_stmt.else_if_blocks[j],
                           node->as.if_stmt.else_if_block_sizes[j],
                           node->as.if_stmt.else_if_block_sizes[j]};
-          check_function_calls(&temp_ast, text, symbols, diagnostics, pos, remaining,
-                               has_diagnostics);
+          check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                               remaining, has_diagnostics);
         }
       }
       // Check else block
@@ -1567,8 +1602,8 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         AST temp_ast = {node->as.if_stmt.else_block,
                         node->as.if_stmt.else_block_size,
                         node->as.if_stmt.else_block_size};
-        check_function_calls(&temp_ast, text, symbols, diagnostics, pos, remaining,
-                             has_diagnostics);
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics);
       }
     } else if (node->type == AST_FOR || node->type == AST_WHILE) {
       ASTNode **block = NULL;
@@ -1582,20 +1617,19 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
       }
       if (block) {
         AST temp_ast = {block, block_size, block_size};
-        check_function_calls(&temp_ast, text, symbols, diagnostics, pos, remaining,
-                             has_diagnostics);
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics);
       }
     } else if (node->type == AST_FUNCTION) {
       if (node->as.function.block) {
         AST temp_ast = {node->as.function.block, node->as.function.block_size,
                         node->as.function.block_size};
-        check_function_calls(&temp_ast, text, symbols, diagnostics, pos, remaining,
-                             has_diagnostics);
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics);
       }
     }
   }
 }
-
 
 // Find the Nth occurrence of "set <varname> to" in text (for finding specific
 // assignments) Only matches actual statements, not comments or strings Returns
@@ -1757,7 +1791,8 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       }
     }
 
-    ExprType list_type = infer_type_with_ast(node->as.index.list_expr, symbols, ast);
+    ExprType list_type =
+        infer_type_with_ast(node->as.index.list_expr, symbols, ast);
     ASTNode *index_node = node->as.index.index;
     ExprType index_type = infer_type_with_ast(index_node, symbols, ast);
 
@@ -1766,18 +1801,19 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       size_t line = 1, col = 0;
       find_node_position(node, text, "at", &line, &col);
 
-      char escaped_msg[512] = "Unsafe memory access: cannot index into null/undefined";
+      char escaped_msg[512] =
+          "Unsafe memory access: cannot index into null/undefined";
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-      int written = snprintf(
-          diagnostics + *pos, *remaining,
-          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-          "\"end\":{\"line\":%zu,\"character\":%zu}},"
-          "\"severity\":1,"
-          "\"message\":\"%s\"}",
-          *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
-          escaped_msg_final);
+      int written =
+          snprintf(diagnostics + *pos, *remaining,
+                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                   "\"severity\":1,"
+                   "\"message\":\"%s\"}",
+                   *has_diagnostics ? "," : "", line - 1, col, line - 1,
+                   col + 20, escaped_msg_final);
       if (written > 0 && (size_t)written < *remaining) {
         *pos += (size_t)written;
         *remaining -= (size_t)written;
@@ -1785,17 +1821,19 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       }
     }
 
-    // Index must be a number - check both inferred type and direct AST node
-    // type
+    // Index must be a number for lists/strings/ranges, but maps accept any key
+    // type Check both inferred type and direct AST node type
     bool is_string_index =
         (index_node->type == AST_STRING || index_node->type == AST_FSTRING);
-    if (is_string_index ||
-        (index_type != TYPE_NUMBER && index_type != TYPE_UNKNOWN &&
-         index_type == TYPE_STRING)) {
+    // Only check index type for non-map containers
+    if (list_type != TYPE_MAP &&
+        (is_string_index ||
+         (index_type != TYPE_NUMBER && index_type != TYPE_UNKNOWN &&
+          index_type == TYPE_STRING))) {
       size_t line = 1, col = 0;
       find_node_position(node, text, "at", &line, &col);
 
-      char escaped_msg[512] = "List index must be a number";
+      char escaped_msg[512] = "List/string/range index must be a number";
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
@@ -1815,6 +1853,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     }
 
     // Check for out-of-bounds (constant list and index)
+    // Maps accept any key type, so we only check lists here
     if (list_type == TYPE_LIST) {
       double index_val;
       if (get_constant_number(node->as.index.index, &index_val)) {
@@ -1874,13 +1913,13 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   // Check binary operations
   if (node->type == AST_BINOP) {
     ExprType left_type = infer_type_with_ast(node->as.binop.left, symbols, ast);
-    ExprType right_type = infer_type_with_ast(node->as.binop.right, symbols, ast);
+    ExprType right_type =
+        infer_type_with_ast(node->as.binop.right, symbols, ast);
 
-    // Plus (addition/concatenation) - allow numbers, strings, or mixed (string + number)
-    // String + number or number + string results in string concatenation
-    // Number + number results in addition
-    // String + string results in concatenation
-    // No type errors for plus - it's flexible
+    // Plus (addition/concatenation) - allow numbers, strings, or mixed (string
+    // + number) String + number or number + string results in string
+    // concatenation Number + number results in addition String + string results
+    // in concatenation No type errors for plus - it's flexible
     if (node->as.binop.op == BINOP_ADD) {
       // No type checking needed - plus handles all combinations
       // (string + string, string + number, number + string, number + number)
@@ -2003,17 +2042,18 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   }
 
   // Check variables
-    if (node->type == AST_VAR) {
-      Symbol *sym = find_symbol(node->as.var_name);
-      if (sym && (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
-        // Mark variable as read (used in expression)
-        sym->used = true;
-        sym->read = true;
-      } else if (!sym ||
-          (sym->type != SYMBOL_VARIABLE && sym->type != SYMBOL_PARAMETER)) {
-        // Check if it's a built-in constant or keyword
-        if (strcmp(node->as.var_name, "Pi") != 0 &&
-            strcmp(node->as.var_name, "undefined") != 0) {
+  if (node->type == AST_VAR) {
+    Symbol *sym = find_symbol(node->as.var_name);
+    if (sym &&
+        (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
+      // Mark variable as read (used in expression)
+      sym->used = true;
+      sym->read = true;
+    } else if (!sym || (sym->type != SYMBOL_VARIABLE &&
+                        sym->type != SYMBOL_PARAMETER)) {
+      // Check if it's a built-in constant or keyword
+      if (strcmp(node->as.var_name, "Pi") != 0 &&
+          strcmp(node->as.var_name, "undefined") != 0) {
         size_t line = 1, col = 0;
         char pattern[256];
         snprintf(pattern, sizeof(pattern), "%s", node->as.var_name);
@@ -2091,12 +2131,13 @@ static void check_undefined_variables(AST *ast, const char *text,
     // Check variable usage
     if (node->type == AST_VAR) {
       Symbol *sym = find_symbol(node->as.var_name);
-      if (sym && (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
+      if (sym &&
+          (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
         // Mark variable as read (used in expression)
         sym->used = true;
         sym->read = true;
-      } else if (!sym ||
-          (sym->type != SYMBOL_VARIABLE && sym->type != SYMBOL_PARAMETER)) {
+      } else if (!sym || (sym->type != SYMBOL_VARIABLE &&
+                          sym->type != SYMBOL_PARAMETER)) {
         // Check if it's a built-in constant or keyword
         if (strcmp(node->as.var_name, "Pi") != 0 &&
             strcmp(node->as.var_name, "undefined") != 0) {
@@ -2134,7 +2175,7 @@ static void check_undefined_variables(AST *ast, const char *text,
       // Mark variable as written to (assignment)
       Symbol *assign_sym = find_symbol(node->as.assign.name);
       if (assign_sym && assign_sym->type == SYMBOL_VARIABLE) {
-        assign_sym->used = true;  // Keep for backward compatibility
+        assign_sym->used = true; // Keep for backward compatibility
         assign_sym->written = true;
       }
 
@@ -2221,7 +2262,8 @@ static void check_undefined_variables(AST *ast, const char *text,
 
         // Check for type-annotated variables initialized with null/undefined
         // Numbers must have a value (cannot be null/undefined)
-        // Strings and lists can be null/undefined (can be empty string/list later)
+        // Strings and lists can be null/undefined (can be empty string/list
+        // later)
         if (!found && node->as.assign.value &&
             node->as.assign.value->type == AST_NULL) {
           Symbol *sym = find_symbol(node->as.assign.name);
@@ -2281,7 +2323,8 @@ static void check_undefined_variables(AST *ast, const char *text,
                 value_length = 4; // Default to "null"
               }
             } else {
-              // Check the source text to determine if it's "null" or "undefined"
+              // Check the source text to determine if it's "null" or
+              // "undefined"
               const char *line_start = text;
               size_t current_line = 1;
               for (const char *p = text; *p != '\0' && current_line < line;
@@ -2329,11 +2372,13 @@ static void check_undefined_variables(AST *ast, const char *text,
 
         // Check for type mismatch if this is a reassignment and variable has an
         // explicit type annotation (e.g., "as number")
-        // Variables initialized with null or no value can be reassigned to any type
+        // Variables initialized with null or no value can be reassigned to any
+        // type
         if (found && node->as.assign.value) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name) {
-            // Variable has an explicit type annotation - check if the new value matches
+            // Variable has an explicit type annotation - check if the new value
+            // matches
             const char *expected_type = sym->type_name;
             const char *actual_type = NULL;
 
@@ -2560,7 +2605,8 @@ static void check_undefined_variables(AST *ast, const char *text,
           strcmp(actual_func_name, "power") == 0) {
         // These require number arguments
         for (size_t j = 0; j < node->as.call.arg_count && j < 2; j++) {
-          ExprType arg_type = infer_type_with_ast(node->as.call.args[j], symbols, ast);
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[j], symbols, ast);
           if (arg_type != TYPE_NUMBER && arg_type != TYPE_UNKNOWN) {
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
@@ -2596,7 +2642,8 @@ static void check_undefined_variables(AST *ast, const char *text,
                  strcmp(actual_func_name, "ceil") == 0) {
         // These require number argument
         if (node->as.call.arg_count > 0) {
-          ExprType arg_type = infer_type_with_ast(node->as.call.args[0], symbols, ast);
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[0], symbols, ast);
           if (arg_type != TYPE_NUMBER && arg_type != TYPE_UNKNOWN) {
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
@@ -2629,7 +2676,8 @@ static void check_undefined_variables(AST *ast, const char *text,
         // These require list argument (not string)
         if (node->as.call.arg_count > 0) {
           ASTNode *arg_node = node->as.call.args[0];
-          (void)infer_type_with_ast(arg_node, symbols, ast); // Type inference for future use
+          (void)infer_type_with_ast(arg_node, symbols,
+                                    ast); // Type inference for future use
 
           // Check for string literals directly
           if (arg_node->type == AST_STRING || arg_node->type == AST_FSTRING) {
@@ -2703,8 +2751,8 @@ static void check_undefined_variables(AST *ast, const char *text,
 
               for (size_t j = 0; j < list_node->as.list.element_count; j++) {
                 if (list_node->as.list.elements[j]) {
-                  ExprType elem_type =
-                      infer_type_with_ast(list_node->as.list.elements[j], symbols, ast);
+                  ExprType elem_type = infer_type_with_ast(
+                      list_node->as.list.elements[j], symbols, ast);
                   if (elem_type != TYPE_UNKNOWN) {
                     if (first_type == TYPE_UNKNOWN) {
                       first_type = elem_type;
@@ -2753,7 +2801,8 @@ static void check_undefined_variables(AST *ast, const char *text,
                  strcmp(actual_func_name, "trim") == 0) {
         // These require string argument
         if (node->as.call.arg_count > 0) {
-          ExprType arg_type = infer_type_with_ast(node->as.call.args[0], symbols, ast);
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[0], symbols, ast);
           if (arg_type != TYPE_STRING && arg_type != TYPE_UNKNOWN) {
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
@@ -3029,8 +3078,8 @@ static void check_undefined_variables(AST *ast, const char *text,
 
 // Check for unused variables and functions
 static void check_unused_symbols(Symbol *symbols, const char *text,
-                                  char *diagnostics, size_t *pos,
-                                  size_t *remaining, bool *has_diagnostics) {
+                                 char *diagnostics, size_t *pos,
+                                 size_t *remaining, bool *has_diagnostics) {
   if (!symbols || !text)
     return;
 
@@ -3039,7 +3088,8 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
     if (sym->type == SYMBOL_PARAMETER)
       continue;
 
-    // Check for variables defined but never read (memory waste - TypeScript pattern)
+    // Check for variables defined but never read (memory waste - TypeScript
+    // pattern)
     if (sym->type == SYMBOL_VARIABLE && sym->written && !sym->read) {
       // Find the actual position of the variable declaration in source text
       size_t line = 1, col = 0;
@@ -3060,13 +3110,15 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
 
       char escaped_msg[512];
       snprintf(escaped_msg, sizeof(escaped_msg),
-               "Variable '%s' is defined but never read (memory allocation not utilized)",
+               "Variable '%s' is defined but never read (memory allocation not "
+               "utilized)",
                sym->name);
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       // Calculate the column position of the variable name itself
-      // Pattern is "let <name> to" or "set <name> to", so variable starts after "let " or "set "
+      // Pattern is "let <name> to" or "set <name> to", so variable starts after
+      // "let " or "set "
       size_t var_col = col;
       if (line > 1 || col > 0) {
         // Find the actual position of the variable name in the line
@@ -3102,14 +3154,14 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
         var_col = (size_t)(var_start - line_start);
       }
 
-      int written = snprintf(
-          diagnostics + *pos, *remaining,
-          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-          "\"end\":{\"line\":%zu,\"character\":%zu}},"
-          "\"severity\":1,"
-          "\"message\":\"%s\"}",
-          *has_diagnostics ? "," : "", line - 1, var_col, line - 1,
-          var_col + strlen(sym->name), escaped_msg_final);
+      int written =
+          snprintf(diagnostics + *pos, *remaining,
+                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                   "\"severity\":1,"
+                   "\"message\":\"%s\"}",
+                   *has_diagnostics ? "," : "", line - 1, var_col, line - 1,
+                   var_col + strlen(sym->name), escaped_msg_final);
       if (written > 0 && (size_t)written < *remaining) {
         *pos += (size_t)written;
         *remaining -= (size_t)written;
@@ -3118,8 +3170,10 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
     }
 
     // Check for completely unused variables and functions (not written or read)
-    // Skip variables that are written (they're used, just not read - already reported above)
-    if (!sym->used && (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_FUNCTION) &&
+    // Skip variables that are written (they're used, just not read - already
+    // reported above)
+    if (!sym->used &&
+        (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_FUNCTION) &&
         !(sym->type == SYMBOL_VARIABLE && sym->written)) {
       // Find the actual position of the symbol in source text
       size_t line = 1, col = 0;
@@ -3205,21 +3259,22 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
         }
       }
 
-      const char *symbol_type = sym->type == SYMBOL_FUNCTION ? "function" : "variable";
+      const char *symbol_type =
+          sym->type == SYMBOL_FUNCTION ? "function" : "variable";
       char escaped_msg[512];
       snprintf(escaped_msg, sizeof(escaped_msg), "Unused %s '%s'", symbol_type,
                sym->name);
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-      int written = snprintf(
-          diagnostics + *pos, *remaining,
-          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-          "\"end\":{\"line\":%zu,\"character\":%zu}},"
-          "\"severity\":2,"
-          "\"message\":\"%s\"}",
-          *has_diagnostics ? "," : "", line - 1, name_col, line - 1,
-          name_col + strlen(sym->name), escaped_msg_final);
+      int written =
+          snprintf(diagnostics + *pos, *remaining,
+                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                   "\"severity\":2,"
+                   "\"message\":\"%s\"}",
+                   *has_diagnostics ? "," : "", line - 1, name_col, line - 1,
+                   name_col + strlen(sym->name), escaped_msg_final);
       if (written > 0 && (size_t)written < *remaining) {
         *pos += (size_t)written;
         *remaining -= (size_t)written;
@@ -3387,8 +3442,8 @@ static void handle_shutdown(const char *id) { send_response(id, "null"); }
 /**
  * @brief Handle textDocument/didOpen notification
  *
- * Called when a document is opened. Parses the document, builds the symbol table,
- * and sends initial diagnostics.
+ * Called when a document is opened. Parses the document, builds the symbol
+ * table, and sends initial diagnostics.
  *
  * @param uri Document URI
  * @param text Document text
@@ -3942,7 +3997,8 @@ static void handle_semantic_tokens(const char *id) {
     }
 
     // Determine token type and modifiers
-    int token_type = sym->type == SYMBOL_FUNCTION ? 1 : 0; // 0=variable, 1=function
+    int token_type =
+        sym->type == SYMBOL_FUNCTION ? 1 : 0; // 0=variable, 1=function
     int token_modifiers = 0;
 
     // Mark as unused if not used (or defined but never read for variables)
@@ -3974,8 +4030,9 @@ static void handle_semantic_tokens(const char *id) {
     }
     first = false;
 
-    int written = snprintf(tokens + pos, remaining - pos, "%d,%d,%zu,%d,%d",
-                           delta_line, delta_col, strlen(sym->name), token_type, token_modifiers);
+    int written =
+        snprintf(tokens + pos, remaining - pos, "%d,%d,%zu,%d,%d", delta_line,
+                 delta_col, strlen(sym->name), token_type, token_modifiers);
     if (written > 0 && (size_t)written < remaining - pos) {
       pos += (size_t)written;
       remaining -= (size_t)written;
@@ -4033,7 +4090,8 @@ static void handle_completion(const char *id, const char *body) {
       {"or", "Logical OR operator"},
       {"not", "Logical NOT operator"},
       {"list", "Create list literal"},
-      {"at", "List indexing operator"},
+      {"map", "Create map literal"},
+      {"at", "List/map indexing operator"},
       {"from", "List slicing operator"},
       {"end", "End of list (for slicing)"},
       {"function", "Define function"},
@@ -4062,8 +4120,8 @@ static void handle_completion(const char *id, const char *body) {
     char escaped_detail[256];
     json_escape(keywords[i][1], escaped_detail, sizeof(escaped_detail));
     int written = snprintf(completions + pos, remaining - pos,
-                           "{\"label\":\"%s\",\"kind\":14,\"detail\":\"%s\"}", escaped,
-                           escaped_detail);
+                           "{\"label\":\"%s\",\"kind\":14,\"detail\":\"%s\"}",
+                           escaped, escaped_detail);
     if (written > 0 && (size_t)written < remaining - pos) {
       pos += (size_t)written;
       remaining -= (size_t)written;
@@ -4116,8 +4174,8 @@ static void handle_completion(const char *id, const char *body) {
     char escaped_detail[256];
     json_escape(builtins[i][1], escaped_detail, sizeof(escaped_detail));
     int written = snprintf(completions + pos, remaining - pos,
-                           "{\"label\":\"%s\",\"kind\":3,\"detail\":\"%s\"}", escaped,
-                           escaped_detail);
+                           "{\"label\":\"%s\",\"kind\":3,\"detail\":\"%s\"}",
+                           escaped, escaped_detail);
     if (written > 0 && (size_t)written < remaining - pos) {
       pos += (size_t)written;
       remaining -= (size_t)written;
@@ -4166,8 +4224,8 @@ static void handle_completion(const char *id, const char *body) {
 /**
  * @brief Main LSP server loop
  *
- * Reads JSON-RPC messages from stdin and dispatches them to appropriate handlers.
- * Continues until shutdown request is received.
+ * Reads JSON-RPC messages from stdin and dispatches them to appropriate
+ * handlers. Continues until shutdown request is received.
  *
  * Supported methods:
  * - initialize: Server initialization

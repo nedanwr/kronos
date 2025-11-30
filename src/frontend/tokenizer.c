@@ -117,6 +117,7 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"in", TOK_IN},
       {"range", TOK_RANGE},
       {"list", TOK_LIST},
+      {"map", TOK_MAP},
       {"at", TOK_AT},
       {"from", TOK_FROM},
       {"end", TOK_END},

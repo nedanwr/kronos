@@ -15,9 +15,10 @@ Complete syntax guide for the Kronos programming language - a human-readable lan
 9. [Built-in Constants and Functions](#built-in-constants-and-functions)
 10. [Functions](#functions)
 11. [String Operations](#string-operations)
-12. [Safety & Error Handling](#safety--error-handling)
-13. [Comments](#comments)
-14. [Indentation](#indentation)
+12. [Lists and Maps](#lists-and-maps)
+13. [Safety & Error Handling](#safety--error-handling)
+14. [Comments](#comments)
+15. [Indentation](#indentation)
 
 ---
 
@@ -78,6 +79,8 @@ let <variable_name> to <value> as <type>
 - `string` - Text values
 - `boolean` - `true` or `false`
 - `null` - Represents no value
+- `list` - Ordered collections of values
+- `map` - Key-value collections
 
 **Examples:**
 ```kronos
@@ -1117,6 +1120,116 @@ For complete list of string built-in functions, see [Built-in Constants and Func
 
 ---
 
+## Lists and Maps
+
+Kronos provides two collection data types: lists (arrays) and maps (dictionaries).
+
+### Lists
+
+Lists are ordered collections of values. They support indexing, slicing, and iteration.
+
+**Syntax:**
+```
+list <value1>, <value2>, ...
+```
+
+**Examples:**
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set fruits to list "apple", "banana", "cherry"
+set mixed to list 1, "hello", true, 3.14
+set empty to list
+```
+
+**List Indexing:**
+```kronos
+set numbers to list 10, 20, 30
+set first to numbers at 0      # Returns 10
+set last to numbers at -1      # Returns 30 (negative index from end)
+```
+
+**List Slicing:**
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set slice1 to numbers from 1 to 3    # Returns [2, 3]
+set slice2 to numbers from 2 to end  # Returns [3, 4, 5]
+```
+
+**List Iteration:**
+```kronos
+set fruits to list "apple", "banana", "cherry"
+for fruit in fruits:
+    print fruit
+```
+
+### Maps
+
+Maps are key-value collections that store pairs of keys and values. Keys can be strings, numbers, booleans, or null.
+
+**Syntax:**
+```
+map <key1>: <value1>, <key2>: <value2>, ...
+```
+
+**Examples:**
+```kronos
+# Map with string keys
+set person to map name: "Alice", age: 30, city: "NYC"
+
+# Map with number keys
+set scores to map 1: 100, 2: 200, 3: 300
+
+# Map with boolean keys
+set flags to map true: "yes", false: "no"
+
+# Empty map
+set empty_map to map
+
+# Mixed value types
+set mixed to map key1: "string", key2: 42, key3: true, key4: null
+```
+
+**Map Indexing:**
+```kronos
+set person to map name: "Alice", age: 30
+set name to person at "name"    # Returns "Alice"
+set age to person at "age"      # Returns 30
+
+# Number keys
+set scores to map 1: 100, 2: 200
+set score1 to scores at 1       # Returns 100
+
+# Boolean keys
+set flags to map true: "yes"
+set yes_value to flags at true  # Returns "yes"
+```
+
+**Notes:**
+- Map keys can be any type: strings, numbers, booleans, or null
+- Keys in map literals can be identifiers (automatically converted to strings) or expressions
+- Accessing a non-existent key results in a runtime error
+- Maps are printed in the format `{key: value, key2: value2}` (order may vary)
+
+**Examples:**
+```kronos
+# Create a map
+set person to map name: "Bob", age: 25
+
+# Access values
+print person at "name"    # Prints: Bob
+print person at "age"     # Prints: 25
+
+# Map with number keys
+set lookup to map 42: "answer", 100: "century"
+print lookup at 42        # Prints: answer
+
+# Map with boolean keys
+set options to map true: "enabled", false: "disabled"
+print options at true     # Prints: enabled
+```
+
+---
+
 ## Safety & Error Handling
 
 Kronos provides comprehensive safety checks with human-readable error messages.
@@ -1304,10 +1417,12 @@ set numbers to list 1, 2, 3, 4, 5
 set first to numbers at 0
 ```
 
-### Version 0.4.0: "Modules & Error Handling" (Planned)
+### Version 0.4.0: "Modules & Error Handling" (In Progress)
+
+**Completed:**
+- ✅ Dictionaries/Maps - Key-value storage with full operations - **COMPLETED**
 
 **Planned Features:**
-- Dictionaries/Maps - Key-value storage with full operations and iteration
 - Import/module system - Built-in and file-based modules, namespace management
 - Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
 - File I/O operations - Complete file system interface (read, write, append, list, path ops)

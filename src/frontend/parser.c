@@ -95,6 +95,7 @@ static ASTNode *parse_break(Parser *p, int indent);
 static ASTNode *parse_continue(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
 static ASTNode *parse_range_literal(Parser *p);
+static ASTNode *parse_map_literal(Parser *p);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
 
@@ -197,6 +198,10 @@ static ASTNode *parse_value(Parser *p) {
 
   if (tok->type == TOK_RANGE) {
     return parse_range_literal(p);
+  }
+
+  if (tok->type == TOK_MAP) {
+    return parse_map_literal(p);
   }
 
   if (tok->type == TOK_CALL) {
@@ -439,6 +444,172 @@ static ASTNode *parse_range_literal(Parser *p) {
   node->as.range.start = start;
   node->as.range.end = end;
   node->as.range.step = step; // NULL means step=1
+  return node;
+}
+
+/**
+ * @brief Parse a map literal
+ *
+ * Handles: "map key: value, key2: value2" or "map" (empty map).
+ * Entries are comma-separated key-value pairs with colon separator.
+ *
+ * @param p Parser state
+ * @return AST node for the map, or NULL on error
+ */
+static ASTNode *parse_map_literal(Parser *p) {
+  consume(p, TOK_MAP);
+
+  ASTNode **keys = NULL;
+  ASTNode **values = NULL;
+  size_t entry_count = 0;
+  size_t entry_capacity = 4;
+
+  keys = malloc(sizeof(ASTNode *) * entry_capacity);
+  values = malloc(sizeof(ASTNode *) * entry_capacity);
+  if (!keys || !values) {
+    if (keys) free(keys);
+    if (values) free(values);
+    fprintf(stderr, "Failed to allocate memory for map entries\n");
+    return NULL;
+  }
+
+  // Check if map is empty
+  Token *next = peek(p, 0);
+  if (!next || (next->type != TOK_NUMBER && next->type != TOK_STRING &&
+                next->type != TOK_TRUE && next->type != TOK_FALSE &&
+                next->type != TOK_NULL && next->type != TOK_NAME &&
+                next->type != TOK_LIST && next->type != TOK_NOT)) {
+    // Empty map
+    ASTNode *node = ast_node_new_checked(AST_MAP);
+    node->as.map.keys = keys;
+    node->as.map.values = values;
+    node->as.map.entry_count = 0;
+    return node;
+  }
+
+  // Parse first entry
+  // Keys can be identifiers (converted to strings) or expressions
+  Token *key_tok = peek(p, 0);
+  ASTNode *key = NULL;
+  if (key_tok && key_tok->type == TOK_NAME) {
+    // Convert identifier to string literal
+    consume_any(p); // consume identifier
+    key = ast_node_new_checked(AST_STRING);
+    key->as.string.value = strdup(key_tok->text);
+    key->as.string.length = key_tok->length;
+  } else {
+    // Parse as expression (for number, string, bool, null keys)
+    key = parse_expression(p);
+    if (!key) {
+      free(keys);
+      free(values);
+      return NULL;
+    }
+  }
+
+  // Expect colon
+  if (!consume(p, TOK_COLON)) {
+    ast_node_free(key);
+    free(keys);
+    free(values);
+    return NULL;
+  }
+
+  ASTNode *value = parse_expression(p);
+  if (!value) {
+    ast_node_free(key);
+    free(keys);
+    free(values);
+    return NULL;
+  }
+
+  keys[entry_count] = key;
+  values[entry_count] = value;
+  entry_count++;
+
+  // Parse remaining entries (comma-separated)
+  while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+    consume_any(p); // consume comma
+
+    if (entry_count == entry_capacity) {
+      size_t new_capacity = entry_capacity * 2;
+      ASTNode **new_keys = realloc(keys, sizeof(ASTNode *) * new_capacity);
+      ASTNode **new_values = realloc(values, sizeof(ASTNode *) * new_capacity);
+      if (!new_keys || !new_values) {
+        if (new_keys) free(new_keys);
+        if (new_values) free(new_values);
+        // Cleanup
+        for (size_t i = 0; i < entry_count; i++) {
+          ast_node_free(keys[i]);
+          ast_node_free(values[i]);
+        }
+        free(keys);
+        free(values);
+        return NULL;
+      }
+      keys = new_keys;
+      values = new_values;
+      entry_capacity = new_capacity;
+    }
+
+    // Keys can be identifiers (converted to strings) or expressions
+    key_tok = peek(p, 0);
+    if (key_tok && key_tok->type == TOK_NAME) {
+      // Convert identifier to string literal
+      consume_any(p); // consume identifier
+      key = ast_node_new_checked(AST_STRING);
+      key->as.string.value = strdup(key_tok->text);
+      key->as.string.length = key_tok->length;
+    } else {
+      // Parse as expression (for number, string, bool, null keys)
+      key = parse_expression(p);
+      if (!key) {
+        // Cleanup
+        for (size_t i = 0; i < entry_count; i++) {
+          ast_node_free(keys[i]);
+          ast_node_free(values[i]);
+        }
+        free(keys);
+        free(values);
+        return NULL;
+      }
+    }
+
+    // Expect colon
+    if (!consume(p, TOK_COLON)) {
+      ast_node_free(key);
+      // Cleanup
+      for (size_t i = 0; i < entry_count; i++) {
+        ast_node_free(keys[i]);
+        ast_node_free(values[i]);
+      }
+      free(keys);
+      free(values);
+      return NULL;
+    }
+
+    value = parse_expression(p);
+    if (!value) {
+      ast_node_free(key);
+      // Cleanup
+      for (size_t i = 0; i < entry_count; i++) {
+        ast_node_free(keys[i]);
+        ast_node_free(values[i]);
+      }
+      free(keys);
+      free(values);
+      return NULL;
+    }
+
+    keys[entry_count] = key;
+    values[entry_count] = value;
+    entry_count++;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_MAP);
+  node->as.map.keys = keys;
+  node->as.map.values = values;
+  node->as.map.entry_count = entry_count;
   return node;
 }
 
@@ -1859,6 +2030,14 @@ void ast_node_free(ASTNode *node) {
     if (node->as.range.step) {
       ast_node_free(node->as.range.step);
     }
+    break;
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      ast_node_free(node->as.map.keys[i]);
+      ast_node_free(node->as.map.values[i]);
+    }
+    free(node->as.map.keys);
+    free(node->as.map.values);
     break;
   case AST_INDEX:
     ast_node_free(node->as.index.list_expr);

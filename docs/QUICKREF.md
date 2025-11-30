@@ -19,6 +19,7 @@ set name to value
 - **Booleans:** `true`, `false`
 - **Null:** `null`
 - **Lists:** `list 1, 2, 3`
+- **Maps:** `map key: value, key2: value2`
 
 ## Print
 ```kronos
@@ -96,6 +97,27 @@ call to_bool with null             # false
 set original to list 1, 2, 3
 call reverse with original         # [3, 2, 1]
 call sort with list 3, 1, 2        # [1, 2, 3]
+```
+
+## Maps
+```kronos
+# Create map
+set person to map name: "Alice", age: 30
+
+# Access values
+print person at "name"             # "Alice"
+print person at "age"              # 30
+
+# Number keys
+set scores to map 1: 100, 2: 200
+print scores at 1                  # 100
+
+# Boolean keys
+set flags to map true: "yes", false: "no"
+print flags at true                # "yes"
+
+# Empty map
+set empty to map
 ```
 
 ## Arithmetic

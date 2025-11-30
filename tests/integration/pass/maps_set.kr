@@ -1,0 +1,24 @@
+# Test map set operations using map literals
+
+# Create map with multiple entries
+set m to map name: "Alice", age: 30
+print m
+# Expected: {name: Alice, age: 30} (order may vary)
+
+# Access values
+print m at "name"
+# Expected: Alice
+
+print m at "age"
+# Expected: 30
+
+# Create map with number keys
+set scores to map 1: 100, 2: 200, 42: "answer"
+print scores at 42
+# Expected: answer
+
+# Create map with boolean keys
+set flags to map true: "yes", false: "no"
+print flags at true
+# Expected: yes
+

@@ -11,6 +11,7 @@ A high-performance programming language built in C with human-readable syntax, f
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
 - **Lists & Arrays**: List literals, indexing, slicing, and iteration
+- **Maps/Dictionaries**: Key-value storage with hash table implementation, map literals, and indexing
 - **Range Objects**: First-class range support with indexing, slicing, and iteration
 - **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort)
 - **Module System**: Import built-in modules (`import math`) and use namespaced functions (`math.sqrt`). String functions are global built-ins.
@@ -134,6 +135,11 @@ print my_list from 1 to 3    # Slice
 set r to range 0 to 20 by 5
 print r at 2                 # Index into range
 print call len with r        # Range length
+
+# Maps
+set person to map name: "Alice", age: 30
+print person at "name"       # "Alice"
+print person at "age"        # 30
 for i in r:                  # Iterate range
     print i
 ```

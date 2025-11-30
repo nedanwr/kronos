@@ -1,0 +1,6 @@
+# Test error when accessing non-existent map key
+
+set m to map name: "Alice"
+print m at "nonexistent"
+# Expected: Runtime error - Map key not found
+

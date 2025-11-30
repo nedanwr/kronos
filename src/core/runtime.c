@@ -287,6 +287,78 @@ KronosValue *value_new_range(double start, double end, double step) {
 }
 
 /**
+ * @brief Hash function for map keys
+ *
+ * Computes a hash value for any KronosValue to use as a map key.
+ * Supports: strings, numbers, booleans, null.
+ *
+ * @param key Key value to hash
+ * @return 32-bit hash value
+ */
+static uint32_t hash_value(KronosValue *key) {
+  if (!key)
+    return 0;
+
+  switch (key->type) {
+  case VAL_STRING:
+    return key->as.string.hash;
+  case VAL_NUMBER: {
+    // Hash the bits of the double
+    union {
+      double d;
+      uint64_t u;
+    } converter;
+    converter.d = key->as.number;
+    return (uint32_t)(converter.u ^ (converter.u >> 32));
+  }
+  case VAL_BOOL:
+    return key->as.boolean ? 1 : 0;
+  case VAL_NIL:
+    return 0xDEADBEEF; // Arbitrary constant for null
+  default:
+    // For other types, use pointer hash
+    return (uint32_t)((uintptr_t)key * 2654435761u);
+  }
+}
+
+/**
+ * @brief Create a new map value
+ *
+ * Allocates a hash table to hold key-value pairs.
+ * Starts with the specified capacity (or 8 if 0) and grows as needed.
+ *
+ * @param initial_capacity Initial capacity (0 means use default of 8)
+ * @return New empty map, or NULL on allocation failure
+ */
+KronosValue *value_new_map(size_t initial_capacity) {
+  size_t capacity = initial_capacity == 0 ? 8 : initial_capacity;
+
+  KronosValue *val = malloc(sizeof(KronosValue));
+  if (!val)
+    return NULL;
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *entries = calloc(capacity, sizeof(*entries));
+  
+  if (!entries) {
+    free(val);
+    return NULL;
+  }
+
+  val->type = VAL_MAP;
+  val->refcount = 1;
+  val->as.map.entries = (void *)entries;
+  val->as.map.count = 0;
+  val->as.map.capacity = capacity;
+
+  gc_track(val);
+  return val;
+}
+
+/**
  * @brief Increment the reference count of a value
  *
  * Call this when storing a value in a new location. Must be paired
@@ -376,6 +448,22 @@ void value_release(KronosValue *val) {
       }
       free(current->as.list.items);
       break;
+    case VAL_MAP: {
+      struct {
+        KronosValue *key;
+        KronosValue *value;
+        bool is_tombstone;
+      } *entries = (void *)current->as.map.entries;
+      for (size_t i = 0; i < current->as.map.capacity; i++) {
+        if (entries[i].key && !entries[i].is_tombstone) {
+          release_stack_push(&stack, &stack_count, &stack_capacity, entries[i].key);
+          if (entries[i].value)
+            release_stack_push(&stack, &stack_count, &stack_capacity, entries[i].value);
+        }
+      }
+      free(entries);
+      break;
+    }
     case VAL_CHANNEL:
       // Channels are currently managed externally.
       break;
@@ -476,6 +564,27 @@ void value_fprint(FILE *out, KronosValue *val) {
     }
     break;
   }
+  case VAL_MAP: {
+    struct {
+      KronosValue *key;
+      KronosValue *value;
+      bool is_tombstone;
+    } *entries = (void *)val->as.map.entries;
+    fprintf(out, "{");
+    bool first = true;
+    for (size_t i = 0; i < val->as.map.capacity; i++) {
+      if (entries[i].key && !entries[i].is_tombstone) {
+        if (!first)
+          fprintf(out, ", ");
+        first = false;
+        value_fprint(out, entries[i].key);
+        fprintf(out, ": ");
+        value_fprint(out, entries[i].value);
+      }
+    }
+    fprintf(out, "}");
+    break;
+  }
   default:
     fprintf(out, "<unknown>");
     break;
@@ -568,9 +677,237 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     return fabs(a->as.range.start - b->as.range.start) < VALUE_COMPARE_EPSILON &&
            fabs(a->as.range.end - b->as.range.end) < VALUE_COMPARE_EPSILON &&
            fabs(a->as.range.step - b->as.range.step) < VALUE_COMPARE_EPSILON;
+  case VAL_MAP: {
+    if (a->as.map.count != b->as.map.count)
+      return false;
+    struct {
+      KronosValue *key;
+      KronosValue *value;
+      bool is_tombstone;
+    } *a_entries = (void *)a->as.map.entries;
+    struct {
+      KronosValue *key;
+      KronosValue *value;
+      bool is_tombstone;
+    } *b_entries = (void *)b->as.map.entries;
+    // For each key in a, check if it exists in b with same value
+    for (size_t i = 0; i < a->as.map.capacity; i++) {
+      if (a_entries[i].key && !a_entries[i].is_tombstone) {
+        // Find matching key in b
+        bool found = false;
+        for (size_t j = 0; j < b->as.map.capacity; j++) {
+          if (b_entries[j].key && !b_entries[j].is_tombstone &&
+              value_equals(a_entries[i].key, b_entries[j].key)) {
+            if (!value_equals(a_entries[i].value, b_entries[j].value))
+              return false;
+            found = true;
+            break;
+          }
+        }
+        if (!found)
+          return false;
+      }
+    }
+    return true;
+  }
   default:
     return a == b; // Pointer equality for complex types
   }
+}
+
+/**
+ * @brief Find entry index in map for a given key
+ *
+ * Uses linear probing to find the entry for a key.
+ *
+ * @param map Map to search in
+ * @param key Key to find
+ * @param out_index Output parameter for the index (set even if not found)
+ * @return true if key found, false otherwise
+ */
+static bool map_find_entry(KronosValue *map, KronosValue *key, size_t *out_index) {
+  if (map->type != VAL_MAP || !key)
+    return false;
+
+  uint32_t hash = hash_value(key);
+  size_t capacity = map->as.map.capacity;
+  size_t index = hash % capacity;
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *entries = (void *)map->as.map.entries;
+
+  // Linear probing
+  for (size_t i = 0; i < capacity; i++) {
+    size_t probe = (index + i) % capacity;
+    if (!entries[probe].key) {
+      *out_index = probe;
+      return false; // Empty slot, key not found
+    }
+    if (!entries[probe].is_tombstone && value_equals(entries[probe].key, key)) {
+      *out_index = probe;
+      return true; // Found
+    }
+  }
+
+  *out_index = index; // Fallback
+  return false;
+}
+
+/**
+ * @brief Grow map capacity and rehash all entries
+ *
+ * @param map Map to grow
+ * @return 0 on success, -1 on failure
+ */
+static int map_grow(KronosValue *map) {
+  size_t old_capacity = map->as.map.capacity;
+  size_t new_capacity = old_capacity * 2;
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *old_entries = (void *)map->as.map.entries;
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *new_entries = calloc(new_capacity, sizeof(*new_entries));
+
+  if (!new_entries)
+    return -1;
+
+  // Rehash all entries
+  for (size_t i = 0; i < old_capacity; i++) {
+    if (old_entries[i].key && !old_entries[i].is_tombstone) {
+      uint32_t hash = hash_value(old_entries[i].key);
+      size_t index = hash % new_capacity;
+
+      // Find empty slot
+      for (size_t j = 0; j < new_capacity; j++) {
+        size_t probe = (index + j) % new_capacity;
+        if (!new_entries[probe].key) {
+          new_entries[probe].key = old_entries[i].key;
+          new_entries[probe].value = old_entries[i].value;
+          new_entries[probe].is_tombstone = false;
+          break;
+        }
+      }
+    }
+  }
+
+  free(old_entries);
+  map->as.map.entries = (void *)new_entries;
+  map->as.map.capacity = new_capacity;
+  return 0;
+}
+
+/**
+ * @brief Get value from map by key
+ *
+ * @param map Map to get from
+ * @param key Key to look up
+ * @return Value if found, NULL otherwise (caller must retain if keeping)
+ */
+KronosValue *map_get(KronosValue *map, KronosValue *key) {
+  if (map->type != VAL_MAP || !key)
+    return NULL;
+
+  size_t index;
+  if (!map_find_entry(map, key, &index))
+    return NULL;
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *entries = (void *)map->as.map.entries;
+
+  return entries[index].value;
+}
+
+/**
+ * @brief Set value in map by key
+ *
+ * @param map Map to set in
+ * @param key Key to set
+ * @param value Value to set
+ * @return 0 on success, -1 on failure
+ */
+int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
+  if (map->type != VAL_MAP || !key)
+    return -1;
+
+  // Grow if load factor > 0.75
+  if (map->as.map.count * 4 >= map->as.map.capacity * 3) {
+    if (map_grow(map) != 0)
+      return -1;
+  }
+
+  size_t index;
+  bool found = map_find_entry(map, key, &index);
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *entries = (void *)map->as.map.entries;
+
+  if (found) {
+    // Update existing entry
+    value_release(entries[index].value);
+    entries[index].value = value;
+    value_retain(value);
+  } else {
+    // Insert new entry
+    if (!entries[index].key) {
+      map->as.map.count++;
+    }
+    entries[index].key = key;
+    entries[index].value = value;
+    entries[index].is_tombstone = false;
+    value_retain(key);
+    value_retain(value);
+  }
+
+  return 0;
+}
+
+/**
+ * @brief Delete key from map
+ *
+ * @param map Map to delete from
+ * @param key Key to delete
+ * @return true if key was found and deleted, false otherwise
+ */
+bool map_delete(KronosValue *map, KronosValue *key) {
+  if (map->type != VAL_MAP || !key)
+    return false;
+
+  size_t index;
+  if (!map_find_entry(map, key, &index))
+    return false;
+
+  struct {
+    KronosValue *key;
+    KronosValue *value;
+    bool is_tombstone;
+  } *entries = (void *)map->as.map.entries;
+
+  if (entries[index].is_tombstone)
+    return false;
+
+  value_release(entries[index].key);
+  value_release(entries[index].value);
+  entries[index].key = NULL;
+  entries[index].value = NULL;
+  entries[index].is_tombstone = true;
+  map->as.map.count--;
+
+  return true;
 }
 
 /**
