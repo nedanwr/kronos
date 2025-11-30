@@ -2984,6 +2984,57 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_MAP_NEW: {
+      // Read entry count from bytecode (unused, but kept for consistency)
+      uint16_t count = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+      (void)count; // Unused, maps grow dynamically
+      KronosValue *map = value_new_map(0);
+      if (!map) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create map");
+      }
+      push(vm, map);
+      value_release(map);
+      break;
+    }
+
+    case OP_MAP_SET: {
+      // Stack: [map, key, value]
+      KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *key = pop(vm);
+      if (!key) {
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *map = pop(vm);
+      if (!map) {
+        value_release(key);
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (map->type != VAL_MAP) {
+        value_release(key);
+        value_release(value);
+        value_release(map);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected map for map set operation");
+      }
+
+      int result = map_set(map, key, value);
+      value_release(key);
+      value_release(value);
+      if (result != 0) {
+        value_release(map);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set map entry");
+      }
+
+      push(vm, map);
+      value_release(map);
+      break;
+    }
+
     case OP_LIST_GET: {
       KronosValue *index_val = pop(vm);
       if (!index_val) {
@@ -2995,6 +3046,23 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
 
+      // Handle maps first (they accept any key type)
+      if (container->type == VAL_MAP) {
+        KronosValue *value = map_get(container, index_val);
+        if (!value) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Map key not found");
+        }
+        value_retain(value);
+        push(vm, value);
+        value_release(value);
+        value_release(index_val);
+        value_release(container);
+        break;
+      }
+
+      // For lists, strings, and ranges, index must be a number
       if (index_val->type != VAL_NUMBER) {
         value_release(index_val);
         value_release(container);
@@ -3092,12 +3160,23 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
         push(vm, char_str);
         value_release(char_str);
+      } else if (container->type == VAL_MAP) {
+        // Map indexing: key can be any type
+        KronosValue *value = map_get(container, index_val);
+        if (!value) {
+          value_release(index_val);
+          value_release(container);
+          return vm_error(vm, KRONOS_ERR_RUNTIME, "Map key not found");
+        }
+        value_retain(value);
+        push(vm, value);
+        value_release(value);
       } else {
         value_release(index_val);
         value_release(container);
         return vm_error(
             vm, KRONOS_ERR_RUNTIME,
-            "Indexing only supported for lists, strings, and ranges");
+            "Indexing only supported for lists, strings, ranges, and maps");
       }
 
       value_release(index_val);
