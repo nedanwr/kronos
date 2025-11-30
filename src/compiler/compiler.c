@@ -569,6 +569,36 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_MAP: {
+    // Compile map literal: map key: value, key2: value2
+    // Create empty map first
+    emit_byte(c, OP_MAP_NEW);
+    emit_uint16(c, 0); // Start with empty map
+    if (compiler_has_error(c))
+      return;
+
+    // Compile each key-value pair and set in order
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      // Stack: [map]
+      // Compile key
+      compile_expression(c, node->as.map.keys[i]);
+      if (compiler_has_error(c))
+        return;
+      // Stack: [map, key]
+      // Compile value
+      compile_expression(c, node->as.map.values[i]);
+      if (compiler_has_error(c))
+        return;
+      // Stack: [map, key, value]
+      // OP_MAP_SET: pop value, pop key, pop map, set, push map
+      emit_byte(c, OP_MAP_SET);
+      if (compiler_has_error(c))
+        return;
+      // Stack: [map]
+    }
+    break;
+  }
+
   case AST_INDEX: {
     // Compile indexing: list at index
     compile_expression(c, node->as.index.list_expr);

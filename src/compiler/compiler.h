@@ -40,6 +40,9 @@ typedef enum {
   OP_LIST_ITER,     // Start list iteration (list -> iterator)
   OP_LIST_NEXT,     // Get next item from iterator (iterator -> item, has_more)
   OP_RANGE_NEW,     // Create new range (start, end, step -> range)
+  OP_MAP_NEW,       // Create new map (arg: entry count)
+  OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
+  OP_MAP_GET,       // Get value by key (map, key -> value)
   OP_HALT,          // End program
 } OpCode;
 
