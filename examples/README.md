@@ -25,6 +25,11 @@ Run any example:
 - **functions_simple.kr** - Basic function definitions and calls
 - **functions.kr** - Comprehensive function examples with scoping
 
+### Data Structures
+- **lists.kr** - List literals, indexing, slicing, and iteration
+- **maps.kr** - Map literals, key-value access, and different key types
+- **range_objects.kr** - Range objects with indexing and iteration
+
 ### Advanced
 - **builtins.kr** - Built-in constants (Pi) and math functions
 - **syntax_showcase.kr** - Complete feature demonstration
@@ -35,7 +40,8 @@ Run any example:
 1. **hello.kr** → **variables.kr** → **arithmetic.kr**
 2. **conditionals.kr** → **loops.kr** → **control_flow.kr**
 3. **functions_simple.kr** → **functions.kr**
-4. **builtins.kr** → **syntax_showcase.kr** → **fizzbuzz.kr**
+4. **lists.kr** → **maps.kr** → **range_objects.kr**
+5. **builtins.kr** → **syntax_showcase.kr** → **fizzbuzz.kr**
 
 ## Running All Examples
 
