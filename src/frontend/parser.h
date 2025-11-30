@@ -26,6 +26,7 @@ typedef enum {
   AST_BINOP,
   AST_LIST,
   AST_RANGE,
+  AST_MAP,
   AST_INDEX,
   AST_SLICE,
 } ASTNodeType;
@@ -159,6 +160,13 @@ struct ASTNode {
       ASTNode *end;
       ASTNode *step; // NULL means step=1
     } range;
+
+    // Map literal: map key: value, key2: value2
+    struct {
+      ASTNode **keys;
+      ASTNode **values;
+      size_t entry_count;
+    } map;
 
     // Indexing: list at 0
     struct {
