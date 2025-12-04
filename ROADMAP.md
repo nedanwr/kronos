@@ -70,6 +70,24 @@ This document outlines the planned features and release schedule for Kronos.
   # Functions and variables from modules are accessible via module namespace
   ```
 
+- 🔄 **Core Operator Improvements** - Missing fundamental operators
+
+  - Modulo operator (`%`): `set remainder to 10 mod 3` → `1`
+  - Unary negation (`-x`): `set neg to -value` instead of `0 minus value`
+
+- 🔄 **Mutable Collection Operations** - In-place modification of collections
+
+  - List index assignment: `let nums at 0 to 10` (modify list element)
+  - Map key deletion: `delete person at "age"` (remove key from map)
+
+  ```kronos
+  let nums to list 1, 2, 3
+  let nums at 0 to 10      # nums is now [10, 2, 3]
+
+  let person to map name: "Alice", age: 30
+  delete person at "age"   # person is now {name: "Alice"}
+  ```
+
 - 🔄 **Exception Handling** - Try/catch/finally blocks for better error management
 
   ```kronos
@@ -109,6 +127,8 @@ This document outlines the planned features and release schedule for Kronos.
   ```
 
 - 🔄 **LSP Improvements**
+  - Hover info for file-based modules (show module path and exports)
+  - Module function validation (verify functions exist in imported modules)
   - Find all references
   - Rename symbol
   - Code actions & quick fixes
