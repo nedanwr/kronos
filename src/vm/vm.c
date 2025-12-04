@@ -4001,28 +4001,24 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
       if (iterable->type == VAL_LIST) {
         // Create iterator (just push the list and current index)
-        // For simplicity, we'll use a list value with a special marker
-        // Actually, we need to track iteration state. Let's use a simple
-        // approach: Push list, then push index 0
-        value_retain(iterable);
+        // Push list back to stack, then push index 0
         push(vm, iterable);
         KronosValue *index = value_new_number(0);
         push(vm, index);
         value_release(index);
-        value_release(iterable);
       } else if (iterable->type == VAL_RANGE) {
         // For ranges, push the range and current value (start)
-        value_retain(iterable);
         push(vm, iterable);
         KronosValue *current = value_new_number(iterable->as.range.start);
         push(vm, current);
         value_release(current);
-        value_release(iterable);
       } else {
         value_release(iterable);
         return vm_error(vm, KRONOS_ERR_RUNTIME,
                         "Expected list or range for iteration");
       }
+      // Release our pop reference (push added a new stack reference)
+      value_release(iterable);
       break;
     }
 
