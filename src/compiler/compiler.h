@@ -43,6 +43,7 @@ typedef enum {
   OP_MAP_NEW,       // Create new map (arg: entry count)
   OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
   OP_MAP_GET,       // Get value by key (map, key -> value)
+  OP_IMPORT,        // Import module (module_name, file_path constants)
   OP_HALT,          // End program
 } OpCode;
 

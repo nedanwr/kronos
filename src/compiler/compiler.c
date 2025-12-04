@@ -1456,10 +1456,56 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   }
 
   case AST_IMPORT: {
-    // Import statements are handled at runtime
-    // For built-in modules, we just track that the module was imported
-    // Module resolution happens when module.function is called
-    // No bytecode needed - this is a no-op
+    // Emit OP_IMPORT instruction with module name and file path as constant indices
+    emit_byte(c, OP_IMPORT);
+    
+    // Add module name to constant pool and emit index
+    KronosValue *module_name_val = value_new_string(node->as.import.module_name, strlen(node->as.import.module_name));
+    if (!module_name_val) {
+      compiler_set_error(c, "Failed to create module name constant");
+      return;
+    }
+    size_t module_name_idx = add_constant(c, module_name_val);
+    // Don't release - add_constant stores the value in the bytecode
+    // The bytecode will own it and release it when freed
+    if (module_name_idx == SIZE_MAX || module_name_idx > UINT16_MAX) {
+      value_release(module_name_val); // Only release on error
+      compiler_set_error(c, "Failed to add module name constant");
+      return;
+    }
+    value_retain(module_name_val); // Retain for bytecode ownership
+    emit_uint16(c, (uint16_t)module_name_idx);
+    
+    // Add file path to constant pool and emit index (nil for built-in modules)
+    KronosValue *file_path_val = NULL;
+    if (node->as.import.file_path) {
+      file_path_val = value_new_string(node->as.import.file_path, strlen(node->as.import.file_path));
+      if (!file_path_val) {
+        compiler_set_error(c, "Failed to create file path constant");
+        return;
+      }
+    } else {
+      // NULL for built-in modules
+      file_path_val = value_new_nil();
+      if (!file_path_val) {
+        compiler_set_error(c, "Failed to create nil constant");
+        return;
+      }
+    }
+    size_t file_path_idx = add_constant(c, file_path_val);
+    // Don't release - add_constant stores the value in the bytecode
+    if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
+      value_release(file_path_val); // Only release on error
+      compiler_set_error(c, "Failed to add file path constant");
+      return;
+    }
+    value_retain(file_path_val); // Retain for bytecode ownership
+    if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
+      compiler_set_error(c, "Failed to add file path constant");
+      return;
+    }
+    emit_uint16(c, (uint16_t)file_path_idx);
+    
     break;
   }
 
