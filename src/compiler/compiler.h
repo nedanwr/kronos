@@ -25,15 +25,17 @@ typedef enum {
   OP_NOT,           // Logical NOT (unary)
   OP_JUMP,          // Unconditional jump
   OP_JUMP_IF_FALSE, // Jump if top of stack is false
-  OP_BREAK,         // Break out of loop
-  OP_CONTINUE,      // Continue to next loop iteration
+  // Note: OP_BREAK/OP_CONTINUE are reserved but not emitted.
+  // Break/continue are compiled to OP_JUMP with patched offsets instead.
+  OP_BREAK,         // Reserved (not emitted - break uses OP_JUMP)
+  OP_CONTINUE,      // Reserved (not emitted - continue uses OP_JUMP)
   OP_DEFINE_FUNC,   // Define function
   OP_CALL_FUNC,     // Call function
   OP_RETURN_VAL,    // Return from function with value
   OP_POP,           // Pop value from stack
   OP_LIST_NEW,      // Create new list (arg: element count)
-  OP_LIST_GET,      // Get element at index (list/string, index -> value)
-  OP_LIST_SET,      // Set element at index (list, index, value -> list)
+  OP_LIST_GET,      // Get element at index (list/string/map, index/key -> value)
+  OP_LIST_SET,      // Reserved (not yet implemented - list index assignment)
   OP_LIST_APPEND,   // Append element (list, value -> list)
   OP_LIST_LEN,      // Get list/string length (list/string -> length)
   OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
@@ -42,7 +44,7 @@ typedef enum {
   OP_RANGE_NEW,     // Create new range (start, end, step -> range)
   OP_MAP_NEW,       // Create new map (arg: entry count)
   OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
-  OP_MAP_GET,       // Get value by key (map, key -> value)
+  OP_MAP_GET,       // Reserved (not used - map access goes through OP_LIST_GET)
   OP_IMPORT,        // Import module (module_name, file_path constants)
   OP_HALT,          // End program
 } OpCode;
