@@ -1,0 +1,4 @@
+# Test circular import detection
+import circular_a from "tests/integration/fail/circular_a.kr"
+# Expected: Runtime error - Circular import detected
+

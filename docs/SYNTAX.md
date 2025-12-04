@@ -718,9 +718,9 @@ for i in range 1 to 10:
 
 ## Modules and Imports
 
-Kronos supports importing built-in modules to organize functions into namespaces.
+Kronos supports importing both built-in modules and file-based modules to organize code into namespaces.
 
-### Importing Modules
+### Importing Built-in Modules
 
 **Syntax:**
 ```
@@ -736,6 +736,51 @@ import <module_name>
 ```kronos
 import math
 # String functions are global (no import needed)
+```
+
+### Importing File-based Modules
+
+You can import code from other `.kr` files to organize your code into reusable modules.
+
+**Syntax:**
+```
+import <module_name> from "<file_path>"
+```
+
+**Examples:**
+```kronos
+# Import a module from a file
+import utils from "utils.kr"
+import math_utils from "lib/math_utils.kr"
+
+# Relative paths are supported
+import helpers from "./helpers.kr"
+```
+
+**Module File Execution:**
+When a module is imported, the entire module file is executed in its own VM context. This means:
+- All top-level statements in the module file are executed
+- Functions and variables defined in the module are available through the module namespace
+- Modules are cached - importing the same module multiple times only loads it once
+
+**Example Module File (`utils.kr`):**
+```kronos
+# Utility functions module
+print "Loading utils module..."
+
+function greet name:
+    print "Hello, " + name + "!"
+
+set version to "1.0.0"
+```
+
+**Using the Module:**
+```kronos
+import utils from "utils.kr"
+# Module code executes here (prints "Loading utils module...")
+
+# Access module functions (when fully implemented)
+# call utils.greet with "Alice"
 ```
 
 ### Using Module Functions

@@ -4,7 +4,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.3.0  
+**Current Version:** 0.4.0  
 **Status:** ✅ Stable - Core language features complete
 
 ### What's Available Now
@@ -13,6 +13,7 @@ This document outlines the planned features and release schedule for Kronos.
 - ✅ Functions with parameters and return values
 - ✅ Logical operators (`and`, `or`, `not`)
 - ✅ Lists/arrays with full operations (indexing, slicing, iteration)
+- ✅ Maps/dictionaries with hash table implementation (literals, indexing, key-value storage)
 - ✅ String operations (concatenation, indexing, slicing, built-ins)
 - ✅ F-strings (string interpolation)
 - ✅ Enhanced standard library (math functions, type conversion, list utilities)
@@ -40,27 +41,51 @@ This document outlines the planned features and release schedule for Kronos.
   - Range iteration: `for i in r:`
   - Range slicing: `r from 2 to 5`
 
-- 🔄 **Type Conversion Functions** - Complete type conversion utilities
+- ✅ **Type Conversion Functions** - Complete type conversion utilities (completed)
 
-  - `to_number()` - Convert string to number
-  - `to_bool()` - Convert string/number to boolean
+  - `to_number()` - ✅ Convert string to number
+  - `to_bool()` - ✅ Convert string/number to boolean
   - `to_string()` - ✅ Already implemented
 
-- 🔄 **Dictionaries/Maps** - Key-value storage with hash table implementation
+- ✅ **Dictionaries/Maps** - Key-value storage with hash table implementation (completed)
+
+  - Map literals: `map key: value, key2: value2`
+  - Map indexing: `map at key` (supports string, number, boolean, and null keys)
+  - Map operations: `map_get()`, `map_set()`, `map_delete()`
+  - Hash table implementation with automatic growth
+  - Memory management with reference counting and garbage collection
+  - Map printing and equality comparison
 
   ```kronos
   set person to map name: "Alice", age: 30, city: "NYC"
   print person at "name"
-  let person at "age" to 31
-  for key, value in person:
-      print key, value
+  # Note: Map assignment (let person at "age" to 31) deferred to future
   ```
 
-- 🔄 **File-based Module System** - Import code from other `.kr` files
+- ✅ **File-based Module System** - Import code from other `.kr` files (completed)
 
   ```kronos
   import utils from "mylib.kr"
-  from math import sqrt, power
+  # Modules are executed when imported
+  # Functions and variables from modules are accessible via module namespace
+  ```
+
+- 🔄 **Core Operator Improvements** - Missing fundamental operators
+
+  - Modulo operator (`%`): `set remainder to 10 mod 3` → `1`
+  - Unary negation (`-x`): `set neg to -value` instead of `0 minus value`
+
+- 🔄 **Mutable Collection Operations** - In-place modification of collections
+
+  - List index assignment: `let nums at 0 to 10` (modify list element)
+  - Map key deletion: `delete person at "age"` (remove key from map)
+
+  ```kronos
+  let nums to list 1, 2, 3
+  let nums at 0 to 10      # nums is now [10, 2, 3]
+
+  let person to map name: "Alice", age: 30
+  delete person at "age"   # person is now {name: "Alice"}
   ```
 
 - 🔄 **Exception Handling** - Try/catch/finally blocks for better error management
@@ -102,6 +127,8 @@ This document outlines the planned features and release schedule for Kronos.
   ```
 
 - 🔄 **LSP Improvements**
+  - Hover info for file-based modules (show module path and exports)
+  - Module function validation (verify functions exist in imported modules)
   - Find all references
   - Rename symbol
   - Code actions & quick fixes

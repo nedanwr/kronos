@@ -14,7 +14,7 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Maps/Dictionaries**: Key-value storage with hash table implementation, map literals, and indexing
 - **Range Objects**: First-class range support with indexing, slicing, and iteration
 - **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort)
-- **Module System**: Import built-in modules (`import math`) and use namespaced functions (`math.sqrt`). String functions are global built-ins.
+- **Module System**: Import built-in modules (`import math`) and file-based modules (`import utils from "utils.kr"`). Use namespaced functions (`math.sqrt`, `utils.function`). String functions are global built-ins.
 - **Control Flow**: If/else-if/else, for/while loops, break/continue statements
 - **Functions**: First-class functions with parameters, return values, and local scoping
 

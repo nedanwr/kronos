@@ -1,0 +1,5 @@
+# Test calling functions from imported modules
+import utils from "tests/integration/pass/test_utils_module.kr"
+set result to call utils.add with 5, 3
+print f"Result of utils.add: {result}"
+

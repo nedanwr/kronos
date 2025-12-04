@@ -12,6 +12,7 @@
 #define FUNCTIONS_MAX 128
 #define CALL_STACK_MAX 256
 #define LOCALS_MAX 64
+#define MODULES_MAX 64
 
 // Function definition
 typedef struct {
@@ -20,6 +21,15 @@ typedef struct {
   size_t param_count;
   Bytecode bytecode; // Full bytecode structure
 } Function;
+
+// Module definition (for file-based modules)
+typedef struct {
+  char *name;              // Module name (namespace)
+  char *file_path;         // Source file path
+  KronosVM *module_vm;     // VM instance for this module (contains its globals/functions)
+  KronosVM *root_vm;       // Root VM that owns this module (for circular import detection)
+  bool is_loaded;          // Whether module has been loaded
+} Module;
 
 // Call frame for function calls
 typedef struct {
@@ -61,6 +71,20 @@ typedef struct KronosVM {
   // Functions
   Function *functions[FUNCTIONS_MAX];
   size_t function_count;
+
+  // Modules (file-based modules)
+  Module *modules[MODULES_MAX];
+  size_t module_count;
+
+  // Module loading tracking (for circular import detection)
+  char *loading_modules[MODULES_MAX]; // Stack of modules currently being loaded
+  size_t loading_count;
+
+  // Current file path (for relative import resolution)
+  char *current_file_path;
+
+  // Root VM reference (for module VMs - points to the VM that created this module)
+  KronosVM *root_vm_ref; // NULL for root VM, non-NULL for module VMs
 
   // Instruction pointer
   uint8_t *ip;

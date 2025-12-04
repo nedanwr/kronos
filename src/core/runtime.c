@@ -60,7 +60,8 @@ void runtime_init(void) {
  *
  * Releases all interned strings and shuts down the garbage collector.
  * IMPORTANT: This must only be called after all external references to
- * interned strings have been released, otherwise values may be freed prematurely.
+ * interned strings have been released, otherwise values may be freed
+ * prematurely.
  */
 void runtime_cleanup(void) {
   // Free interned strings
@@ -342,7 +343,7 @@ KronosValue *value_new_map(size_t initial_capacity) {
     KronosValue *value;
     bool is_tombstone;
   } *entries = calloc(capacity, sizeof(*entries));
-  
+
   if (!entries) {
     free(val);
     return NULL;
@@ -456,9 +457,11 @@ void value_release(KronosValue *val) {
       } *entries = (void *)current->as.map.entries;
       for (size_t i = 0; i < current->as.map.capacity; i++) {
         if (entries[i].key && !entries[i].is_tombstone) {
-          release_stack_push(&stack, &stack_count, &stack_capacity, entries[i].key);
+          release_stack_push(&stack, &stack_count, &stack_capacity,
+                             entries[i].key);
           if (entries[i].value)
-            release_stack_push(&stack, &stack_count, &stack_capacity, entries[i].value);
+            release_stack_push(&stack, &stack_count, &stack_capacity,
+                               entries[i].value);
         }
       }
       free(entries);
@@ -674,7 +677,8 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     }
     return true;
   case VAL_RANGE:
-    return fabs(a->as.range.start - b->as.range.start) < VALUE_COMPARE_EPSILON &&
+    return fabs(a->as.range.start - b->as.range.start) <
+               VALUE_COMPARE_EPSILON &&
            fabs(a->as.range.end - b->as.range.end) < VALUE_COMPARE_EPSILON &&
            fabs(a->as.range.step - b->as.range.step) < VALUE_COMPARE_EPSILON;
   case VAL_MAP: {
@@ -725,7 +729,8 @@ bool value_equals(KronosValue *a, KronosValue *b) {
  * @param out_index Output parameter for the index (set even if not found)
  * @return true if key found, false otherwise
  */
-static bool map_find_entry(KronosValue *map, KronosValue *key, size_t *out_index) {
+static bool map_find_entry(KronosValue *map, KronosValue *key,
+                           size_t *out_index) {
   if (map->type != VAL_MAP || !key)
     return false;
 
@@ -982,6 +987,14 @@ bool value_is_type(KronosValue *val, const char *type_name) {
     return val->type == VAL_NIL;
   } else if (strcmp(type_name, "range") == 0) {
     return val->type == VAL_RANGE;
+  } else if (strcmp(type_name, "list") == 0) {
+    return val->type == VAL_LIST;
+  } else if (strcmp(type_name, "map") == 0) {
+    return val->type == VAL_MAP;
+  } else if (strcmp(type_name, "function") == 0) {
+    return val->type == VAL_FUNCTION;
+  } else if (strcmp(type_name, "channel") == 0) {
+    return val->type == VAL_CHANNEL;
   }
 
   return false;

@@ -1,0 +1,4 @@
+# Test basic module import
+import utils from "tests/integration/pass/test_utils_module.kr"
+print "Module imported successfully"
+

@@ -1,0 +1,4 @@
+# Module B that imports A (circular)
+import circular_a from "tests/integration/fail/circular_a.kr"
+print "Module B loaded"
+

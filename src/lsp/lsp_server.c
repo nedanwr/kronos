@@ -57,6 +57,15 @@ typedef struct Symbol {
 } Symbol;
 
 /**
+ * Imported module information
+ */
+typedef struct ImportedModule {
+  char *name;      /**< Module name (e.g., "utils") */
+  char *file_path; /**< File path if importing from file (NULL for built-in) */
+  struct ImportedModule *next; /**< Next imported module */
+} ImportedModule;
+
+/**
  * Document state structure
  *
  * Maintains the current state of an open document, including its text,
@@ -67,6 +76,7 @@ typedef struct {
   char *text;      /**< Full document text */
   Symbol *symbols; /**< Linked list of symbols in the document */
   AST *ast;        /**< Parsed Abstract Syntax Tree */
+  ImportedModule *imported_modules; /**< Linked list of imported modules */
 } DocumentState;
 
 /** Global document state (currently supports single file) */
@@ -710,6 +720,37 @@ static void get_node_position(ASTNode *node, size_t *line, size_t *col) {
   }
 }
 
+// Free imported modules list
+static void free_imported_modules(ImportedModule *modules) {
+  while (modules) {
+    ImportedModule *next = modules->next;
+    free(modules->name);
+    free(modules->file_path);
+    free(modules);
+    modules = next;
+  }
+}
+
+// Helper function to check if a module is imported
+static bool is_module_imported(const char *module_name) {
+  if (!g_doc || !module_name)
+    return false;
+
+  // Check built-in modules
+  if (strcmp(module_name, "math") == 0)
+    return true;
+
+  // Check imported modules
+  ImportedModule *mod = g_doc->imported_modules;
+  while (mod) {
+    if (mod->name && strcmp(mod->name, module_name) == 0)
+      return true;
+    mod = mod->next;
+  }
+
+  return false;
+}
+
 /**
  * @brief Free document state and all its resources
  *
@@ -723,6 +764,7 @@ static void free_document_state(DocumentState *doc) {
   free(doc->uri);
   free(doc->text);
   free_symbols(doc->symbols);
+  free_imported_modules(doc->imported_modules);
   if (doc->ast)
     ast_free(doc->ast);
   free(doc);
@@ -888,6 +930,11 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
   doc->symbols = NULL;
   Symbol **tail = &doc->symbols;
 
+  // Clear existing imported modules
+  free_imported_modules(doc->imported_modules);
+  doc->imported_modules = NULL;
+  ImportedModule **import_tail = &doc->imported_modules;
+
   // Calculate line starts for position lookup
   size_t *line_starts = NULL;
   size_t line_count = 0;
@@ -913,6 +960,25 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
     }
   }
 
+  // Process top-level statements to extract imports and symbols
+  for (size_t i = 0; i < ast->count; i++) {
+    ASTNode *node = ast->statements[i];
+    if (!node)
+      continue;
+
+    // Track imported modules
+    if (node->type == AST_IMPORT && node->as.import.module_name) {
+      ImportedModule *mod = malloc(sizeof(ImportedModule));
+      if (mod) {
+        mod->name = strdup(node->as.import.module_name);
+        mod->file_path = node->as.import.file_path ? strdup(node->as.import.file_path) : NULL;
+        mod->next = NULL;
+        *import_tail = mod;
+        import_tail = &mod->next;
+      }
+    }
+  }
+
   // Process top-level statements (which will recursively process function
   // bodies)
   process_statements_for_symbols(ast->statements, ast->count, &tail,
@@ -932,6 +998,7 @@ typedef enum {
   TYPE_STRING,
   TYPE_LIST,
   TYPE_MAP,
+  TYPE_RANGE,
   TYPE_BOOL,
   TYPE_NULL
 } ExprType;
@@ -1024,6 +1091,14 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
       // Map indexing returns the value type, which we can't infer statically
       return TYPE_UNKNOWN;
     }
+    return container_type;
+  }
+  case AST_RANGE:
+    return TYPE_RANGE;
+  case AST_SLICE: {
+    // Slicing returns the same type as the container
+    ExprType container_type =
+        infer_type_with_ast(node->as.slice.list_expr, symbols, ast);
     return container_type;
   }
   default:
@@ -1213,10 +1288,15 @@ static bool find_assignment_value_position(const char *text,
 // Get expected argument count for built-in functions
 // Returns -1 if function is not a built-in, or if it has variable arguments
 static int get_builtin_arg_count(const char *func_name) {
-  // Math functions (via math module)
+  // Zero-argument functions
+  if (strcmp(func_name, "rand") == 0) {
+    return 0;
+  }
+
+  // One-argument functions
   if (strcmp(func_name, "sqrt") == 0 || strcmp(func_name, "abs") == 0 ||
       strcmp(func_name, "round") == 0 || strcmp(func_name, "floor") == 0 ||
-      strcmp(func_name, "ceil") == 0 || strcmp(func_name, "rand") == 0 ||
+      strcmp(func_name, "ceil") == 0 ||
       strcmp(func_name, "len") == 0 || strcmp(func_name, "uppercase") == 0 ||
       strcmp(func_name, "lowercase") == 0 || strcmp(func_name, "trim") == 0 ||
       strcmp(func_name, "to_string") == 0 ||
@@ -1232,9 +1312,13 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "power") == 0 || strcmp(func_name, "split") == 0 ||
       strcmp(func_name, "contains") == 0 ||
       strcmp(func_name, "starts_with") == 0 ||
-      strcmp(func_name, "ends_with") == 0 ||
-      strcmp(func_name, "replace") == 0) {
+      strcmp(func_name, "ends_with") == 0) {
     return 2;
+  }
+
+  // Three-argument functions
+  if (strcmp(func_name, "replace") == 0) {
+    return 3;
   }
 
   // Variable arguments (min, max, join)
@@ -1451,9 +1535,14 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           module_name[module_len] = '\0';
           if (strcmp(module_name, "math") == 0) {
             actual_func_name = dot + 1;
+          } else if (is_module_imported(module_name)) {
+            // File-based module - skip validation for now (can't parse module files)
+            // This prevents false "unknown module" errors
+            free(module_name);
+            continue;
           } else {
             free(module_name);
-            continue; // Unknown module
+            continue; // Unknown module (skip to avoid false errors)
           }
           free(module_name);
         }
@@ -1774,9 +1863,18 @@ static ASTNode *find_variable_assignment(AST *ast, const char *var_name) {
 }
 
 // Recursively check expressions for diagnostics
+// seen_vars and seen_count are optional - used to check if variables were assigned earlier in scope
+typedef struct {
+  char *name;
+  bool is_mutable;
+  size_t assignment_count;
+  size_t first_statement_index;
+} SeenVar;
+
 static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
                              AST *ast, char *diagnostics, size_t *pos,
-                             size_t *remaining, bool *has_diagnostics) {
+                             size_t *remaining, bool *has_diagnostics,
+                             SeenVar *seen_vars, size_t seen_count) {
   if (!node)
     return;
 
@@ -1904,9 +2002,9 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
 
     // Recursively check nested expressions
     check_expression(node->as.index.list_expr, text, symbols, ast, diagnostics,
-                     pos, remaining, has_diagnostics);
+                     pos, remaining, has_diagnostics, NULL, 0);
     check_expression(node->as.index.index, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics);
+                     remaining, has_diagnostics, NULL, 0);
     return;
   }
 
@@ -2035,20 +2133,35 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
 
     // Recursively check nested expressions
     check_expression(node->as.binop.left, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics);
+                     remaining, has_diagnostics, seen_vars, seen_count);
     check_expression(node->as.binop.right, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics);
+                     remaining, has_diagnostics, seen_vars, seen_count);
     return;
   }
 
   // Check variables
   if (node->type == AST_VAR) {
     Symbol *sym = find_symbol(node->as.var_name);
+
+    // Check if variable was assigned earlier in this scope
+    bool assigned_in_scope = false;
+    if (seen_vars) {
+      for (size_t j = 0; j < seen_count; j++) {
+        if (strcmp(seen_vars[j].name, node->as.var_name) == 0) {
+          assigned_in_scope = true;
+          break;
+        }
+      }
+    }
+
     if (sym &&
         (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
       // Mark variable as read (used in expression)
       sym->used = true;
       sym->read = true;
+    } else if (assigned_in_scope) {
+      // Variable is assigned in this scope, so it's not undefined
+      // (this handles forward references within the same scope)
     } else if (!sym || (sym->type != SYMBOL_VARIABLE &&
                         sym->type != SYMBOL_PARAMETER)) {
       // Check if it's a built-in constant or keyword
@@ -2087,7 +2200,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   if (node->type == AST_LIST) {
     for (size_t i = 0; i < node->as.list.element_count; i++) {
       check_expression(node->as.list.elements[i], text, symbols, ast,
-                       diagnostics, pos, remaining, has_diagnostics);
+                       diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
     }
     return;
   }
@@ -2096,7 +2209,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   if (node->type == AST_CALL) {
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       check_expression(node->as.call.args[i], text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics);
+                       pos, remaining, has_diagnostics, seen_vars, seen_count);
     }
     return;
   }
@@ -2131,11 +2244,25 @@ static void check_undefined_variables(AST *ast, const char *text,
     // Check variable usage
     if (node->type == AST_VAR) {
       Symbol *sym = find_symbol(node->as.var_name);
+
+      // Check if variable was assigned earlier in this scope
+      bool assigned_in_scope = false;
+      for (size_t j = 0; j < seen_count; j++) {
+        if (strcmp(seen_vars[j].name, node->as.var_name) == 0 &&
+            seen_vars[j].first_statement_index < i) {
+          assigned_in_scope = true;
+          break;
+        }
+      }
+
       if (sym &&
           (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
         // Mark variable as read (used in expression)
         sym->used = true;
         sym->read = true;
+      } else if (assigned_in_scope) {
+        // Variable is assigned later in this scope, so it's not undefined
+        // (this handles forward references within the same scope)
       } else if (!sym || (sym->type != SYMBOL_VARIABLE &&
                           sym->type != SYMBOL_PARAMETER)) {
         // Check if it's a built-in constant or keyword
@@ -2151,7 +2278,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                    node->as.var_name);
           char escaped_msg_final[512];
           json_escape(escaped_msg, escaped_msg_final,
-                      sizeof(escaped_msg_final));
+                     sizeof(escaped_msg_final));
 
           int written = snprintf(
               diagnostics + *pos, *remaining,
@@ -2172,6 +2299,40 @@ static void check_undefined_variables(AST *ast, const char *text,
 
     // Check assignments for immutable reassignment
     if (node->type == AST_ASSIGN) {
+      // Add variable to seen_vars FIRST, before checking expressions
+      // This allows forward references within the same scope
+      bool found = false;
+      for (size_t j = 0; j < seen_count; j++) {
+        if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
+          found = true;
+          seen_vars[j].assignment_count++;
+          break;
+        }
+      }
+      if (!found) {
+        // Add new variable to seen_vars
+        if (seen_count >= seen_capacity) {
+          seen_capacity *= 2;
+          SeenVar *new_vars = realloc(seen_vars, seen_capacity * sizeof(SeenVar));
+          if (!new_vars) {
+            // Can't expand, skip adding this variable
+          } else {
+            seen_vars = new_vars;
+            seen_vars[seen_count].name = strdup(node->as.assign.name);
+            seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
+            seen_vars[seen_count].assignment_count = 1;
+            seen_vars[seen_count].first_statement_index = i;
+            seen_count++;
+          }
+        } else {
+          seen_vars[seen_count].name = strdup(node->as.assign.name);
+          seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
+          seen_vars[seen_count].assignment_count = 1;
+          seen_vars[seen_count].first_statement_index = i;
+          seen_count++;
+        }
+      }
+
       // Mark variable as written to (assignment)
       Symbol *assign_sym = find_symbol(node->as.assign.name);
       if (assign_sym && assign_sym->type == SYMBOL_VARIABLE) {
@@ -2208,17 +2369,16 @@ static void check_undefined_variables(AST *ast, const char *text,
         }
       } else {
         // Check if variable was already assigned (reassignment check)
+        // Note: Variable was already added to seen_vars above, so we just need to check
         bool found = false;
         bool was_immutable = false;
         size_t occurrence = 0;
-        size_t current_statement_index = i; // Current statement index
         for (size_t j = 0; j < seen_count; j++) {
           if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
             found = true;
             was_immutable = !seen_vars[j].is_mutable;
             // Get the occurrence number BEFORE incrementing
-            occurrence = seen_vars[j].assignment_count + 1;
-            seen_vars[j].assignment_count++;
+            occurrence = seen_vars[j].assignment_count;
             break;
           }
         }
@@ -2424,7 +2584,7 @@ static void check_undefined_variables(AST *ast, const char *text,
               // Count how many assignments of this variable come before the
               // current one
               size_t assignment_index = 0;
-              for (size_t k = 0; k < current_statement_index; k++) {
+              for (size_t k = 0; k < i; k++) {
                 ASTNode *prev_node = ast->statements[k];
                 if (prev_node && prev_node->type == AST_ASSIGN &&
                     strcmp(prev_node->as.assign.name, node->as.assign.name) ==
@@ -2484,29 +2644,13 @@ static void check_undefined_variables(AST *ast, const char *text,
           }
         }
 
-        if (!found) {
-          // Add to seen variables
-          if (seen_count >= seen_capacity) {
-            seen_capacity *= 2;
-            SeenVar *new_vars =
-                realloc(seen_vars, seen_capacity * sizeof(SeenVar));
-            if (!new_vars) {
-              free(seen_vars);
-              return;
-            }
-            seen_vars = new_vars;
-          }
-          seen_vars[seen_count].name = strdup(node->as.assign.name);
-          seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
-          seen_vars[seen_count].assignment_count = 1;
-          seen_vars[seen_count].first_statement_index = current_statement_index;
-          seen_count++;
-        }
+        // Note: Variable already added to seen_vars at the start of AST_ASSIGN handling
+        // (lines 2302-2333), no need to add again here
       }
       // Check expressions in assignment value
       if (node->as.assign.value) {
         check_expression(node->as.assign.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
     }
 
@@ -2514,7 +2658,7 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_PRINT) {
       if (node->as.print.value) {
         check_expression(node->as.print.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
     }
 
@@ -2522,14 +2666,14 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_IF) {
       if (node->as.if_stmt.condition) {
         check_expression(node->as.if_stmt.condition, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics);
+                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
       // Check else-if conditions
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
         if (node->as.if_stmt.else_if_conditions[j]) {
           check_expression(node->as.if_stmt.else_if_conditions[j], text,
                            symbols, ast, diagnostics, pos, remaining,
-                           has_diagnostics);
+                           has_diagnostics, seen_vars, seen_count);
         }
       }
     }
@@ -2545,15 +2689,15 @@ static void check_undefined_variables(AST *ast, const char *text,
       }
       if (node->as.for_stmt.iterable) {
         check_expression(node->as.for_stmt.iterable, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics);
+                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
       if (node->as.for_stmt.end) {
         check_expression(node->as.for_stmt.end, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
       if (node->as.for_stmt.step) {
         check_expression(node->as.for_stmt.step, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics);
+                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
     }
 
@@ -2561,7 +2705,7 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_WHILE) {
       if (node->as.while_stmt.condition) {
         check_expression(node->as.while_stmt.condition, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics);
+                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
     }
 
@@ -2569,7 +2713,7 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_RETURN) {
       if (node->as.return_stmt.value) {
         check_expression(node->as.return_stmt.value, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics);
+                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
       }
     }
 
@@ -2586,6 +2730,10 @@ static void check_undefined_variables(AST *ast, const char *text,
           module_name[module_len] = '\0';
           if (strcmp(module_name, "math") == 0) {
             actual_func_name = dot + 1;
+          } else if (is_module_imported(module_name)) {
+            // File-based module - skip type checking for now
+            free(module_name);
+            continue;
           }
           free(module_name);
         }
@@ -2670,8 +2818,11 @@ static void check_undefined_variables(AST *ast, const char *text,
             }
           }
         }
-      } else if (strcmp(actual_func_name, "len") == 0 ||
-                 strcmp(actual_func_name, "reverse") == 0 ||
+      } else if (strcmp(actual_func_name, "len") == 0) {
+        // len accepts list, string, or range - no type error for any of these
+        // No special validation needed here
+        (void)node; // Suppress unused warning
+      } else if (strcmp(actual_func_name, "reverse") == 0 ||
                  strcmp(actual_func_name, "sort") == 0) {
         // These require list argument (not string)
         if (node->as.call.arg_count > 0) {
@@ -2706,7 +2857,8 @@ static void check_undefined_variables(AST *ast, const char *text,
               *remaining -= (size_t)written;
               *has_diagnostics = true;
             }
-          } else if (strcmp(actual_func_name, "sort") == 0) {
+          }
+          if (strcmp(actual_func_name, "sort") == 0) {
             // Check if sort list has mixed types (all must be numbers or all
             // strings)
             ASTNode *list_node = NULL;
@@ -3076,8 +3228,36 @@ static void check_undefined_variables(AST *ast, const char *text,
   free(seen_vars);
 }
 
+// Helper function to check if a variable is a loop variable
+static bool is_loop_variable(Symbol *sym, AST *ast) {
+  if (!sym || !ast || sym->type != SYMBOL_VARIABLE)
+    return false;
+
+  // Check if this variable is declared in a FOR statement
+  for (size_t i = 0; i < ast->count; i++) {
+    ASTNode *node = ast->statements[i];
+    if (!node || node->type != AST_FOR)
+      continue;
+
+    if (node->as.for_stmt.var &&
+        strcmp(node->as.for_stmt.var, sym->name) == 0) {
+      return true;
+    }
+
+    // Check nested FOR statements in the loop body
+    if (node->as.for_stmt.block) {
+      AST temp_ast = {node->as.for_stmt.block, node->as.for_stmt.block_size,
+                      node->as.for_stmt.block_size};
+      if (is_loop_variable(sym, &temp_ast))
+        return true;
+    }
+  }
+
+  return false;
+}
+
 // Check for unused variables and functions
-static void check_unused_symbols(Symbol *symbols, const char *text,
+static void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
                                  char *diagnostics, size_t *pos,
                                  size_t *remaining, bool *has_diagnostics) {
   if (!symbols || !text)
@@ -3086,6 +3266,10 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
   for (Symbol *sym = symbols; sym != NULL; sym = sym->next) {
     // Skip parameters (they're used by function calls)
     if (sym->type == SYMBOL_PARAMETER)
+      continue;
+
+    // Skip loop variables - they're always "used" by the loop itself
+    if (ast && is_loop_variable(sym, ast))
       continue;
 
     // Check for variables defined but never read (memory waste - TypeScript
@@ -3103,6 +3287,16 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
         find_node_position(NULL, text, pattern, &line, &col);
       }
 
+      // If still not found, try "for X in" pattern (for loop variables)
+      if (line == 1 && col == 0) {
+        snprintf(pattern, sizeof(pattern), "for %s in", sym->name);
+        find_node_position(NULL, text, pattern, &line, &col);
+        if (line > 1 || col > 0) {
+          // Found "for X in" - skip this variable (it's a loop variable)
+          continue;
+        }
+      }
+
       // If still not found, try to find just the variable name (fallback)
       if (line == 1 && col == 0) {
         find_nth_occurrence(text, sym->name, 1, &line, &col);
@@ -3117,8 +3311,7 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       // Calculate the column position of the variable name itself
-      // Pattern is "let <name> to" or "set <name> to", so variable starts after
-      // "let " or "set "
+      // Pattern could be "let <name> to", "set <name> to", or "for <name> in"
       size_t var_col = col;
       if (line > 1 || col > 0) {
         // Find the actual position of the variable name in the line
@@ -3133,23 +3326,34 @@ static void check_unused_symbols(Symbol *symbols, const char *text,
             }
           }
         }
-        // Find "let " or "set " and skip past it to get to variable name
         const char *pattern_start = line_start + col;
         const char *var_start = pattern_start;
-        // Skip "let " or "set "
-        while (*var_start != '\0' && *var_start != '\n' &&
-               (*var_start == ' ' || *var_start == '\t' ||
-                (*var_start >= 'a' && *var_start <= 'z') ||
-                (*var_start >= 'A' && *var_start <= 'Z'))) {
-          if (*var_start == ' ') {
+
+        // Check if this is a "for X in" pattern
+        if (strncmp(pattern_start, "for ", 4) == 0) {
+          // Skip "for " to get to variable name
+          var_start = pattern_start + 4;
+          // Skip whitespace after "for"
+          while (*var_start == ' ' || *var_start == '\t') {
             var_start++;
-            break;
           }
-          var_start++;
-        }
-        // Skip whitespace after "let"/"set"
-        while (*var_start == ' ' || *var_start == '\t') {
-          var_start++;
+        } else {
+          // Pattern is "let <name> to" or "set <name> to"
+          // Skip "let " or "set "
+          while (*var_start != '\0' && *var_start != '\n' &&
+                 (*var_start == ' ' || *var_start == '\t' ||
+                  (*var_start >= 'a' && *var_start <= 'z') ||
+                  (*var_start >= 'A' && *var_start <= 'Z'))) {
+            if (*var_start == ' ') {
+              var_start++;
+              break;
+            }
+            var_start++;
+          }
+          // Skip whitespace after "let"/"set"
+          while (*var_start == ' ' || *var_start == '\t') {
+            var_start++;
+          }
         }
         var_col = (size_t)(var_start - line_start);
       }
@@ -3369,7 +3573,7 @@ static void check_diagnostics(const char *uri, const char *text) {
                                 &remaining, &has_diagnostics);
 
       // Check for unused variables and functions
-      check_unused_symbols(symbols, text, diagnostics, &pos, &remaining,
+      check_unused_symbols(symbols, text, ast, diagnostics, &pos, &remaining,
                            &has_diagnostics);
 
       // Free AST if not stored in document
@@ -3459,6 +3663,7 @@ static void handle_did_open(const char *uri, const char *text) {
     g_doc->text = strdup(text);
     g_doc->symbols = NULL;
     g_doc->ast = NULL;
+    g_doc->imported_modules = NULL;
   }
   check_diagnostics(uri, text);
 }
@@ -4076,29 +4281,53 @@ static void handle_completion(const char *id, const char *body) {
 
   // Add keywords
   const char *keywords[][2] = {
+      // Variable declarations
       {"set", "Immutable variable"},
       {"let", "Mutable variable"},
+      {"to", "Assignment operator (set x to 5)"},
+      {"as", "Type annotation (as number)"},
+      // Control flow
       {"if", "Conditional statement"},
       {"else", "Else clause"},
       {"else if", "Else-if clause"},
       {"for", "For loop"},
+      {"in", "Loop iterator (for x in list)"},
       {"while", "While loop"},
       {"break", "Break out of loop"},
       {"continue", "Continue to next iteration"},
-      {"by", "Step value for range loops"},
+      // Logical operators
       {"and", "Logical AND operator"},
       {"or", "Logical OR operator"},
       {"not", "Logical NOT operator"},
+      // Arithmetic operators
+      {"plus", "Addition operator"},
+      {"minus", "Subtraction operator"},
+      {"times", "Multiplication operator"},
+      {"divided", "Division operator"},
+      {"by", "Step value or division (divided by)"},
+      // Comparison operators
+      {"is", "Comparison prefix (is equal to)"},
+      {"equal", "Equality comparison"},
+      {"greater", "Greater than comparison"},
+      {"less", "Less than comparison"},
+      {"than", "Comparison suffix (greater than)"},
+      // Data structures
       {"list", "Create list literal"},
       {"map", "Create map literal"},
+      {"range", "Create range literal (range 1 to 10)"},
       {"at", "List/map indexing operator"},
       {"from", "List slicing operator"},
       {"end", "End of list (for slicing)"},
+      // Functions
       {"function", "Define function"},
       {"call", "Call function"},
+      {"with", "Function arguments (call fn with args)"},
       {"return", "Return value"},
+      // Modules
       {"import", "Import module"},
+      // I/O
       {"print", "Print value"},
+      // Literals
       {"true", "Boolean true"},
       {"false", "Boolean false"},
       {"null", "Null value"},
@@ -4132,7 +4361,7 @@ static void handle_completion(const char *id, const char *body) {
 
   // Add built-in functions
   const char *builtins[][2] = {
-      {"len", "Get list or string length"},
+      {"len", "Get length of list, string, or range"},
       {"uppercase", "Convert string to uppercase"},
       {"lowercase", "Convert string to lowercase"},
       {"trim", "Remove leading and trailing whitespace"},
@@ -4144,14 +4373,14 @@ static void handle_completion(const char *id, const char *body) {
       {"contains", "Check if string contains substring"},
       {"starts_with", "Check if string starts with prefix"},
       {"ends_with", "Check if string ends with suffix"},
-      {"replace", "Replace occurrences of substring in string"},
+      {"replace", "Replace all occurrences (string, old, new)"},
       {"sqrt", "Square root of a number"},
       {"power", "Raise base to exponent"},
       {"abs", "Absolute value of a number"},
       {"round", "Round number to nearest integer"},
       {"floor", "Floor of a number"},
       {"ceil", "Ceiling of a number"},
-      {"rand", "Random number between 0 and 1"},
+      {"rand", "Random number between 0 and 1 (no args)"},
       {"min", "Minimum of numbers"},
       {"max", "Maximum of numbers"},
       {"reverse", "Reverse a list"},

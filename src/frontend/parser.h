@@ -143,9 +143,15 @@ struct ASTNode {
       ASTNode *value;
     } return_stmt;
 
-    // Import: import module_name
+    // Import: import module_name [from "file.kr"] or from module_name import
+    // func1, func2
     struct {
-      char *module_name;
+      char *module_name; // Module name (for namespace)
+      char *file_path;   // File path if importing from file (NULL for built-in)
+      char **imported_names; // Function names to import (NULL for full import)
+      size_t imported_count; // Number of imported names
+      bool is_from_import;   // true for "from X import Y", false for "import X
+                             // from Y"
     } import;
 
     // List literal: list 1, 2, 3

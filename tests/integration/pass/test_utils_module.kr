@@ -1,0 +1,7 @@
+# Test utility module
+set test_var to "Hello from utils"
+print "Utils module loaded"
+set PI to 3.14159
+function add with a, b:
+    return a plus b
+
