@@ -1768,7 +1768,7 @@ static ASTNode *parse_return(Parser *p, int indent) {
 static ASTNode *parse_import(Parser *p, int indent) {
   Token *first = peek(p, 0);
   bool is_from_import = (first->type == TOK_FROM);
-  
+
   char *module_name = NULL;
   char *file_path = NULL;
   char **imported_names = NULL;
@@ -1777,7 +1777,7 @@ static ASTNode *parse_import(Parser *p, int indent) {
   if (is_from_import) {
     // Parse: from module_name import func1, func2
     consume(p, TOK_FROM);
-    
+
     Token *module_tok = consume(p, TOK_NAME);
     if (!module_tok)
       return NULL;
@@ -1868,7 +1868,7 @@ static ASTNode *parse_import(Parser *p, int indent) {
     Token *next = peek(p, 0);
     if (next && next->type == TOK_FROM) {
       consume(p, TOK_FROM);
-      
+
       // Expect string literal for file path
       Token *file_tok = consume(p, TOK_STRING);
       if (!file_tok) {

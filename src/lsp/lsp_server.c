@@ -735,11 +735,11 @@ static void free_imported_modules(ImportedModule *modules) {
 static bool is_module_imported(const char *module_name) {
   if (!g_doc || !module_name)
     return false;
-  
+
   // Check built-in modules
   if (strcmp(module_name, "math") == 0)
     return true;
-  
+
   // Check imported modules
   ImportedModule *mod = g_doc->imported_modules;
   while (mod) {
@@ -747,7 +747,7 @@ static bool is_module_imported(const char *module_name) {
       return true;
     mod = mod->next;
   }
-  
+
   return false;
 }
 
@@ -965,7 +965,7 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
     ASTNode *node = ast->statements[i];
     if (!node)
       continue;
-    
+
     // Track imported modules
     if (node->type == AST_IMPORT && node->as.import.module_name) {
       ImportedModule *mod = malloc(sizeof(ImportedModule));
@@ -2142,7 +2142,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   // Check variables
   if (node->type == AST_VAR) {
     Symbol *sym = find_symbol(node->as.var_name);
-    
+
     // Check if variable was assigned earlier in this scope
     bool assigned_in_scope = false;
     if (seen_vars) {
@@ -2153,7 +2153,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
         }
       }
     }
-    
+
     if (sym &&
         (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
       // Mark variable as read (used in expression)
@@ -2244,7 +2244,7 @@ static void check_undefined_variables(AST *ast, const char *text,
     // Check variable usage
     if (node->type == AST_VAR) {
       Symbol *sym = find_symbol(node->as.var_name);
-      
+
       // Check if variable was assigned earlier in this scope
       bool assigned_in_scope = false;
       for (size_t j = 0; j < seen_count; j++) {
@@ -2254,7 +2254,7 @@ static void check_undefined_variables(AST *ast, const char *text,
           break;
         }
       }
-      
+
       if (sym &&
           (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
         // Mark variable as read (used in expression)
@@ -2332,7 +2332,7 @@ static void check_undefined_variables(AST *ast, const char *text,
           seen_count++;
         }
       }
-      
+
       // Mark variable as written to (assignment)
       Symbol *assign_sym = find_symbol(node->as.assign.name);
       if (assign_sym && assign_sym->type == SYMBOL_VARIABLE) {
@@ -3232,18 +3232,18 @@ static void check_undefined_variables(AST *ast, const char *text,
 static bool is_loop_variable(Symbol *sym, AST *ast) {
   if (!sym || !ast || sym->type != SYMBOL_VARIABLE)
     return false;
-  
+
   // Check if this variable is declared in a FOR statement
   for (size_t i = 0; i < ast->count; i++) {
     ASTNode *node = ast->statements[i];
     if (!node || node->type != AST_FOR)
       continue;
-    
-    if (node->as.for_stmt.var && 
+
+    if (node->as.for_stmt.var &&
         strcmp(node->as.for_stmt.var, sym->name) == 0) {
       return true;
     }
-    
+
     // Check nested FOR statements in the loop body
     if (node->as.for_stmt.block) {
       AST temp_ast = {node->as.for_stmt.block, node->as.for_stmt.block_size,
@@ -3252,7 +3252,7 @@ static bool is_loop_variable(Symbol *sym, AST *ast) {
         return true;
     }
   }
-  
+
   return false;
 }
 
@@ -3328,7 +3328,7 @@ static void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
         }
         const char *pattern_start = line_start + col;
         const char *var_start = pattern_start;
-        
+
         // Check if this is a "for X in" pattern
         if (strncmp(pattern_start, "for ", 4) == 0) {
           // Skip "for " to get to variable name

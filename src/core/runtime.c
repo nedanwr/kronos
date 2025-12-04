@@ -342,7 +342,7 @@ KronosValue *value_new_map(size_t initial_capacity) {
     KronosValue *value;
     bool is_tombstone;
   } *entries = calloc(capacity, sizeof(*entries));
-  
+
   if (!entries) {
     free(val);
     return NULL;

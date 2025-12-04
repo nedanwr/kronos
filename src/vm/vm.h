@@ -82,7 +82,7 @@ typedef struct KronosVM {
 
   // Current file path (for relative import resolution)
   char *current_file_path;
-  
+
   // Root VM reference (for module VMs - points to the VM that created this module)
   KronosVM *root_vm_ref; // NULL for root VM, non-NULL for module VMs
 

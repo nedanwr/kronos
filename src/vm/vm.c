@@ -478,7 +478,7 @@ Function *vm_get_function(KronosVM *vm, const char *name) {
 Module *vm_get_module(KronosVM *vm, const char *name) {
   if (!vm || !name)
     return NULL;
-  
+
   for (size_t i = 0; i < vm->module_count; i++) {
     if (vm->modules[i] && strcmp(vm->modules[i]->name, name) == 0) {
       return vm->modules[i];
@@ -491,12 +491,12 @@ Module *vm_get_module(KronosVM *vm, const char *name) {
 static char *resolve_module_path(const char *base_path, const char *module_path) {
   if (!module_path)
     return NULL;
-  
+
   // If module_path is absolute, use it as-is
   if (module_path[0] == '/') {
     return strdup(module_path);
   }
-  
+
   // If module_path starts with ./ or ../, resolve relative to base_path
   if ((module_path[0] == '.' && module_path[1] == '/') ||
       (module_path[0] == '.' && module_path[1] == '.' && module_path[2] == '/')) {
@@ -509,7 +509,7 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
         char *resolved = malloc(dir_len + module_len + 1);
         if (!resolved)
           return NULL;
-        
+
         strncpy(resolved, base_path, dir_len);
         strcpy(resolved + dir_len, module_path);
         return resolved;
@@ -518,14 +518,14 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
     // No base_path or no directory separator, use as-is
     return strdup(module_path);
   }
-  
+
   // If module_path contains a / but doesn't start with ./ or ../,
   // treat it as relative to project root (current working directory)
   // This handles cases like "examples/utils.kr" or "tests/module.kr"
   if (strchr(module_path, '/')) {
     return strdup(module_path);
   }
-  
+
   // If base_path is provided and module_path has no /, resolve relative to base_path's directory
   if (base_path && base_path[0] != '\0') {
     // Find the directory of base_path
@@ -536,13 +536,13 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
       char *resolved = malloc(dir_len + module_len + 1);
       if (!resolved)
         return NULL;
-      
+
       strncpy(resolved, base_path, dir_len);
       strcpy(resolved + dir_len, module_path);
       return resolved;
     }
   }
-  
+
   // Fallback: use module_path as-is (relative to current working directory)
   return strdup(module_path);
 }
@@ -553,7 +553,7 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   if (!vm || !module_name || !file_path) {
     return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT, "Invalid arguments for module loading");
   }
-  
+
   // Determine the root VM - modules are always stored in the root VM
   // The root VM is the one that doesn't have a parent, or is the top-level VM
   // If parent_vm is provided, use it. Otherwise, if vm is a module VM, use its root_vm_ref
@@ -562,36 +562,36 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     // If vm is a module VM, use its root_vm_ref, otherwise vm is the root
     root_vm = vm->root_vm_ref ? vm->root_vm_ref : vm;
   }
-  
+
   if (!root_vm) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to determine root VM");
   }
-  
+
   // Check for circular imports in the root VM's loading stack
   for (size_t i = 0; i < root_vm->loading_count; i++) {
     if (root_vm->loading_modules[i] && strcmp(root_vm->loading_modules[i], module_name) == 0) {
       return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Circular import detected: module '%s' is already being loaded", module_name);
     }
   }
-  
+
   // Check if module already loaded in root VM
   if (vm_get_module(root_vm, module_name)) {
     return 0; // Already loaded, success
   }
-  
+
   if (root_vm->module_count >= MODULES_MAX) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Maximum number of modules exceeded (%d allowed)", MODULES_MAX);
   }
-  
+
   // Use current_file_path as base if base_path is NULL
   const char *actual_base = base_path ? base_path : vm->current_file_path;
-  
+
   // Resolve file path
   char *resolved_path = resolve_module_path(actual_base, file_path);
   if (!resolved_path) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to resolve module path");
   }
-  
+
   // Add to root VM's loading stack for circular import detection
   if (root_vm->loading_count >= MODULES_MAX) {
     free(resolved_path);
@@ -603,40 +603,40 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to track module loading");
   }
   root_vm->loading_count++;
-  
+
   // Read file
   FILE *file = fopen(resolved_path, "r");
   if (!file) {
     free(resolved_path);
     return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s", file_path);
   }
-  
+
   // Determine file size
   if (fseek(file, 0, SEEK_END) != 0) {
     free(resolved_path);
     fclose(file);
     return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to end of file: %s", resolved_path);
   }
-  
+
   long size = ftell(file);
   if (size < 0) {
     free(resolved_path);
     fclose(file);
     return vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s", resolved_path);
   }
-  
+
   if ((uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
     free(resolved_path);
     fclose(file);
     return vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s", resolved_path);
   }
-  
+
   if (fseek(file, 0, SEEK_SET) != 0) {
     free(resolved_path);
     fclose(file);
     return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to start of file: %s", resolved_path);
   }
-  
+
   // Allocate buffer
   size_t length = (size_t)size;
   char *source = malloc(length + 1);
@@ -645,7 +645,7 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     fclose(file);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory for module file");
   }
-  
+
   size_t read_size = fread(source, 1, length, file);
   if (ferror(file) || (read_size < length && !feof(file))) {
     free(source);
@@ -653,10 +653,10 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     fclose(file);
     return vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s", resolved_path);
   }
-  
+
   source[read_size] = '\0';
   fclose(file);
-  
+
   // Create a new VM for the module
   KronosVM *module_vm = vm_new();
   if (!module_vm) {
@@ -668,10 +668,10 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create VM for module");
   }
-  
+
   // Set the module VM's root VM reference for circular import detection
   module_vm->root_vm_ref = root_vm;
-  
+
   // Set the module VM's current file path for relative imports
   module_vm->current_file_path = strdup(resolved_path);
   if (!module_vm->current_file_path) {
@@ -684,11 +684,11 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set module file path");
   }
-  
+
   // Tokenize, parse, compile, and execute the module
   TokenArray *tokens = tokenize(source, NULL);
   free(source);
-  
+
   if (!tokens) {
     vm_free(module_vm);
     free(resolved_path);
@@ -698,10 +698,10 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return vm_error(vm, KRONOS_ERR_TOKENIZE, "Failed to tokenize module");
   }
-  
+
   AST *ast = parse(tokens);
   token_array_free(tokens);
-  
+
   if (!ast) {
     vm_free(module_vm);
     free(resolved_path);
@@ -711,11 +711,11 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return vm_error(vm, KRONOS_ERR_PARSE, "Failed to parse module");
   }
-  
+
   const char *compile_err = NULL;
   Bytecode *bytecode = compile(ast, &compile_err);
   ast_free(ast);
-  
+
   if (!bytecode) {
     vm_free(module_vm);
     free(resolved_path);
@@ -726,10 +726,10 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     return vm_errorf(vm, KRONOS_ERR_COMPILE, "Failed to compile module%s%s",
                      compile_err ? ": " : "", compile_err ? compile_err : "");
   }
-  
+
   int exec_result = vm_execute(module_vm, bytecode);
   bytecode_free(bytecode);
-  
+
   if (exec_result < 0) {
     // Copy error from module_vm to main vm
     if (module_vm->last_error_message) {
@@ -743,12 +743,12 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return exec_result;
   }
-  
+
   // Remove from root VM's loading stack (module successfully loaded)
   root_vm->loading_count--;
   free(root_vm->loading_modules[root_vm->loading_count]);
   root_vm->loading_modules[root_vm->loading_count] = NULL;
-  
+
   // Create module structure
   Module *mod = malloc(sizeof(Module));
   if (!mod) {
@@ -756,23 +756,23 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     free(resolved_path);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate module structure");
   }
-  
+
   mod->name = strdup(module_name);
   mod->file_path = resolved_path;
   mod->module_vm = module_vm;
   mod->root_vm = root_vm; // Store root VM for circular import detection
   mod->is_loaded = true;
-  
+
   if (!mod->name) {
     free(mod);
     vm_free(module_vm);
     free(resolved_path);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate module name");
   }
-  
+
   // Add module to root VM (not the current VM, which might be a module VM)
   root_vm->modules[root_vm->module_count++] = mod;
-  
+
   return 0;
 }
 
@@ -4174,27 +4174,27 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       // Read constant indices for module name and file path (in order of emission)
       uint16_t module_name_idx = read_uint16(vm);
       uint16_t file_path_idx = read_uint16(vm);
-      
+
       // Validate indices
       if (!vm->bytecode || file_path_idx >= vm->bytecode->const_count || module_name_idx >= vm->bytecode->const_count) {
         return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Invalid constant index in import instruction (module_idx=%u, file_idx=%u, const_count=%zu)", module_name_idx, file_path_idx, vm->bytecode ? vm->bytecode->const_count : 0);
       }
-      
+
       // Get constants from pool (don't release - owned by bytecode)
       KronosValue *module_name_val = vm->bytecode->constants[module_name_idx];
       KronosValue *file_path_val = vm->bytecode->constants[file_path_idx];
-      
+
       if (!module_name_val || !file_path_val) {
         return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Null constant at index (module_idx=%u, file_idx=%u)", module_name_idx, file_path_idx);
       }
-      
+
       if (module_name_val->type != VAL_STRING) {
         return vm_errorf(vm, KRONOS_ERR_INTERNAL, "Module name must be a string, got type %d", module_name_val->type);
       }
-      
+
       const char *module_name = module_name_val->as.string.data;
       const char *file_path = NULL;
-      
+
       // If file_path is not null, it's a file-based import
       if (file_path_val->type != VAL_NIL) {
         if (file_path_val->type != VAL_STRING) {
@@ -4202,7 +4202,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
         file_path = file_path_val->as.string.data;
       }
-      
+
       // Load the module
       // For built-in modules (file_path is NULL), we don't need to load anything
       // Module resolution happens when module.function is called
@@ -4211,7 +4211,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         // If this VM is a module VM, use its root_vm_ref
         // Otherwise, this is the root VM
         KronosVM *root_vm_for_import = vm->root_vm_ref ? vm->root_vm_ref : vm;
-        
+
         // Use current file path as base for relative imports
         // Pass root_vm_for_import as parent_vm for circular import detection
         int load_result = vm_load_module(vm, module_name, file_path, vm->current_file_path, root_vm_for_import);
@@ -4219,7 +4219,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return load_result;
         }
       }
-      
+
       // Constants are owned by bytecode, don't release
       break;
     }

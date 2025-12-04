@@ -1458,7 +1458,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   case AST_IMPORT: {
     // Emit OP_IMPORT instruction with module name and file path as constant indices
     emit_byte(c, OP_IMPORT);
-    
+
     // Add module name to constant pool and emit index
     KronosValue *module_name_val = value_new_string(node->as.import.module_name, strlen(node->as.import.module_name));
     if (!module_name_val) {
@@ -1473,7 +1473,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
     }
     emit_uint16(c, (uint16_t)module_name_idx);
-    
+
     // Add file path to constant pool and emit index (nil for built-in modules)
     KronosValue *file_path_val = NULL;
     if (node->as.import.file_path) {
@@ -1498,7 +1498,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
     }
     emit_uint16(c, (uint16_t)file_path_idx);
-    
+
     break;
   }
 
