@@ -28,6 +28,182 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+// Sort comparison type for qsort (used by sort_compare_values)
+// Note: This is a static variable, making sort() not thread-safe.
+// This is acceptable since the VM itself is not thread-safe.
+static enum { SORT_NUMBERS, SORT_STRINGS } sort_value_type;
+
+/**
+ * @brief Comparison function for qsort on KronosValue arrays
+ *
+ * Compares two KronosValue pointers for sorting. The comparison type
+ * (numbers or strings) must be set in sort_value_type before calling qsort.
+ *
+ * @param a Pointer to first KronosValue*
+ * @param b Pointer to second KronosValue*
+ * @return negative if a < b, 0 if equal, positive if a > b
+ */
+static int sort_compare_values(const void *a, const void *b) {
+  KronosValue *val_a = *(KronosValue **)a;
+  KronosValue *val_b = *(KronosValue **)b;
+
+  if (sort_value_type == SORT_NUMBERS) {
+    double diff = val_a->as.number - val_b->as.number;
+    return (diff > 0) - (diff < 0);
+  } else {
+    return strcmp(val_a->as.string.data, val_b->as.string.data);
+  }
+}
+
+/**
+ * @brief Clean up a call frame's local variables
+ *
+ * Frees all names, releases all values, and frees all type names
+ * in the given call frame, then resets the local_count to 0.
+ *
+ * @param frame Call frame to clean up (must not be NULL)
+ */
+static void cleanup_call_frame_locals(CallFrame *frame) {
+  for (size_t i = 0; i < frame->local_count; i++) {
+    if (frame->locals[i].name) {
+      free(frame->locals[i].name);
+      frame->locals[i].name = NULL;
+    }
+    if (frame->locals[i].value) {
+      value_release(frame->locals[i].value);
+      frame->locals[i].value = NULL;
+    }
+    if (frame->locals[i].type_name) {
+      free(frame->locals[i].type_name);
+      frame->locals[i].type_name = NULL;
+    }
+  }
+  frame->local_count = 0;
+}
+
+// Forward declaration for vm_execute (needed by call_module_function)
+int vm_execute(KronosVM *vm, Bytecode *bytecode);
+
+/**
+ * @brief Call a function in an external module
+ *
+ * Handles all the complexity of calling a function defined in another module:
+ * - Sets up the call frame in the module's VM
+ * - Transfers arguments from the caller's VM
+ * - Executes the function
+ * - Retrieves the return value
+ * - Cleans up all state
+ *
+ * @param caller_vm The VM making the call
+ * @param mod The module containing the function
+ * @param mod_func The function to call
+ * @param args Array of arguments (will be released by this function)
+ * @param arg_count Number of arguments
+ * @return 0 on success, negative error code on failure
+ */
+static int call_module_function(KronosVM *caller_vm, Module *mod,
+                                Function *mod_func, KronosValue **args,
+                                uint8_t arg_count) {
+  KronosVM *module_vm = mod->module_vm;
+
+  // Check call stack depth
+  if (module_vm->call_stack_size >= CALL_STACK_MAX) {
+    for (int i = 0; i < arg_count; i++) {
+      value_release(args[i]);
+    }
+    return vm_error(caller_vm, KRONOS_ERR_RUNTIME,
+                    "Maximum call depth exceeded in module");
+  }
+
+  // Create call frame in module VM
+  CallFrame *mod_frame = &module_vm->call_stack[module_vm->call_stack_size++];
+  mod_frame->function = mod_func;
+  mod_frame->return_ip = NULL;
+  mod_frame->return_bytecode = NULL;
+  mod_frame->frame_start = module_vm->stack_top;
+  mod_frame->local_count = 0;
+
+  // Set current_frame BEFORE setting locals
+  module_vm->current_frame = mod_frame;
+
+  // Set parameters as local variables
+  for (size_t i = 0; i < mod_func->param_count; i++) {
+    int status = vm_set_local(module_vm, mod_frame, mod_func->params[i],
+                              args[i], true, NULL);
+    value_release(args[i]); // Local now owns it
+
+    if (status != 0) {
+      // Release remaining arguments
+      for (size_t j = i + 1; j < mod_func->param_count; j++) {
+        value_release(args[j]);
+      }
+      // Clean up the frame
+      cleanup_call_frame_locals(mod_frame);
+      module_vm->call_stack_size--;
+      module_vm->current_frame = NULL;
+      return status;
+    }
+  }
+
+  // Save module VM's execution state
+  uint8_t *saved_mod_ip = module_vm->ip;
+  Bytecode *saved_mod_bytecode = module_vm->bytecode;
+
+  // Execute function body
+  int exec_result = vm_execute(module_vm, &mod_func->bytecode);
+
+  if (exec_result < 0) {
+    // Copy error to caller VM
+    if (module_vm->last_error_message) {
+      vm_set_error(caller_vm, module_vm->last_error_code,
+                   module_vm->last_error_message);
+    }
+    // Clean up
+    cleanup_call_frame_locals(mod_frame);
+    module_vm->call_stack_size--;
+    module_vm->current_frame = NULL;
+    module_vm->ip = saved_mod_ip;
+    module_vm->bytecode = saved_mod_bytecode;
+    return exec_result;
+  }
+
+  // Get return value from module VM stack
+  KronosValue *return_val = NULL;
+  if (module_vm->stack_top > module_vm->stack) {
+    return_val = module_vm->stack_top[-1];
+    module_vm->stack_top--;
+    // return_val is now ours (stack no longer owns it)
+  } else {
+    return_val = value_new_nil();
+    if (!return_val) {
+      cleanup_call_frame_locals(mod_frame);
+      module_vm->call_stack_size--;
+      module_vm->current_frame = NULL;
+      module_vm->ip = saved_mod_ip;
+      module_vm->bytecode = saved_mod_bytecode;
+      return vm_error(caller_vm, KRONOS_ERR_INTERNAL, "Failed to create nil value");
+    }
+  }
+
+  // Clean up module VM state
+  cleanup_call_frame_locals(mod_frame);
+  module_vm->call_stack_size--;
+  module_vm->current_frame = NULL;
+  module_vm->ip = saved_mod_ip;
+  module_vm->bytecode = saved_mod_bytecode;
+
+  // Push return value to caller VM
+  if (caller_vm->stack_top >= caller_vm->stack + STACK_MAX) {
+    value_release(return_val);
+    return vm_error(caller_vm, KRONOS_ERR_RUNTIME, "Stack overflow");
+  }
+  *caller_vm->stack_top++ = return_val;
+  value_retain(return_val);
+  value_release(return_val);
+
+  return 0;
+}
+
 /**
  * @brief Finalize error state in the VM
  *
@@ -643,11 +819,9 @@ static KronosValue *peek(KronosVM *vm, int distance) {
   // Bounds checking: ensure distance is valid
   // Guard: distance must be >= 0 and < stack size
   if (distance < 0) {
-    fprintf(stderr,
-            "Fatal error: peek: distance must be non-negative (got %d)\n",
-            distance);
-    fflush(stderr);
-    abort();
+    vm_set_errorf(vm, KRONOS_ERR_INTERNAL,
+                  "peek: distance must be non-negative (got %d)", distance);
+    return NULL;
   }
 
   // Compute current stack size
@@ -655,10 +829,10 @@ static KronosValue *peek(KronosVM *vm, int distance) {
 
   // Guard: distance must be < stack size to access valid memory
   if ((size_t)distance >= stack_size) {
-    fprintf(stderr, "Fatal error: peek: distance %d exceeds stack size %zu\n",
-            distance, stack_size);
-    fflush(stderr);
-    abort();
+    vm_set_errorf(vm, KRONOS_ERR_RUNTIME,
+                  "Stack underflow in peek (distance %d exceeds stack size %zu)",
+                  distance, stack_size);
+    return NULL;
   }
 
   return vm->stack_top[-1 - distance];
@@ -710,12 +884,9 @@ int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
 
   // Add new global
   if (vm->global_count >= GLOBALS_MAX) {
-    fprintf(stderr,
-            "Fatal error: Maximum number of global variables exceeded (%d "
-            "allowed)\n",
-            GLOBALS_MAX);
-    fflush(stderr);
-    exit(1);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Maximum number of global variables exceeded (%d allowed)",
+                     GLOBALS_MAX);
   }
 
   // Allocate into temporary pointers first, check each for NULL
@@ -800,9 +971,8 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
   // Allocate into temporary pointers first, check each for NULL
   char *name_copy = strdup(name);
   if (!name_copy) {
-    // Allocation failure: release value and return error without modifying
-    // frame state
-    value_release(value);
+    // Allocation failure: return error without modifying frame state
+    // Note: Do NOT release value here - caller still owns it
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Failed to allocate memory for local name");
   }
@@ -811,10 +981,9 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
   if (type_name) {
     type_copy = strdup(type_name);
     if (!type_copy) {
-      // Allocation failure: free already-allocated name_copy, release value,
-      // and return error
+      // Allocation failure: free already-allocated name_copy and return error
+      // Note: Do NOT release value here - caller still owns it
       free(name_copy);
-      value_release(value);
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "Failed to allocate memory for local type");
     }
@@ -1461,6 +1630,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     case OP_JUMP_IF_FALSE: {
       uint8_t offset = read_byte(vm);
       KronosValue *condition = peek(vm, 0);
+      if (!condition) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
       if (!value_is_truthy(condition)) {
         uint8_t *new_ip = vm->ip + offset;
         // Bounds check: ensure jump target is within valid bytecode range
@@ -1698,238 +1870,66 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           Module *mod = vm_get_module(vm, module_name);
           if (mod && mod->is_loaded && mod->module_vm) {
             // Look up function in module's VM
-            Function *mod_func = vm_get_function(mod->module_vm, actual_func_name);
-            
+            Function *mod_func =
+                vm_get_function(mod->module_vm, actual_func_name);
+
             if (!mod_func) {
+              int err = vm_errorf(vm, KRONOS_ERR_NOT_FOUND,
+                                  "Function '%s' not found in module '%s'",
+                                  actual_func_name, module_name);
               free(module_name);
-              return vm_errorf(vm, KRONOS_ERR_NOT_FOUND,
-                              "Function '%s' not found in module '%s'",
-                              actual_func_name, module_name);
+              return err;
             }
-            
+
             // Check parameter count
-            if (arg_count != (int)mod_func->param_count) {
+            if (arg_count != (uint8_t)mod_func->param_count) {
+              int err = vm_errorf(
+                  vm, KRONOS_ERR_RUNTIME,
+                  "Function '%s.%s' expects %zu argument%s, but got %d",
+                  module_name, actual_func_name, mod_func->param_count,
+                  mod_func->param_count == 1 ? "" : "s", arg_count);
               free(module_name);
-              return vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                               "Function '%s.%s' expects %zu argument%s, but got %d",
-                               module_name, actual_func_name, mod_func->param_count,
-                               mod_func->param_count == 1 ? "" : "s", arg_count);
+              return err;
             }
-            
+
             // Pop arguments from current VM
-            KronosValue **args = malloc(sizeof(KronosValue *) * arg_count);
-            if (!args) {
-              free(module_name);
-              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate argument buffer");
-            }
-            
-            for (int i = arg_count - 1; i >= 0; i--) {
-              args[i] = pop(vm);
-              if (!args[i]) {
-                // Clean up already-popped args
-                for (int j = i + 1; j < arg_count; j++) {
-                  value_release(args[j]);
-                }
-                free(args);
+            KronosValue **args = NULL;
+            if (arg_count > 0) {
+              args = malloc(sizeof(KronosValue *) * arg_count);
+              if (!args) {
                 free(module_name);
-                return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+                return vm_error(vm, KRONOS_ERR_INTERNAL,
+                                "Failed to allocate argument buffer");
               }
-            }
-            
-            // Execute function in module's VM
-            KronosVM *module_vm = mod->module_vm;
-            
-            // Save current VM state
-            uint8_t *saved_ip = vm->ip;
-            Bytecode *saved_bytecode = vm->bytecode;
-            size_t saved_call_stack_size = vm->call_stack_size;
-            CallFrame *saved_current_frame = vm->current_frame;
-            
-            // Create call frame in module VM
-            if (module_vm->call_stack_size >= CALL_STACK_MAX) {
-              // Cleanup
-              for (int i = 0; i < arg_count; i++) {
-                value_release(args[i]);
-              }
-              free(args);
-              free(module_name);
-              return vm_error(vm, KRONOS_ERR_RUNTIME, "Maximum call depth exceeded in module");
-            }
-            
-            CallFrame *mod_frame = &module_vm->call_stack[module_vm->call_stack_size++];
-            mod_frame->function = mod_func;
-            mod_frame->return_ip = NULL; // Will be set by OP_RETURN_VAL
-            mod_frame->return_bytecode = NULL;
-            mod_frame->frame_start = module_vm->stack_top; // Stack top before any arguments
-            mod_frame->local_count = 0;
-            
-            // Set parameters as local variables
-            // IMPORTANT: Set current_frame BEFORE setting locals so vm_set_local can access it
-            module_vm->current_frame = mod_frame;
-            for (size_t i = 0; i < mod_func->param_count; i++) {
-              int arg_status = vm_set_local(module_vm, mod_frame, mod_func->params[i], args[i], true, NULL);
-              value_release(args[i]); // Release after setting as local (local owns it now)
-              if (arg_status != 0) {
-                // Cleanup on error
-                module_vm->call_stack_size--;
-                module_vm->current_frame = NULL;
-                for (size_t j = 0; j < mod_frame->local_count; j++) {
-                  free(mod_frame->locals[j].name);
-                  value_release(mod_frame->locals[j].value);
-                  free(mod_frame->locals[j].type_name);
+
+              for (int i = arg_count - 1; i >= 0; i--) {
+                args[i] = pop(vm);
+                if (!args[i]) {
+                  for (int j = i + 1; j < arg_count; j++) {
+                    value_release(args[j]);
+                  }
+                  free(args);
+                  free(module_name);
+                  return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
                 }
-                // Release remaining arguments
-                for (size_t j = i + 1; j < mod_func->param_count; j++) {
-                  value_release(args[j]);
-                }
-                free(args);
-                free(module_name);
-                // Restore VM state
-                vm->ip = saved_ip;
-                vm->bytecode = saved_bytecode;
-                vm->call_stack_size = saved_call_stack_size;
-                vm->current_frame = saved_current_frame;
-                return arg_status;
               }
             }
-            
-            // Verify locals were set correctly (debug)
-            if (mod_frame->local_count != mod_func->param_count) {
-              // This shouldn't happen, but check anyway
-              module_vm->call_stack_size--;
-              module_vm->current_frame = NULL;
-              for (size_t j = 0; j < mod_frame->local_count; j++) {
-                free(mod_frame->locals[j].name);
-                value_release(mod_frame->locals[j].value);
-                free(mod_frame->locals[j].type_name);
-              }
-              // Arguments already released above
-              free(args);
-              free(module_name);
-              vm->ip = saved_ip;
-              vm->bytecode = saved_bytecode;
-              vm->call_stack_size = saved_call_stack_size;
-              vm->current_frame = saved_current_frame;
-              return vm_errorf(vm, KRONOS_ERR_INTERNAL,
-                               "Failed to set all function parameters (expected %zu, got %zu)",
-                               mod_func->param_count, mod_frame->local_count);
-            }
-            
-            // Arguments are now owned by locals, free the args array
+
+            // Call the module function using helper
+            int result = call_module_function(vm, mod, mod_func, args, arg_count);
             free(args);
-            
-            // Execute function body in module VM
-            // Save module VM's original execution state (if it was executing)
-            uint8_t *saved_mod_ip = module_vm->ip;
-            Bytecode *saved_mod_bytecode = module_vm->bytecode;
-            CallFrame *saved_mod_frame = module_vm->current_frame;
-            
-            // CRITICAL: Ensure current_frame is set BEFORE calling vm_execute
-            // vm_execute will set ip and bytecode, but MUST preserve current_frame
-            // The frame and its locals are already set up above
-            module_vm->current_frame = mod_frame;
-            
-            // Execute function body using vm_execute
-            // vm_execute will handle the execution loop and return when done
-            // It will use module_vm->current_frame to access locals
-            int exec_result = vm_execute(module_vm, &mod_func->bytecode);
-            
-            if (exec_result < 0) {
-              // Copy error from module VM
-              if (module_vm->last_error_message) {
-                vm_set_error(vm, module_vm->last_error_code, module_vm->last_error_message);
-              }
-              // Cleanup on error
-              module_vm->call_stack_size--;
-              module_vm->current_frame = NULL;
-              for (size_t i = 0; i < mod_frame->local_count; i++) {
-                free(mod_frame->locals[i].name);
-                value_release(mod_frame->locals[i].value);
-                free(mod_frame->locals[i].type_name);
-              }
-              // Arguments already released when setting locals
-              free(module_name);
-              // Restore VM state
-              vm->ip = saved_ip;
-              vm->bytecode = saved_bytecode;
-              vm->call_stack_size = saved_call_stack_size;
-              vm->current_frame = saved_current_frame;
-              // Restore module VM state
-              module_vm->ip = saved_mod_ip;
-              module_vm->bytecode = saved_mod_bytecode;
-              module_vm->current_frame = saved_mod_frame;
-              return exec_result;
-            }
-            
-            // Get return value from module VM stack (should be there from OP_RETURN_VAL)
-            // OP_RETURN_VAL: popped value, pushed it back (stack retains it), then released the popped value
-            // So the stack has one retain on the return value
-            // When we pop it, the stack no longer retains it, but we need to release the stack's reference
-            KronosValue *return_val = NULL;
-            // Check if stack has a return value (stack_top should be > stack if value was pushed)
-            // The return value should be at the top of the stack after OP_RETURN_VAL
-            // Note: stack_top points to the next free slot, so return value is at stack_top - 1
-            if (module_vm->stack_top > module_vm->stack) {
-              // Get the return value from the top of the stack
-              return_val = pop(module_vm); // pop() doesn't release, but stack no longer retains it
-              if (!return_val) {
-                return_val = value_new_nil();
-              } else {
-                // The stack retained it when it was pushed, so we need to release that retain
-                // But we also need to retain it for the current VM
-                // So: retain first (now refcount = 2: stack's + ours), then release stack's
-                value_retain(return_val);  // Retain for current VM
-                value_release(return_val); // Release stack's reference (we still have ours)
-                // Now we have one retain (ours)
-              }
-            } else {
-              // No return value (function returned null implicitly or stack is empty)
-              return_val = value_new_nil();
-            }
-            
-            // Cleanup module VM call frame
-            // Clean up local variables BEFORE decrementing call_stack_size
-            // (frame pointer is still valid at this point)
-            size_t local_count = mod_frame->local_count;
-            for (size_t i = 0; i < local_count; i++) {
-              if (mod_frame->locals[i].name) {
-                free(mod_frame->locals[i].name);
-                mod_frame->locals[i].name = NULL;
-              }
-              if (mod_frame->locals[i].value) {
-                value_release(mod_frame->locals[i].value);
-                mod_frame->locals[i].value = NULL;
-              }
-              if (mod_frame->locals[i].type_name) {
-                free(mod_frame->locals[i].type_name);
-                mod_frame->locals[i].type_name = NULL;
-              }
-            }
-            mod_frame->local_count = 0;
-            
-            // Now decrement call_stack_size (frame pointer becomes invalid after this)
-            module_vm->call_stack_size--;
-            module_vm->current_frame = NULL;
-            
-            // Arguments already released when setting locals
             free(module_name);
-            
-            // Restore module VM state
-            module_vm->ip = saved_mod_ip;
-            module_vm->bytecode = saved_mod_bytecode;
-            module_vm->current_frame = saved_mod_frame;
-            
-            // Push return value to current VM
-            push(vm, return_val);
-            value_release(return_val); // Release our reference
-            
-            // Function call completed, skip normal function call handling
-            break;
-        } else {
-          int err = vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Unknown module '%s'",
-                              module_name);
-          free(module_name);
-          return err;
+
+            if (result < 0) {
+              return result;
+            }
+
+            break; // Function call completed
+          } else {
+            int err = vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Unknown module '%s'",
+                                module_name);
+            free(module_name);
+            return err;
           }
         }
       }
@@ -3277,18 +3277,22 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           result->as.list.items[result->as.list.count++] =
               arg->as.list.items[i];
         }
-        // Sort the new list in-place
-        // Simple bubble sort (can be optimized later)
-        for (size_t i = 0; i < result->as.list.count; i++) {
-          for (size_t j = 0; j < result->as.list.count - i - 1; j++) {
-            KronosValue *a = result->as.list.items[j];
-            KronosValue *b = result->as.list.items[j + 1];
-            bool should_swap = false;
-            if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
-              should_swap = a->as.number > b->as.number;
-            } else if (a->type == VAL_STRING && b->type == VAL_STRING) {
-              should_swap = strcmp(a->as.string.data, b->as.string.data) > 0;
-            } else {
+        // Sort the new list in-place using qsort (O(n log n) average)
+        // First, validate all elements are the same type
+        if (result->as.list.count > 0) {
+          ValueType first_type = result->as.list.items[0]->type;
+          if (first_type != VAL_NUMBER && first_type != VAL_STRING) {
+            int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                                "Function 'sort' requires list items to be "
+                                "all numbers or all strings");
+            value_release(result);
+            value_release(arg);
+            return err;
+          }
+
+          // Check all elements are the same type
+          for (size_t i = 1; i < result->as.list.count; i++) {
+            if (result->as.list.items[i]->type != first_type) {
               int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                                   "Function 'sort' requires list items to be "
                                   "all numbers or all strings");
@@ -3296,11 +3300,13 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
               value_release(arg);
               return err;
             }
-            if (should_swap) {
-              result->as.list.items[j] = b;
-              result->as.list.items[j + 1] = a;
-            }
           }
+
+          // Set comparison type and sort
+          sort_value_type =
+              (first_type == VAL_NUMBER) ? SORT_NUMBERS : SORT_STRINGS;
+          qsort(result->as.list.items, result->as.list.count,
+                sizeof(KronosValue *), sort_compare_values);
         }
         push(vm, result);
         value_release(result);
@@ -3736,18 +3742,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
         push(vm, char_str);
         value_release(char_str);
-      } else if (container->type == VAL_MAP) {
-        // Map indexing: key can be any type
-        KronosValue *value = map_get(container, index_val);
-        if (!value) {
-          value_release(index_val);
-          value_release(container);
-          return vm_error(vm, KRONOS_ERR_RUNTIME, "Map key not found");
-        }
-        value_retain(value);
-        push(vm, value);
-        value_release(value);
       } else {
+        // Note: Maps are handled earlier in this function with an early break
         value_release(index_val);
         value_release(container);
         return vm_error(
@@ -4231,6 +4227,20 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     case OP_HALT: {
       return 0;
     }
+
+    // Reserved/unused opcodes - these should never be emitted by the compiler
+    case OP_BREAK:
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "OP_BREAK should not be emitted (break uses OP_JUMP)");
+    case OP_CONTINUE:
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "OP_CONTINUE should not be emitted (continue uses OP_JUMP)");
+    case OP_LIST_SET:
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "OP_LIST_SET is not yet implemented");
+    case OP_MAP_GET:
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "OP_MAP_GET is not used (map access uses OP_LIST_GET)");
 
     default:
       return vm_errorf(
