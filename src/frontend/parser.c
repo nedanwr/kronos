@@ -1761,24 +1761,147 @@ static ASTNode *parse_return(Parser *p, int indent) {
 }
 
 // Parse import statement
+// Supports:
+//   import module_name
+//   import module_name from "file.kr"
+//   from module_name import func1, func2
 static ASTNode *parse_import(Parser *p, int indent) {
+  Token *first = peek(p, 0);
+  bool is_from_import = (first->type == TOK_FROM);
+  
+  char *module_name = NULL;
+  char *file_path = NULL;
+  char **imported_names = NULL;
+  size_t imported_count = 0;
+
+  if (is_from_import) {
+    // Parse: from module_name import func1, func2
+    consume(p, TOK_FROM);
+    
+    Token *module_tok = consume(p, TOK_NAME);
+    if (!module_tok)
+      return NULL;
+    module_name = strdup(module_tok->text);
+    if (!module_name)
+      return NULL;
+
+    if (!consume(p, TOK_IMPORT)) {
+      free(module_name);
+      return NULL;
+    }
+
+    // Parse function names to import
+    size_t capacity = 4;
+    imported_names = malloc(sizeof(char *) * capacity);
+    if (!imported_names) {
+      free(module_name);
+      return NULL;
+    }
+
+    // Parse first function name
+    Token *func_tok = consume(p, TOK_NAME);
+    if (!func_tok) {
+      free(module_name);
+      free(imported_names);
+      return NULL;
+    }
+    imported_names[imported_count++] = strdup(func_tok->text);
+    if (!imported_names[imported_count - 1]) {
+      free(module_name);
+      free(imported_names);
+      return NULL;
+    }
+
+    // Parse remaining function names (comma-separated)
+    while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+      consume_any(p); // consume comma
+
+      if (imported_count == capacity) {
+        size_t new_capacity = capacity * 2;
+        char **new_names = realloc(imported_names, sizeof(char *) * new_capacity);
+        if (!new_names) {
+          // Cleanup
+          for (size_t i = 0; i < imported_count; i++) {
+            free(imported_names[i]);
+          }
+          free(module_name);
+          free(imported_names);
+          return NULL;
+        }
+        imported_names = new_names;
+        capacity = new_capacity;
+      }
+
+      func_tok = consume(p, TOK_NAME);
+      if (!func_tok) {
+        // Cleanup
+        for (size_t i = 0; i < imported_count; i++) {
+          free(imported_names[i]);
+        }
+        free(module_name);
+        free(imported_names);
+        return NULL;
+      }
+      imported_names[imported_count++] = strdup(func_tok->text);
+      if (!imported_names[imported_count - 1]) {
+        // Cleanup
+        for (size_t i = 0; i < imported_count - 1; i++) {
+          free(imported_names[i]);
+        }
+        free(module_name);
+        free(imported_names);
+        return NULL;
+      }
+    }
+  } else {
+    // Parse: import module_name [from "file.kr"]
   consume(p, TOK_IMPORT);
 
-  Token *module_name = consume(p, TOK_NAME);
+    Token *module_tok = consume(p, TOK_NAME);
+    if (!module_tok)
+      return NULL;
+    module_name = strdup(module_tok->text);
   if (!module_name)
     return NULL;
 
+    // Check for "from" keyword
+    Token *next = peek(p, 0);
+    if (next && next->type == TOK_FROM) {
+      consume(p, TOK_FROM);
+      
+      // Expect string literal for file path
+      Token *file_tok = consume(p, TOK_STRING);
+      if (!file_tok) {
+        free(module_name);
+        return NULL;
+      }
+      file_path = strdup(file_tok->text);
+      if (!file_path) {
+        free(module_name);
+        return NULL;
+      }
+    }
+  }
+
   if (!consume(p, TOK_NEWLINE)) {
+    free(module_name);
+    free(file_path);
+    if (imported_names) {
+      for (size_t i = 0; i < imported_count; i++) {
+        free(imported_names[i]);
+      }
+      free(imported_names);
+    }
     return NULL;
   }
 
   ASTNode *node = ast_node_new_checked(AST_IMPORT);
   node->indent = indent;
-  node->as.import.module_name = strdup(module_name->text);
-  if (!node->as.import.module_name) {
-    free(node);
-    return NULL;
-  }
+  node->as.import.module_name = module_name;
+  node->as.import.file_path = file_path;
+  node->as.import.imported_names = imported_names;
+  node->as.import.imported_count = imported_count;
+  node->as.import.is_from_import = is_from_import;
 
   return node;
 }
@@ -2017,6 +2140,13 @@ void ast_node_free(ASTNode *node) {
     break;
   case AST_IMPORT:
     free(node->as.import.module_name);
+    free(node->as.import.file_path);
+    if (node->as.import.imported_names) {
+      for (size_t i = 0; i < node->as.import.imported_count; i++) {
+        free(node->as.import.imported_names[i]);
+      }
+      free(node->as.import.imported_names);
+    }
     break;
   case AST_LIST:
     for (size_t i = 0; i < node->as.list.element_count; i++) {
