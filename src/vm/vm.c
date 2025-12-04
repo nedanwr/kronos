@@ -4006,19 +4006,19 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         KronosValue *index = value_new_number(0);
         push(vm, index);
         value_release(index);
+        value_release(iterable); // Release our pop reference
       } else if (iterable->type == VAL_RANGE) {
         // For ranges, push the range and current value (start)
         push(vm, iterable);
         KronosValue *current = value_new_number(iterable->as.range.start);
         push(vm, current);
         value_release(current);
+        value_release(iterable); // Release our pop reference
       } else {
         value_release(iterable);
         return vm_error(vm, KRONOS_ERR_RUNTIME,
                         "Expected list or range for iteration");
       }
-      // Release our pop reference (push added a new stack reference)
-      value_release(iterable);
       break;
     }
 
