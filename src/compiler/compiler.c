@@ -1466,14 +1466,12 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
     }
     size_t module_name_idx = add_constant(c, module_name_val);
-    // Don't release - add_constant stores the value in the bytecode
-    // The bytecode will own it and release it when freed
+    // add_constant takes ownership of the value - don't release on success
     if (module_name_idx == SIZE_MAX || module_name_idx > UINT16_MAX) {
       value_release(module_name_val); // Only release on error
       compiler_set_error(c, "Failed to add module name constant");
       return;
     }
-    value_retain(module_name_val); // Retain for bytecode ownership
     emit_uint16(c, (uint16_t)module_name_idx);
     
     // Add file path to constant pool and emit index (nil for built-in modules)
@@ -1493,14 +1491,9 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
     }
     size_t file_path_idx = add_constant(c, file_path_val);
-    // Don't release - add_constant stores the value in the bytecode
+    // add_constant takes ownership of the value - don't release on success
     if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
       value_release(file_path_val); // Only release on error
-      compiler_set_error(c, "Failed to add file path constant");
-      return;
-    }
-    value_retain(file_path_val); // Retain for bytecode ownership
-    if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
       compiler_set_error(c, "Failed to add file path constant");
       return;
     }
