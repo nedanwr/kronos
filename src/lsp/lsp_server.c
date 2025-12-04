@@ -998,6 +998,7 @@ typedef enum {
   TYPE_STRING,
   TYPE_LIST,
   TYPE_MAP,
+  TYPE_RANGE,
   TYPE_BOOL,
   TYPE_NULL
 } ExprType;
@@ -1090,6 +1091,14 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
       // Map indexing returns the value type, which we can't infer statically
       return TYPE_UNKNOWN;
     }
+    return container_type;
+  }
+  case AST_RANGE:
+    return TYPE_RANGE;
+  case AST_SLICE: {
+    // Slicing returns the same type as the container
+    ExprType container_type =
+        infer_type_with_ast(node->as.slice.list_expr, symbols, ast);
     return container_type;
   }
   default:
@@ -1279,10 +1288,15 @@ static bool find_assignment_value_position(const char *text,
 // Get expected argument count for built-in functions
 // Returns -1 if function is not a built-in, or if it has variable arguments
 static int get_builtin_arg_count(const char *func_name) {
-  // Math functions (via math module)
+  // Zero-argument functions
+  if (strcmp(func_name, "rand") == 0) {
+    return 0;
+  }
+
+  // One-argument functions
   if (strcmp(func_name, "sqrt") == 0 || strcmp(func_name, "abs") == 0 ||
       strcmp(func_name, "round") == 0 || strcmp(func_name, "floor") == 0 ||
-      strcmp(func_name, "ceil") == 0 || strcmp(func_name, "rand") == 0 ||
+      strcmp(func_name, "ceil") == 0 ||
       strcmp(func_name, "len") == 0 || strcmp(func_name, "uppercase") == 0 ||
       strcmp(func_name, "lowercase") == 0 || strcmp(func_name, "trim") == 0 ||
       strcmp(func_name, "to_string") == 0 ||
@@ -1298,9 +1312,13 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "power") == 0 || strcmp(func_name, "split") == 0 ||
       strcmp(func_name, "contains") == 0 ||
       strcmp(func_name, "starts_with") == 0 ||
-      strcmp(func_name, "ends_with") == 0 ||
-      strcmp(func_name, "replace") == 0) {
+      strcmp(func_name, "ends_with") == 0) {
     return 2;
+  }
+
+  // Three-argument functions
+  if (strcmp(func_name, "replace") == 0) {
+    return 3;
   }
 
   // Variable arguments (min, max, join)
@@ -2626,24 +2644,8 @@ static void check_undefined_variables(AST *ast, const char *text,
           }
         }
 
-        if (!found) {
-          // Add to seen variables
-          if (seen_count >= seen_capacity) {
-            seen_capacity *= 2;
-            SeenVar *new_vars =
-                realloc(seen_vars, seen_capacity * sizeof(SeenVar));
-            if (!new_vars) {
-              free(seen_vars);
-              return;
-            }
-            seen_vars = new_vars;
-          }
-            seen_vars[seen_count].name = strdup(node->as.assign.name);
-            seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
-            seen_vars[seen_count].assignment_count = 1;
-            seen_vars[seen_count].first_statement_index = i;
-            seen_count++;
-        }
+        // Note: Variable already added to seen_vars at the start of AST_ASSIGN handling
+        // (lines 2302-2333), no need to add again here
       }
       // Check expressions in assignment value
       if (node->as.assign.value) {
@@ -2816,8 +2818,11 @@ static void check_undefined_variables(AST *ast, const char *text,
             }
           }
         }
-      } else if (strcmp(actual_func_name, "len") == 0 ||
-                 strcmp(actual_func_name, "reverse") == 0 ||
+      } else if (strcmp(actual_func_name, "len") == 0) {
+        // len accepts list, string, or range - no type error for any of these
+        // No special validation needed here
+        (void)node; // Suppress unused warning
+      } else if (strcmp(actual_func_name, "reverse") == 0 ||
                  strcmp(actual_func_name, "sort") == 0) {
         // These require list argument (not string)
         if (node->as.call.arg_count > 0) {
@@ -2852,7 +2857,8 @@ static void check_undefined_variables(AST *ast, const char *text,
               *remaining -= (size_t)written;
               *has_diagnostics = true;
             }
-          } else if (strcmp(actual_func_name, "sort") == 0) {
+          }
+          if (strcmp(actual_func_name, "sort") == 0) {
             // Check if sort list has mixed types (all must be numbers or all
             // strings)
             ASTNode *list_node = NULL;
@@ -3657,6 +3663,7 @@ static void handle_did_open(const char *uri, const char *text) {
     g_doc->text = strdup(text);
     g_doc->symbols = NULL;
     g_doc->ast = NULL;
+    g_doc->imported_modules = NULL;
   }
   check_diagnostics(uri, text);
 }
@@ -4274,29 +4281,53 @@ static void handle_completion(const char *id, const char *body) {
 
   // Add keywords
   const char *keywords[][2] = {
+      // Variable declarations
       {"set", "Immutable variable"},
       {"let", "Mutable variable"},
+      {"to", "Assignment operator (set x to 5)"},
+      {"as", "Type annotation (as number)"},
+      // Control flow
       {"if", "Conditional statement"},
       {"else", "Else clause"},
       {"else if", "Else-if clause"},
       {"for", "For loop"},
+      {"in", "Loop iterator (for x in list)"},
       {"while", "While loop"},
       {"break", "Break out of loop"},
       {"continue", "Continue to next iteration"},
-      {"by", "Step value for range loops"},
+      // Logical operators
       {"and", "Logical AND operator"},
       {"or", "Logical OR operator"},
       {"not", "Logical NOT operator"},
+      // Arithmetic operators
+      {"plus", "Addition operator"},
+      {"minus", "Subtraction operator"},
+      {"times", "Multiplication operator"},
+      {"divided", "Division operator"},
+      {"by", "Step value or division (divided by)"},
+      // Comparison operators
+      {"is", "Comparison prefix (is equal to)"},
+      {"equal", "Equality comparison"},
+      {"greater", "Greater than comparison"},
+      {"less", "Less than comparison"},
+      {"than", "Comparison suffix (greater than)"},
+      // Data structures
       {"list", "Create list literal"},
       {"map", "Create map literal"},
+      {"range", "Create range literal (range 1 to 10)"},
       {"at", "List/map indexing operator"},
       {"from", "List slicing operator"},
       {"end", "End of list (for slicing)"},
+      // Functions
       {"function", "Define function"},
       {"call", "Call function"},
+      {"with", "Function arguments (call fn with args)"},
       {"return", "Return value"},
+      // Modules
       {"import", "Import module"},
+      // I/O
       {"print", "Print value"},
+      // Literals
       {"true", "Boolean true"},
       {"false", "Boolean false"},
       {"null", "Null value"},
@@ -4330,7 +4361,7 @@ static void handle_completion(const char *id, const char *body) {
 
   // Add built-in functions
   const char *builtins[][2] = {
-      {"len", "Get list or string length"},
+      {"len", "Get length of list, string, or range"},
       {"uppercase", "Convert string to uppercase"},
       {"lowercase", "Convert string to lowercase"},
       {"trim", "Remove leading and trailing whitespace"},
@@ -4342,14 +4373,14 @@ static void handle_completion(const char *id, const char *body) {
       {"contains", "Check if string contains substring"},
       {"starts_with", "Check if string starts with prefix"},
       {"ends_with", "Check if string ends with suffix"},
-      {"replace", "Replace occurrences of substring in string"},
+      {"replace", "Replace all occurrences (string, old, new)"},
       {"sqrt", "Square root of a number"},
       {"power", "Raise base to exponent"},
       {"abs", "Absolute value of a number"},
       {"round", "Round number to nearest integer"},
       {"floor", "Floor of a number"},
       {"ceil", "Ceiling of a number"},
-      {"rand", "Random number between 0 and 1"},
+      {"rand", "Random number between 0 and 1 (no args)"},
       {"min", "Minimum of numbers"},
       {"max", "Maximum of numbers"},
       {"reverse", "Reverse a list"},
