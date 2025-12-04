@@ -4,7 +4,13 @@ Fast reference guide for Kronos syntax.
 
 ## Imports
 ```kronos
+# Built-in modules
 import math
+
+# File-based modules
+import utils from "utils.kr"
+import helpers from "lib/helpers.kr"
+
 # String functions are global (no import needed)
 ```
 
