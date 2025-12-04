@@ -982,6 +982,14 @@ bool value_is_type(KronosValue *val, const char *type_name) {
     return val->type == VAL_NIL;
   } else if (strcmp(type_name, "range") == 0) {
     return val->type == VAL_RANGE;
+  } else if (strcmp(type_name, "list") == 0) {
+    return val->type == VAL_LIST;
+  } else if (strcmp(type_name, "map") == 0) {
+    return val->type == VAL_MAP;
+  } else if (strcmp(type_name, "function") == 0) {
+    return val->type == VAL_FUNCTION;
+  } else if (strcmp(type_name, "channel") == 0) {
+    return val->type == VAL_CHANNEL;
   }
 
   return false;
