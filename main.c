@@ -168,6 +168,13 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 
   vm_clear_error(vm);
 
+  // Set current file path for relative imports
+  free(vm->current_file_path);
+  vm->current_file_path = strdup(filepath);
+  if (!vm->current_file_path) {
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set current file path");
+  }
+
   // Open file for reading
   FILE *file = fopen(filepath, "r");
   if (!file) {
