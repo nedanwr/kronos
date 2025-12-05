@@ -1,0 +1,22 @@
+# Test: List index assignment
+# Expected: Pass
+
+let nums to list 1, 2, 3, 4, 5
+print nums
+
+# Modify first element
+let nums at 0 to 10
+print nums
+
+# Modify middle element
+let nums at 2 to 20
+print nums
+
+# Modify last element (using negative index)
+let nums at -1 to 50
+print nums
+
+# Modify with expression
+let nums at 1 to 5 plus 5
+print nums
+

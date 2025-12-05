@@ -1,0 +1,26 @@
+# Test: Map key deletion
+# Expected: Pass
+
+let person to map name: "Alice", age: 30, city: "NYC"
+print person
+
+# Delete a key
+delete person at "age"
+print person
+
+# Delete another key
+delete person at "city"
+print person
+
+# Delete with number key
+let scores to map 1: 100, 2: 200, 3: 300
+print scores
+delete scores at 2
+print scores
+
+# Delete with boolean key
+let flags to map true: "yes", false: "no"
+print flags
+delete flags at true
+print flags
+

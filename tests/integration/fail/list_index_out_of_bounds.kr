@@ -1,0 +1,7 @@
+# Test: List index assignment out of bounds
+# Expected: Fail with "List index out of bounds"
+
+let nums to list 1, 2, 3
+let nums at 10 to 100
+print nums
+

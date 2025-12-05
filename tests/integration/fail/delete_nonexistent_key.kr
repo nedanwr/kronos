@@ -1,0 +1,7 @@
+# Test: Delete non-existent map key
+# Expected: Fail with "Map key not found"
+
+let person to map name: "Alice", age: 30
+delete person at "nonexistent"
+print person
+
