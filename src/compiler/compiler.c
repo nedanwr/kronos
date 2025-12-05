@@ -752,6 +752,47 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_ASSIGN_INDEX: {
+    // Compile target (variable)
+    compile_expression(c, node->as.assign_index.target);
+    if (compiler_has_error(c))
+      return;
+
+    // Compile index expression
+    compile_expression(c, node->as.assign_index.index);
+    if (compiler_has_error(c))
+      return;
+
+    // Compile value expression
+    compile_expression(c, node->as.assign_index.value);
+    if (compiler_has_error(c))
+      return;
+
+    // Emit OP_LIST_SET instruction
+    emit_byte(c, OP_LIST_SET);
+    if (compiler_has_error(c))
+      return;
+    break;
+  }
+
+  case AST_DELETE: {
+    // Compile target (variable)
+    compile_expression(c, node->as.delete_stmt.target);
+    if (compiler_has_error(c))
+      return;
+
+    // Compile key expression
+    compile_expression(c, node->as.delete_stmt.key);
+    if (compiler_has_error(c))
+      return;
+
+    // Emit OP_DELETE instruction
+    emit_byte(c, OP_DELETE);
+    if (compiler_has_error(c))
+      return;
+    break;
+  }
+
   case AST_PRINT: {
     // Compile value expression
     compile_expression(c, node->as.print.value);

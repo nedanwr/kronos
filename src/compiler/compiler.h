@@ -37,7 +37,7 @@ typedef enum {
   OP_POP,           // Pop value from stack
   OP_LIST_NEW,      // Create new list (arg: element count)
   OP_LIST_GET,      // Get element at index (list/string/map, index/key -> value)
-  OP_LIST_SET,      // Reserved (not yet implemented - list index assignment)
+  OP_LIST_SET,      // Set element at index (list, index, value -> list)
   OP_LIST_APPEND,   // Append element (list, value -> list)
   OP_LIST_LEN,      // Get list/string length (list/string -> length)
   OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
@@ -47,6 +47,7 @@ typedef enum {
   OP_MAP_NEW,       // Create new map (arg: entry count)
   OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
   OP_MAP_GET,       // Reserved (not used - map access goes through OP_LIST_GET)
+  OP_DELETE,        // Delete key from map (map, key -> map)
   OP_IMPORT,        // Import module (module_name, file_path constants)
   OP_HALT,          // End program
 } OpCode;
