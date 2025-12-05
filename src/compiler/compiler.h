@@ -14,6 +14,8 @@ typedef enum {
   OP_SUB,           // Binary subtract
   OP_MUL,           // Binary multiply
   OP_DIV,           // Binary divide
+  OP_MOD,           // Binary modulo
+  OP_NEG,           // Unary negation
   OP_EQ,            // Equal comparison
   OP_NEQ,           // Not equal comparison
   OP_GT,            // Greater than

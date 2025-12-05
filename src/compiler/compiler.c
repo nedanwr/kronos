@@ -438,12 +438,19 @@ static void compile_expression(Compiler *c, ASTNode *node) {
   }
 
   case AST_BINOP: {
-    // Handle unary NOT operator (right is NULL)
+    // Handle unary operators (NOT and NEG) - right is NULL
     if (node->as.binop.op == BINOP_NOT) {
       compile_expression(c, node->as.binop.left);
       if (compiler_has_error(c))
         return;
       emit_byte(c, OP_NOT);
+      break;
+    }
+    if (node->as.binop.op == BINOP_NEG) {
+      compile_expression(c, node->as.binop.left);
+      if (compiler_has_error(c))
+        return;
+      emit_byte(c, OP_NEG);
       break;
     }
 
@@ -468,6 +475,9 @@ static void compile_expression(Compiler *c, ASTNode *node) {
       break;
     case BINOP_DIV:
       emit_byte(c, OP_DIV);
+      break;
+    case BINOP_MOD:
+      emit_byte(c, OP_MOD);
       break;
     case BINOP_EQ:
       emit_byte(c, OP_EQ);
