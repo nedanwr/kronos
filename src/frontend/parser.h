@@ -31,6 +31,8 @@ typedef enum {
   AST_SLICE,
   AST_ASSIGN_INDEX, // List/map index assignment: let var at index to value
   AST_DELETE,       // Map key deletion: delete var at key
+  AST_TRY,          // Try/catch/finally exception handling
+  AST_RAISE,        // Raise exception: raise ErrorType "message"
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -128,6 +130,29 @@ struct ASTNode {
       size_t block_size;
     } while_stmt;
 
+    // Try/catch/finally exception handling
+    struct {
+      ASTNode **try_block; // Try block (required)
+      size_t try_block_size;
+      // Catch blocks (can have multiple catch blocks for different error types)
+      struct {
+        char *error_type;      // Error type to catch (NULL means catch all)
+        char *catch_var;       // Catch variable name (NULL if no variable)
+        ASTNode **catch_block; // Catch block statements
+        size_t catch_block_size;
+      } *catch_blocks;
+      size_t catch_block_count;
+      ASTNode **finally_block; // Finally block (NULL if no finally)
+      size_t finally_block_size;
+    } try_stmt;
+
+    // Raise exception: raise ErrorType "message" or raise "message"
+    struct {
+      char
+          *error_type; // Error type name (e.g., "ValueError"), NULL for generic
+      ASTNode *message; // Error message expression
+    } raise_stmt;
+
     // Functions
     struct {
       char *name;
@@ -193,9 +218,9 @@ struct ASTNode {
 
     // Index assignment: let var at index to value
     struct {
-      ASTNode *target;  // Variable or expression (list/map)
-      ASTNode *index;   // Index/key expression
-      ASTNode *value;   // Value to assign
+      ASTNode *target; // Variable or expression (list/map)
+      ASTNode *index;  // Index/key expression
+      ASTNode *value;  // Value to assign
     } assign_index;
 
     // Delete: delete var at key

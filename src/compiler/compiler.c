@@ -793,6 +793,228 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     break;
   }
 
+  case AST_TRY: {
+    // Emit OP_TRY_ENTER to mark start of try block
+    emit_byte(c, OP_TRY_ENTER);
+    size_t try_start_pos = c->bytecode->count;
+    emit_byte(c,
+              0); // Placeholder for exception handler offset (will be patched)
+    emit_byte(c, 0);
+
+    // Compile try block
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      compile_statement(c, node->as.try_stmt.try_block[i]);
+      if (compiler_has_error(c))
+        return;
+    }
+
+    // Emit OP_TRY_EXIT to mark normal completion
+    emit_byte(c, OP_TRY_EXIT);
+    size_t finally_jump_pos = c->bytecode->count;
+    emit_byte(c, 0); // Placeholder for finally jump offset
+    emit_byte(c, 0);
+
+    // Calculate exception handler position (catch or finally)
+    size_t exception_handler_pos = c->bytecode->count;
+
+    // Patch try_start_pos with exception handler offset
+    size_t handler_offset = exception_handler_pos - (try_start_pos + 2);
+    if (handler_offset > UINT16_MAX) {
+      compiler_set_error(c, "Exception handler too far away");
+      return;
+    }
+    c->bytecode->code[try_start_pos] = (uint8_t)((handler_offset >> 8) & 0xFF);
+    c->bytecode->code[try_start_pos + 1] = (uint8_t)(handler_offset & 0xFF);
+
+    // If catch blocks exist, emit catch handlers
+    if (node->as.try_stmt.catch_block_count > 0) {
+      // Emit OP_CATCH for first catch block
+      emit_byte(c, OP_CATCH);
+
+      // Store error type (NULL means catch all) and catch variable name as
+      // constants
+      const char *error_type = node->as.try_stmt.catch_blocks[0].error_type;
+      const char *catch_var = node->as.try_stmt.catch_blocks[0].catch_var;
+
+      // Error type constant (NULL if catch all)
+      if (error_type) {
+        KronosValue *error_type_val =
+            value_new_string(error_type, strlen(error_type));
+        size_t error_type_idx = add_constant(c, error_type_val);
+        if (error_type_idx == SIZE_MAX) {
+          value_release(error_type_val);
+          return;
+        }
+        if (error_type_idx > UINT16_MAX) {
+          compiler_set_error(c, "Too many constants");
+          return;
+        }
+        emit_uint16(c, (uint16_t)error_type_idx);
+      } else {
+        // Catch all - use 0xFFFF as marker
+        emit_uint16(c, 0xFFFF);
+      }
+
+      // Catch variable name constant - OP_CATCH will push error onto stack
+      // Then we emit OP_STORE_VAR to create the catch variable
+      if (catch_var) {
+        KronosValue *catch_var_val =
+            value_new_string(catch_var, strlen(catch_var));
+        size_t catch_var_idx = add_constant(c, catch_var_val);
+        if (catch_var_idx == SIZE_MAX) {
+          value_release(catch_var_val);
+          return;
+        }
+        if (catch_var_idx > UINT16_MAX) {
+          compiler_set_error(c, "Too many constants");
+          return;
+        }
+        emit_uint16(c, (uint16_t)catch_var_idx);
+
+        // After OP_CATCH pushes error onto stack, store it as variable
+        emit_byte(c, OP_STORE_VAR);
+        emit_uint16(c, (uint16_t)catch_var_idx);
+        emit_byte(c, 1); // is_mutable = true
+        emit_byte(c, 0); // No type annotation
+      } else {
+        emit_uint16(c, 0xFFFF); // No variable
+      }
+
+      // Compile first catch block
+      for (size_t i = 0; i < node->as.try_stmt.catch_blocks[0].catch_block_size;
+           i++) {
+        compile_statement(c, node->as.try_stmt.catch_blocks[0].catch_block[i]);
+        if (compiler_has_error(c))
+          return;
+      }
+
+      // Compile additional catch blocks (if any)
+      for (size_t cb = 1; cb < node->as.try_stmt.catch_block_count; cb++) {
+        emit_byte(c, OP_CATCH);
+
+        error_type = node->as.try_stmt.catch_blocks[cb].error_type;
+        catch_var = node->as.try_stmt.catch_blocks[cb].catch_var;
+
+        if (error_type) {
+          KronosValue *error_type_val =
+              value_new_string(error_type, strlen(error_type));
+          size_t error_type_idx = add_constant(c, error_type_val);
+          if (error_type_idx == SIZE_MAX) {
+            value_release(error_type_val);
+            return;
+          }
+          if (error_type_idx > UINT16_MAX) {
+            compiler_set_error(c, "Too many constants");
+            return;
+          }
+          emit_uint16(c, (uint16_t)error_type_idx);
+        } else {
+          emit_uint16(c, 0xFFFF);
+        }
+
+        if (catch_var) {
+          KronosValue *catch_var_val =
+              value_new_string(catch_var, strlen(catch_var));
+          size_t catch_var_idx = add_constant(c, catch_var_val);
+          if (catch_var_idx == SIZE_MAX) {
+            value_release(catch_var_val);
+            return;
+          }
+          if (catch_var_idx > UINT16_MAX) {
+            compiler_set_error(c, "Too many constants");
+            return;
+          }
+          emit_uint16(c, (uint16_t)catch_var_idx);
+
+          // After OP_CATCH pushes error onto stack, store it as variable
+          emit_byte(c, OP_STORE_VAR);
+          emit_uint16(c, (uint16_t)catch_var_idx);
+          emit_byte(c, 1); // is_mutable = true
+          emit_byte(c, 0); // No type annotation
+        } else {
+          emit_uint16(c, 0xFFFF);
+        }
+
+        // Compile catch block
+        for (size_t i = 0;
+             i < node->as.try_stmt.catch_blocks[cb].catch_block_size; i++) {
+          compile_statement(c,
+                            node->as.try_stmt.catch_blocks[cb].catch_block[i]);
+          if (compiler_has_error(c))
+            return;
+        }
+      }
+    }
+
+    // If finally exists, emit finally handler
+    if (node->as.try_stmt.finally_block) {
+      size_t finally_start_pos = c->bytecode->count;
+
+      // Patch OP_TRY_EXIT to jump to finally
+      size_t finally_offset = finally_start_pos - (finally_jump_pos + 2);
+      if (finally_offset > UINT16_MAX) {
+        compiler_set_error(c, "Finally block too far away");
+        return;
+      }
+      c->bytecode->code[finally_jump_pos] =
+          (uint8_t)((finally_offset >> 8) & 0xFF);
+      c->bytecode->code[finally_jump_pos + 1] =
+          (uint8_t)(finally_offset & 0xFF);
+
+      emit_byte(c, OP_FINALLY);
+
+      // Compile finally block
+      for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+        compile_statement(c, node->as.try_stmt.finally_block[i]);
+        if (compiler_has_error(c))
+          return;
+      }
+    } else {
+      // No finally, patch OP_TRY_EXIT to jump past exception handler
+      size_t skip_offset = c->bytecode->count - (finally_jump_pos + 2);
+      if (skip_offset > UINT16_MAX) {
+        compiler_set_error(c, "Try block too large");
+        return;
+      }
+      c->bytecode->code[finally_jump_pos] =
+          (uint8_t)((skip_offset >> 8) & 0xFF);
+      c->bytecode->code[finally_jump_pos + 1] = (uint8_t)(skip_offset & 0xFF);
+    }
+
+    break;
+  }
+
+  case AST_RAISE: {
+    // Compile error message expression
+    compile_expression(c, node->as.raise_stmt.message);
+    if (compiler_has_error(c))
+      return;
+
+    // Emit OP_THROW with error type constant
+    emit_byte(c, OP_THROW);
+
+    // Error type constant (or 0xFFFF for generic Error)
+    if (node->as.raise_stmt.error_type) {
+      KronosValue *error_type_val =
+          value_new_string(node->as.raise_stmt.error_type,
+                           strlen(node->as.raise_stmt.error_type));
+      size_t error_type_idx = add_constant(c, error_type_val);
+      if (error_type_idx == SIZE_MAX) {
+        value_release(error_type_val);
+        return;
+      }
+      if (error_type_idx > UINT16_MAX) {
+        compiler_set_error(c, "Too many constants");
+        return;
+      }
+      emit_uint16(c, (uint16_t)error_type_idx);
+    } else {
+      // Generic Error type
+      emit_uint16(c, 0xFFFF);
+    }
+    break;
+  }
+
   case AST_PRINT: {
     // Compile value expression
     compile_expression(c, node->as.print.value);
@@ -1507,11 +1729,13 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   }
 
   case AST_IMPORT: {
-    // Emit OP_IMPORT instruction with module name and file path as constant indices
+    // Emit OP_IMPORT instruction with module name and file path as constant
+    // indices
     emit_byte(c, OP_IMPORT);
 
     // Add module name to constant pool and emit index
-    KronosValue *module_name_val = value_new_string(node->as.import.module_name, strlen(node->as.import.module_name));
+    KronosValue *module_name_val = value_new_string(
+        node->as.import.module_name, strlen(node->as.import.module_name));
     if (!module_name_val) {
       compiler_set_error(c, "Failed to create module name constant");
       return;
@@ -1528,7 +1752,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Add file path to constant pool and emit index (nil for built-in modules)
     KronosValue *file_path_val = NULL;
     if (node->as.import.file_path) {
-      file_path_val = value_new_string(node->as.import.file_path, strlen(node->as.import.file_path));
+      file_path_val = value_new_string(node->as.import.file_path,
+                                       strlen(node->as.import.file_path));
       if (!file_path_val) {
         compiler_set_error(c, "Failed to create file path constant");
         return;
