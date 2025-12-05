@@ -187,6 +187,39 @@ while condition:
     statement
 ```
 
+## Exception Handling
+```kronos
+# Basic exception handling
+try:
+    raise "Error message"
+catch error:
+    print error
+
+# Typed exceptions
+try:
+    raise ValueError "Invalid input"
+catch ValueError as e:
+    print e
+
+# Multiple catch blocks
+try:
+    raise RuntimeError "Runtime issue"
+catch ValueError as e:
+    print "ValueError"
+catch RuntimeError as e:
+    print "RuntimeError"
+catch error:
+    print "Other error"
+
+# Finally block
+try:
+    raise "error"
+catch e:
+    print e
+finally:
+    print "Cleanup"
+```
+
 ## Code Blocks
 - Use `:` to start a block
 - Indent with spaces (4 spaces recommended)

@@ -1351,7 +1351,7 @@ print options at true     # Prints: enabled
 
 ## Safety & Error Handling
 
-Kronos provides comprehensive safety checks with human-readable error messages.
+Kronos provides comprehensive safety checks with human-readable error messages and exception handling.
 
 ### Error Format
 
@@ -1362,6 +1362,81 @@ Error: Function 'greet' expects 1 argument, but got 2
 Error: Cannot divide by zero
 ```
 
+### Exception Handling
+
+Kronos supports Python-style exception handling with `try`, `catch`, and `finally` blocks. You can raise exceptions with specific error types and catch them selectively.
+
+**Basic Syntax:**
+```kronos
+try:
+    # Code that might raise an exception
+    raise "Error message"
+catch error:
+    # Handle the exception
+    print f"Caught: {error}"
+finally:
+    # Optional cleanup code (always executes)
+    print "Cleanup"
+```
+
+**Raising Exceptions:**
+```kronos
+# Raise a generic error
+raise "Something went wrong"
+
+# Raise a typed error
+raise ValueError "Invalid input value"
+raise RuntimeError "Runtime error occurred"
+```
+
+**Catching Specific Error Types:**
+```kronos
+try:
+    raise ValueError "Invalid value"
+catch ValueError as e:
+    print f"Caught ValueError: {e}"
+catch RuntimeError as e:
+    print f"Caught RuntimeError: {e}"
+catch error:
+    # Catch-all for any other error type
+    print f"Caught other error: {error}"
+```
+
+**Multiple Catch Blocks:**
+You can have multiple `catch` blocks to handle different error types. The first matching catch block will handle the exception:
+
+```kronos
+try:
+    raise RuntimeError "Runtime issue"
+catch ValueError as e:
+    print "This won't catch RuntimeError"
+catch RuntimeError as e:
+    print f"Caught RuntimeError: {e}"  # This will catch it
+catch error:
+    print f"Fallback: {error}"
+```
+
+**Finally Blocks:**
+The `finally` block always executes, whether an exception occurred or not:
+
+```kronos
+try:
+    raise "error"
+catch e:
+    print e
+finally:
+    print "This always runs"
+```
+
+**Available Error Types:**
+- `RuntimeError` - General runtime errors
+- `ValueError` - Invalid argument values  
+- `TypeError` - Type mismatch errors
+- `NameError` - Undefined variable/function errors
+- `SyntaxError` - Syntax/parse errors
+- `CompileError` - Compilation errors
+- `Error` - Generic error (default if no type specified)
+
 ### Key Safety Features
 
 ✅ **Type Safety** - Operations check types before executing  
@@ -1371,6 +1446,7 @@ Error: Cannot divide by zero
 ✅ **Undefined Detection** - Variables and functions must exist  
 ✅ **Division by Zero** - Caught before execution  
 ✅ **Protected Constants** - Pi cannot be modified  
+✅ **Exception Handling** - Try/catch/finally for error management  
 
 See examples in `tests/fail/` directory for all error cases.
 
@@ -1540,20 +1616,13 @@ set first to numbers at 0
 
 **Completed:**
 - ✅ Dictionaries/Maps - Key-value storage with full operations - **COMPLETED**
+- ✅ Exception Handling - Try/catch/finally blocks with typed exceptions - **COMPLETED**
 
 **Planned Features:**
 - Import/module system - Built-in and file-based modules, namespace management
-- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
 - File I/O operations - Complete file system interface (read, write, append, list, path ops)
 
-**Example:**
-```kronos
-# Exception handling (planned)
-try:
-    set result to x divided by 0
-catch error:
-    print "Division by zero"
-```
+See the [Exception Handling](#exception-handling) section above for complete documentation.
 
 ### Version 0.5.0: "Advanced Language Features" (Planned)
 
