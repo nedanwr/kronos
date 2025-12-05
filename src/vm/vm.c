@@ -3815,6 +3815,95 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_LIST_SET: {
+      // Stack: [list, index, value]
+      KronosValue *value = pop(vm);
+      if (!value) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *index_val = pop(vm);
+      if (!index_val) {
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *list = pop(vm);
+      if (!list) {
+        value_release(index_val);
+        value_release(value);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (list->type != VAL_LIST) {
+        value_release(index_val);
+        value_release(value);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for index assignment");
+      }
+
+      if (index_val->type != VAL_NUMBER) {
+        value_release(index_val);
+        value_release(value);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Index must be a number");
+      }
+
+      // Handle negative indices
+      int64_t idx = (int64_t)index_val->as.number;
+      if (idx < 0) {
+        idx = (int64_t)list->as.list.count + idx;
+      }
+
+      if (idx < 0 || (size_t)idx >= list->as.list.count) {
+        value_release(index_val);
+        value_release(value);
+        value_release(list);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "List index out of bounds");
+      }
+
+      // Release old value and set new value
+      value_release(list->as.list.items[(size_t)idx]);
+      value_retain(value);
+      list->as.list.items[(size_t)idx] = value;
+
+      // Push list back
+      push(vm, list);
+      value_release(list);
+      value_release(index_val);
+      value_release(value);
+      break;
+    }
+
+    case OP_DELETE: {
+      // Stack: [map, key]
+      KronosValue *key = pop(vm);
+      if (!key) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *map = pop(vm);
+      if (!map) {
+        value_release(key);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (map->type != VAL_MAP) {
+        value_release(key);
+        value_release(map);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected map for delete operation");
+      }
+
+      bool deleted = map_delete(map, key);
+      value_release(key);
+      if (!deleted) {
+        value_release(map);
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Map key not found");
+      }
+
+      // Push map back
+      push(vm, map);
+      value_release(map);
+      break;
+    }
+
     case OP_LIST_LEN: {
       KronosValue *container = pop(vm);
       if (!container) {
@@ -4290,9 +4379,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     case OP_CONTINUE:
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "OP_CONTINUE should not be emitted (continue uses OP_JUMP)");
-    case OP_LIST_SET:
-      return vm_error(vm, KRONOS_ERR_INTERNAL,
-                      "OP_LIST_SET is not yet implemented");
     case OP_MAP_GET:
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "OP_MAP_GET is not used (map access uses OP_LIST_GET)");
