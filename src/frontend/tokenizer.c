@@ -144,6 +144,7 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"times", TOK_TIMES},
       {"divided", TOK_DIVIDED},
       {"by", TOK_BY},
+      {"mod", TOK_MOD},
   };
 
   for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
@@ -337,6 +338,23 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       tok.text = strdup(",");
       if (!tok.text) {
         fprintf(stderr, "Failed to allocate comma token\n");
+        return false;
+      }
+      if (!token_array_add(arr, tok)) {
+        free((void *)tok.text);
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    // Handle '-' as operator token when not part of a number
+    // (for unary negation support)
+    if (line[col] == '-') {
+      Token tok = {TOK_MINUS, NULL, 1, 0};
+      tok.text = strdup("minus");
+      if (!tok.text) {
+        fprintf(stderr, "Failed to allocate minus token\n");
         return false;
       }
       if (!token_array_add(arr, tok)) {
