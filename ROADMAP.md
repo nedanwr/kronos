@@ -88,13 +88,15 @@ This document outlines the planned features and release schedule for Kronos.
   delete person at "age"   # person is now {name: "Alice"}
   ```
 
-- 🔄 **Exception Handling** - Try/catch/finally blocks for better error management
+- ✅ **Exception Handling** - Try/catch/finally blocks for better error management (completed)
 
   ```kronos
   try:
-      set result to x divided by 0
+      raise ValueError "Invalid input"
+  catch ValueError as e:
+      print "Caught ValueError:", e
   catch error:
-      print "Division by zero!"
+      print "Caught error:", error
   finally:
       print "Cleanup"
   ```
