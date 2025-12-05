@@ -648,10 +648,13 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
 
   size_t read_size = fread(source, 1, length, file);
   if (ferror(file) || (read_size < length && !feof(file))) {
+    char *path_copy = strdup(resolved_path);
     free(source);
     free(resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s", resolved_path);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s", path_copy);
+    free(path_copy);
+    return err;
   }
 
   source[read_size] = '\0';
