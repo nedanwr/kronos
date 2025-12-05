@@ -70,10 +70,10 @@ This document outlines the planned features and release schedule for Kronos.
   # Functions and variables from modules are accessible via module namespace
   ```
 
-- 🔄 **Core Operator Improvements** - Missing fundamental operators
+- ✅ **Core Operator Improvements** - Missing fundamental operators (completed)
 
-  - Modulo operator (`%`): `set remainder to 10 mod 3` → `1`
-  - Unary negation (`-x`): `set neg to -value` instead of `0 minus value`
+  - ✅ Modulo operator (`mod`): `set remainder to 10 mod 3` → `1`
+  - ✅ Unary negation (`-x`): `set neg to -value` instead of `0 minus value`
 
 - 🔄 **Mutable Collection Operations** - In-place modification of collections
 
