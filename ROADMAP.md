@@ -75,10 +75,10 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Modulo operator (`mod`): `set remainder to 10 mod 3` → `1`
   - ✅ Unary negation (`-x`): `set neg to -value` instead of `0 minus value`
 
-- 🔄 **Mutable Collection Operations** - In-place modification of collections
+- ✅ **Mutable Collection Operations** - In-place modification of collections (completed)
 
-  - List index assignment: `let nums at 0 to 10` (modify list element)
-  - Map key deletion: `delete person at "age"` (remove key from map)
+  - ✅ List index assignment: `let nums at 0 to 10` (modify list element)
+  - ✅ Map key deletion: `delete person at "age"` (remove key from map)
 
   ```kronos
   let nums to list 1, 2, 3

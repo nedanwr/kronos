@@ -145,6 +145,7 @@ static TokenType match_keyword(const char *text, size_t len) {
       {"divided", TOK_DIVIDED},
       {"by", TOK_BY},
       {"mod", TOK_MOD},
+      {"delete", TOK_DELETE},
   };
 
   for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {

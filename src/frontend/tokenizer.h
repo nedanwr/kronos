@@ -54,6 +54,7 @@ typedef enum {
   TOK_DIVIDED,
   TOK_BY,
   TOK_MOD,
+  TOK_DELETE,
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,

@@ -29,6 +29,8 @@ typedef enum {
   AST_MAP,
   AST_INDEX,
   AST_SLICE,
+  AST_ASSIGN_INDEX, // List/map index assignment: let var at index to value
+  AST_DELETE,       // Map key deletion: delete var at key
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -188,6 +190,19 @@ struct ASTNode {
       ASTNode *start; // NULL means from beginning
       ASTNode *end;   // NULL means to end
     } slice;
+
+    // Index assignment: let var at index to value
+    struct {
+      ASTNode *target;  // Variable or expression (list/map)
+      ASTNode *index;   // Index/key expression
+      ASTNode *value;   // Value to assign
+    } assign_index;
+
+    // Delete: delete var at key
+    struct {
+      ASTNode *target; // Variable (map)
+      ASTNode *key;    // Key expression
+    } delete_stmt;
   } as;
 };
 

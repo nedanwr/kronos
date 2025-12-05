@@ -1249,6 +1249,21 @@ for fruit in fruits:
     print fruit
 ```
 
+**List Index Assignment:**
+Lists can be modified using `let` with index assignment:
+```kronos
+let numbers to list 1, 2, 3, 4, 5
+let numbers at 0 to 10      # Modify first element: [10, 2, 3, 4, 5]
+let numbers at -1 to 50     # Modify last element (negative index): [10, 2, 3, 4, 50]
+let numbers at 2 to 5 plus 5  # Modify with expression: [10, 2, 10, 4, 50]
+```
+
+**Notes:**
+- Only mutable lists (created with `let`) can be modified
+- Index must be within bounds (0 to length-1, or negative index from -1 to -length)
+- Attempting to modify an immutable list (created with `set`) will result in an error
+- Index assignment modifies the list in-place
+
 ### Maps
 
 Maps are key-value collections that store pairs of keys and values. Keys can be strings, numbers, booleans, or null.
@@ -1291,11 +1306,28 @@ set flags to map true: "yes"
 set yes_value to flags at true  # Returns "yes"
 ```
 
+**Map Key Deletion:**
+Map keys can be removed using the `delete` statement:
+```kronos
+let person to map name: "Alice", age: 30, city: "NYC"
+delete person at "age"      # Remove age key: {name: Alice, city: NYC}
+delete person at "city"     # Remove city key: {name: Alice}
+
+# Works with any key type
+let scores to map 1: 100, 2: 200, 3: 300
+delete scores at 2           # Remove key 2: {1: 100, 3: 300}
+
+let flags to map true: "yes", false: "no"
+delete flags at true         # Remove boolean key: {false: no}
+```
+
 **Notes:**
 - Map keys can be any type: strings, numbers, booleans, or null
 - Keys in map literals can be identifiers (automatically converted to strings) or expressions
 - Accessing a non-existent key results in a runtime error
+- Deleting a non-existent key results in a runtime error
 - Maps are printed in the format `{key: value, key2: value2}` (order may vary)
+- Key deletion modifies the map in-place
 
 **Examples:**
 ```kronos
