@@ -2803,6 +2803,41 @@ static void check_undefined_variables(AST *ast, const char *text,
       }
     }
 
+    // Check expressions in index assignments
+    if (node->type == AST_ASSIGN_INDEX) {
+      // Check target, index, and value expressions
+      if (node->as.assign_index.target) {
+        check_expression(node->as.assign_index.target, text, symbols, ast,
+                        diagnostics, pos, remaining, has_diagnostics,
+                        seen_vars, seen_count);
+      }
+      if (node->as.assign_index.index) {
+        check_expression(node->as.assign_index.index, text, symbols, ast,
+                        diagnostics, pos, remaining, has_diagnostics,
+                        seen_vars, seen_count);
+      }
+      if (node->as.assign_index.value) {
+        check_expression(node->as.assign_index.value, text, symbols, ast,
+                        diagnostics, pos, remaining, has_diagnostics,
+                        seen_vars, seen_count);
+      }
+    }
+
+    // Check expressions in delete statements
+    if (node->type == AST_DELETE) {
+      // Check target and key expressions
+      if (node->as.delete_stmt.target) {
+        check_expression(node->as.delete_stmt.target, text, symbols, ast,
+                        diagnostics, pos, remaining, has_diagnostics,
+                        seen_vars, seen_count);
+      }
+      if (node->as.delete_stmt.key) {
+        check_expression(node->as.delete_stmt.key, text, symbols, ast,
+                        diagnostics, pos, remaining, has_diagnostics,
+                        seen_vars, seen_count);
+      }
+    }
+
     // Check function calls for type errors in arguments
     if (node->type == AST_CALL) {
       const char *func_name = node->as.call.name;
@@ -4381,6 +4416,7 @@ static void handle_completion(const char *id, const char *body) {
       {"while", "While loop"},
       {"break", "Break out of loop"},
       {"continue", "Continue to next iteration"},
+      {"delete", "Delete map key (delete var at key)"},
       // Logical operators
       {"and", "Logical AND operator"},
       {"or", "Logical OR operator"},
