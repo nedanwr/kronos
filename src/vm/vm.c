@@ -14,9 +14,9 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "vm.h"
-#include "../frontend/tokenizer.h"
-#include "../frontend/parser.h"
 #include "../compiler/compiler.h"
+#include "../frontend/parser.h"
+#include "../frontend/tokenizer.h"
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
@@ -181,7 +181,8 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
       module_vm->current_frame = NULL;
       module_vm->ip = saved_mod_ip;
       module_vm->bytecode = saved_mod_bytecode;
-      return vm_error(caller_vm, KRONOS_ERR_INTERNAL, "Failed to create nil value");
+      return vm_error(caller_vm, KRONOS_ERR_INTERNAL,
+                      "Failed to create nil value");
     }
   }
 
@@ -223,12 +224,33 @@ static void vm_finalize_error(KronosVM *vm, KronosErrorCode code,
   vm->last_error_message = owned_message;
   vm->last_error_code = code;
 
+  // Clear error type on error clear, but preserve on error set
+  if (code == KRONOS_OK) {
+    free(vm->last_error_type);
+    vm->last_error_type = NULL;
+  }
+
   if (vm->error_callback && code != KRONOS_OK) {
     const char *callback_msg = vm->last_error_message
                                    ? vm->last_error_message
                                    : (fallback_msg ? fallback_msg : "");
     vm->error_callback(vm, code, callback_msg);
   }
+}
+
+// Set error with explicit type name
+static void vm_set_error_with_type(KronosVM *vm, KronosErrorCode code,
+                                   const char *type_name, const char *message) {
+  char *msg_copy = NULL;
+  if (message) {
+    msg_copy = strdup(message);
+  }
+
+  // Free and set error type
+  free(vm->last_error_type);
+  vm->last_error_type = type_name ? strdup(type_name) : NULL;
+
+  vm_finalize_error(vm, code, msg_copy, message);
 }
 
 static char *vm_format_message(const char *fmt, va_list args) {
@@ -297,6 +319,62 @@ static int vm_propagate_error(KronosVM *vm, KronosErrorCode fallback) {
 }
 
 /**
+ * @brief Map error code to error type name
+ *
+ * Maps KronosErrorCode to Python-style error type names.
+ *
+ * @param code Error code
+ * @return Error type name string (static, don't free)
+ */
+static const char *error_code_to_type_name(KronosErrorCode code) {
+  switch (code) {
+  case KRONOS_ERR_RUNTIME:
+    return "RuntimeError";
+  case KRONOS_ERR_PARSE:
+    return "SyntaxError";
+  case KRONOS_ERR_COMPILE:
+    return "CompileError";
+  case KRONOS_ERR_NOT_FOUND:
+    return "NameError";
+  case KRONOS_ERR_INVALID_ARGUMENT:
+    return "ValueError";
+  case KRONOS_ERR_INTERNAL:
+    return "InternalError";
+  default:
+    return "Error";
+  }
+}
+
+/**
+ * @brief Handle exception if one occurred and exception handler exists
+ *
+ * Checks if there's an error and an active exception handler. If so,
+ * jumps to the catch block handler. OP_CATCH will handle error type matching.
+ *
+ * @param vm VM instance
+ * @return true if exception was handled (execution should continue), false
+ * otherwise
+ */
+static bool handle_exception_if_any(KronosVM *vm) {
+  if (!vm || vm->last_error_code == KRONOS_OK) {
+    return false;
+  }
+
+  // If no exception handler, propagate the error (stop execution)
+  if (vm->exception_handler_count == 0) {
+    return false;
+  }
+
+  // Get the innermost exception handler
+  size_t idx = vm->exception_handler_count - 1;
+
+  // Jump to the exception handler (catch or finally)
+  vm->ip = vm->exception_handlers[idx].handler_ip;
+
+  return true; // Exception handled, continue execution from handler
+}
+
+/**
  * @brief Create a new virtual machine instance
  *
  * Initializes a VM with empty stack, no globals, and the built-in Pi constant.
@@ -322,8 +400,10 @@ KronosVM *vm_new(void) {
   vm->bytecode = NULL;
 
   vm->last_error_message = NULL;
+  vm->last_error_type = NULL;
   vm->last_error_code = KRONOS_OK;
   vm->error_callback = NULL;
+  vm->exception_handler_count = 0;
 
   // Initialize Pi constant - immutable
   // Note: double precision provides ~15-17 decimal digits of precision
@@ -423,6 +503,7 @@ void vm_free(KronosVM *vm) {
 
   free(vm->current_file_path);
   free(vm->last_error_message);
+  free(vm->last_error_type);
   free(vm);
 }
 
@@ -488,7 +569,8 @@ Module *vm_get_module(KronosVM *vm, const char *name) {
 }
 
 // Resolve module file path (handles relative paths)
-static char *resolve_module_path(const char *base_path, const char *module_path) {
+static char *resolve_module_path(const char *base_path,
+                                 const char *module_path) {
   if (!module_path)
     return NULL;
 
@@ -499,7 +581,8 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
 
   // If module_path starts with ./ or ../, resolve relative to base_path
   if ((module_path[0] == '.' && module_path[1] == '/') ||
-      (module_path[0] == '.' && module_path[1] == '.' && module_path[2] == '/')) {
+      (module_path[0] == '.' && module_path[1] == '.' &&
+       module_path[2] == '/')) {
     if (base_path && base_path[0] != '\0') {
       // Find the directory of base_path
       char *last_slash = strrchr(base_path, '/');
@@ -526,7 +609,8 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
     return strdup(module_path);
   }
 
-  // If base_path is provided and module_path has no /, resolve relative to base_path's directory
+  // If base_path is provided and module_path has no /, resolve relative to
+  // base_path's directory
   if (base_path && base_path[0] != '\0') {
     // Find the directory of base_path
     char *last_slash = strrchr(base_path, '/');
@@ -548,15 +632,20 @@ static char *resolve_module_path(const char *base_path, const char *module_path)
 }
 
 // Load a module from a file
-// If parent_vm is provided, it's used to check for already-loaded modules and propagate loading stack
-static int vm_load_module(KronosVM *vm, const char *module_name, const char *file_path, const char *base_path, KronosVM *parent_vm) {
+// If parent_vm is provided, it's used to check for already-loaded modules and
+// propagate loading stack
+static int vm_load_module(KronosVM *vm, const char *module_name,
+                          const char *file_path, const char *base_path,
+                          KronosVM *parent_vm) {
   if (!vm || !module_name || !file_path) {
-    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT, "Invalid arguments for module loading");
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "Invalid arguments for module loading");
   }
 
   // Determine the root VM - modules are always stored in the root VM
   // The root VM is the one that doesn't have a parent, or is the top-level VM
-  // If parent_vm is provided, use it. Otherwise, if vm is a module VM, use its root_vm_ref
+  // If parent_vm is provided, use it. Otherwise, if vm is a module VM, use its
+  // root_vm_ref
   KronosVM *root_vm = parent_vm;
   if (!root_vm) {
     // If vm is a module VM, use its root_vm_ref, otherwise vm is the root
@@ -569,8 +658,12 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
 
   // Check for circular imports in the root VM's loading stack
   for (size_t i = 0; i < root_vm->loading_count; i++) {
-    if (root_vm->loading_modules[i] && strcmp(root_vm->loading_modules[i], module_name) == 0) {
-      return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Circular import detected: module '%s' is already being loaded", module_name);
+    if (root_vm->loading_modules[i] &&
+        strcmp(root_vm->loading_modules[i], module_name) == 0) {
+      return vm_errorf(
+          vm, KRONOS_ERR_RUNTIME,
+          "Circular import detected: module '%s' is already being loaded",
+          module_name);
     }
   }
 
@@ -580,7 +673,9 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   }
 
   if (root_vm->module_count >= MODULES_MAX) {
-    return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Maximum number of modules exceeded (%d allowed)", MODULES_MAX);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Maximum number of modules exceeded (%d allowed)",
+                     MODULES_MAX);
   }
 
   // Use current_file_path as base if base_path is NULL
@@ -608,33 +703,38 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   FILE *file = fopen(resolved_path, "r");
   if (!file) {
     free(resolved_path);
-    return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s", file_path);
+    return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s",
+                     file_path);
   }
 
   // Determine file size
   if (fseek(file, 0, SEEK_END) != 0) {
     free(resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to end of file: %s", resolved_path);
+    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to end of file: %s",
+                     resolved_path);
   }
 
   long size = ftell(file);
   if (size < 0) {
     free(resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s", resolved_path);
+    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s",
+                     resolved_path);
   }
 
   if ((uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
     free(resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s", resolved_path);
+    return vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s",
+                     resolved_path);
   }
 
   if (fseek(file, 0, SEEK_SET) != 0) {
     free(resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to start of file: %s", resolved_path);
+    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to start of file: %s",
+                     resolved_path);
   }
 
   // Allocate buffer
@@ -643,7 +743,8 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   if (!source) {
     free(resolved_path);
     fclose(file);
-    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory for module file");
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Failed to allocate memory for module file");
   }
 
   size_t read_size = fread(source, 1, length, file);
@@ -652,7 +753,8 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
     free(source);
     free(resolved_path);
     fclose(file);
-    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s", path_copy);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s",
+                        path_copy);
     free(path_copy);
     return err;
   }
@@ -736,7 +838,8 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   if (exec_result < 0) {
     // Copy error from module_vm to main vm
     if (module_vm->last_error_message) {
-      vm_set_error(vm, module_vm->last_error_code, module_vm->last_error_message);
+      vm_set_error(vm, module_vm->last_error_code,
+                   module_vm->last_error_message);
     }
     vm_free(module_vm);
     free(resolved_path);
@@ -757,7 +860,8 @@ static int vm_load_module(KronosVM *vm, const char *module_name, const char *fil
   if (!mod) {
     vm_free(module_vm);
     free(resolved_path);
-    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate module structure");
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Failed to allocate module structure");
   }
 
   mod->name = strdup(module_name);
@@ -832,9 +936,10 @@ static KronosValue *peek(KronosVM *vm, int distance) {
 
   // Guard: distance must be < stack size to access valid memory
   if ((size_t)distance >= stack_size) {
-    vm_set_errorf(vm, KRONOS_ERR_RUNTIME,
-                  "Stack underflow in peek (distance %d exceeds stack size %zu)",
-                  distance, stack_size);
+    vm_set_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Stack underflow in peek (distance %d exceeds stack size %zu)",
+        distance, stack_size);
     return NULL;
   }
 
@@ -1139,7 +1244,24 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   // Note: current_frame should be set by the caller for function execution
   // For top-level code, current_frame is NULL
 
+  bool handling_exception = false;
+
   while (1) {
+    // Check for exceptions before executing next instruction
+    // Only check if we're not already handling an exception (to avoid infinite
+    // loop)
+    if (vm->last_error_code != KRONOS_OK && !handling_exception) {
+      if (handle_exception_if_any(vm)) {
+        // We're now handling the exception - set flag to allow OP_CATCH to run
+        handling_exception = true;
+        continue;
+      } else {
+        // No handler - propagate the error and stop execution
+        return vm_propagate_error(vm, vm->last_error_code);
+      }
+    }
+    handling_exception = false; // Reset for next iteration
+
     uint8_t instruction = read_byte(vm);
 
     switch (instruction) {
@@ -1163,11 +1285,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       }
       KronosValue *value = vm_get_variable(vm, name_val->as.string.data);
       if (!value) {
-        // Debug: check what error was set
-        if (vm->last_error_code == KRONOS_ERR_NOT_FOUND) {
-          fprintf(stderr, "DEBUG: OP_LOAD_VAR failed to find variable '%s'\n",
-                  name_val->as.string.data);
-        }
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       push(vm, value);
@@ -1418,7 +1535,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return err;
         }
         // Use fmod for floating-point modulo
-        KronosValue *result = value_new_number(fmod(a->as.number, b->as.number));
+        KronosValue *result =
+            value_new_number(fmod(a->as.number, b->as.number));
         push(vm, result);
         value_release(result);
       } else {
@@ -1975,7 +2093,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
             }
 
             // Call the module function using helper
-            int result = call_module_function(vm, mod, mod_func, args, arg_count);
+            int result =
+                call_module_function(vm, mod, mod_func, args, arg_count);
             free(args);
             free(module_name);
 
@@ -3474,8 +3593,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         CallFrame *frame = &vm->call_stack[vm->call_stack_size - 1];
 
         // Restore VM state
-        // If return_ip is NULL, this is a module function call and we should just break
-        // The return value is already on the stack, caller will handle cleanup
+        // If return_ip is NULL, this is a module function call and we should
+        // just break The return value is already on the stack, caller will
+        // handle cleanup
         if (frame->return_ip == NULL && frame->return_bytecode == NULL) {
           // This is a module function call - return from vm_execute entirely
           // Push return value back onto stack (it was popped above)
@@ -3487,7 +3607,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return 0; // Exit vm_execute, return value is on the stack
         }
 
-        // Clean up local variables (only for regular function calls, not module calls)
+        // Clean up local variables (only for regular function calls, not module
+        // calls)
         for (size_t i = 0; i < frame->local_count; i++) {
           free(frame->locals[i].name);
           value_release(frame->locals[i].value);
@@ -3660,7 +3781,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         value_release(key);
         value_release(value);
         value_release(map);
-        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected map for map set operation");
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Expected map for map set operation");
       }
 
       int result = map_set(map, key, value);
@@ -3837,7 +3959,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         value_release(index_val);
         value_release(value);
         value_release(list);
-        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected list for index assignment");
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Expected list for index assignment");
       }
 
       if (index_val->type != VAL_NUMBER) {
@@ -3888,7 +4011,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       if (map->type != VAL_MAP) {
         value_release(key);
         value_release(map);
-        return vm_error(vm, KRONOS_ERR_RUNTIME, "Expected map for delete operation");
+        return vm_error(vm, KRONOS_ERR_RUNTIME,
+                        "Expected map for delete operation");
       }
 
       bool deleted = map_delete(map, key);
@@ -3902,6 +4026,162 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       push(vm, map);
       value_release(map);
       break;
+    }
+
+    case OP_TRY_ENTER: {
+      // Read exception handler offset
+      uint16_t handler_offset = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+
+      if (vm->exception_handler_count >= EXCEPTION_HANDLERS_MAX) {
+        return vm_error(vm, KRONOS_ERR_RUNTIME, "Too many nested try blocks");
+      }
+
+      // Push exception handler onto stack
+      size_t idx = vm->exception_handler_count++;
+      vm->exception_handlers[idx].try_start_ip = vm->ip;
+      vm->exception_handlers[idx].handler_ip = vm->ip + handler_offset;
+      vm->exception_handlers[idx].catch_start_ip =
+          vm->ip + handler_offset; // Catch blocks start at handler
+      vm->exception_handlers[idx].catch_count =
+          0; // Will be incremented by OP_CATCH
+      vm->exception_handlers[idx].has_finally =
+          false; // Will be set by OP_FINALLY
+      vm->exception_handlers[idx].finally_ip = NULL;
+
+      break;
+    }
+
+    case OP_TRY_EXIT: {
+      // Normal completion of try block - read finally jump offset
+      uint16_t finally_offset = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+
+      if (vm->exception_handler_count == 0) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "OP_TRY_EXIT without matching OP_TRY_ENTER");
+      }
+
+      // Pop exception handler
+      vm->exception_handler_count--;
+
+      // If finally exists, jump to it
+      if (finally_offset > 0) {
+        vm->ip += finally_offset;
+      }
+
+      break;
+    }
+
+    case OP_CATCH: {
+      // Read error type constant (0xFFFF means catch all)
+      uint16_t error_type_idx = read_uint16(vm);
+      // Read catch variable name constant (0xFFFF means no variable)
+      uint16_t catch_var_idx = read_uint16(vm);
+      (void)catch_var_idx; // Will be used by OP_STORE_VAR following this
+                           // instruction
+
+      if (vm->exception_handler_count == 0) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "OP_CATCH without matching OP_TRY_ENTER");
+      }
+
+      // Increment catch count for current exception handler
+      size_t idx = vm->exception_handler_count - 1;
+      vm->exception_handlers[idx].catch_count++;
+
+      // Check if we have an active error to handle
+      if (vm->last_error_code != KRONOS_OK) {
+        // Get the current error type
+        const char *current_error_type =
+            vm->last_error_type ? vm->last_error_type
+                                : error_code_to_type_name(vm->last_error_code);
+
+        // Check if this catch block matches
+        bool matches = false;
+        if (error_type_idx == 0xFFFF) {
+          // Catch all
+          matches = true;
+        } else if (error_type_idx < vm->bytecode->const_count) {
+          KronosValue *type_val = vm->bytecode->constants[error_type_idx];
+          if (type_val && type_val->type == VAL_STRING) {
+            if (strcmp(type_val->as.string.data, current_error_type) == 0) {
+              matches = true;
+            }
+          }
+        }
+
+        if (matches) {
+          // Push error message onto stack for OP_STORE_VAR to consume
+          const char *error_msg =
+              vm->last_error_message ? vm->last_error_message : "Unknown error";
+          KronosValue *error_val =
+              value_new_string(error_msg, strlen(error_msg));
+          if (error_val) {
+            push(vm, error_val);
+            value_release(error_val);
+          } else {
+            // Fallback - push empty string
+            KronosValue *empty = value_new_string("", 0);
+            push(vm, empty);
+            value_release(empty);
+          }
+
+          // Clear error - exception is now handled
+          vm_clear_error(vm);
+        }
+        // If not matched, continue to next OP_CATCH or fall through to finally
+      }
+      // If no error, this is normal execution - just skip the catch block
+      // operands The actual catch block code will be skipped during normal try
+      // execution
+      break;
+    }
+
+    case OP_FINALLY: {
+      if (vm->exception_handler_count == 0) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "OP_FINALLY without matching OP_TRY_ENTER");
+      }
+
+      // Mark that finally block exists
+      size_t idx = vm->exception_handler_count - 1;
+      vm->exception_handlers[idx].has_finally = true;
+      vm->exception_handlers[idx].finally_ip = vm->ip;
+
+      break;
+    }
+
+    case OP_THROW: {
+      // Read error type constant (0xFFFF means generic Error)
+      uint16_t error_type_idx = read_uint16(vm);
+
+      // Pop error message from stack
+      KronosValue *message_val = pop(vm);
+      if (!message_val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      // Get error message as string
+      const char *message = "Unknown error";
+      if (message_val->type == VAL_STRING) {
+        message = message_val->as.string.data;
+      }
+
+      // Get error type name
+      const char *type_name = "Error";
+      if (error_type_idx != 0xFFFF &&
+          error_type_idx < vm->bytecode->const_count) {
+        KronosValue *type_val = vm->bytecode->constants[error_type_idx];
+        if (type_val && type_val->type == VAL_STRING) {
+          type_name = type_val->as.string.data;
+        }
+      }
+
+      // Set error with type
+      vm_set_error_with_type(vm, KRONOS_ERR_RUNTIME, type_name, message);
+      value_release(message_val);
+
+      // Continue to start of loop where handle_exception_if_any will handle it
+      continue;
     }
 
     case OP_LIST_LEN: {
@@ -4315,13 +4595,19 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     }
 
     case OP_IMPORT: {
-      // Read constant indices for module name and file path (in order of emission)
+      // Read constant indices for module name and file path (in order of
+      // emission)
       uint16_t module_name_idx = read_uint16(vm);
       uint16_t file_path_idx = read_uint16(vm);
 
       // Validate indices
-      if (!vm->bytecode || file_path_idx >= vm->bytecode->const_count || module_name_idx >= vm->bytecode->const_count) {
-        return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Invalid constant index in import instruction (module_idx=%u, file_idx=%u, const_count=%zu)", module_name_idx, file_path_idx, vm->bytecode ? vm->bytecode->const_count : 0);
+      if (!vm->bytecode || file_path_idx >= vm->bytecode->const_count ||
+          module_name_idx >= vm->bytecode->const_count) {
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Invalid constant index in import instruction "
+                         "(module_idx=%u, file_idx=%u, const_count=%zu)",
+                         module_name_idx, file_path_idx,
+                         vm->bytecode ? vm->bytecode->const_count : 0);
       }
 
       // Get constants from pool (don't release - owned by bytecode)
@@ -4329,11 +4615,15 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       KronosValue *file_path_val = vm->bytecode->constants[file_path_idx];
 
       if (!module_name_val || !file_path_val) {
-        return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Null constant at index (module_idx=%u, file_idx=%u)", module_name_idx, file_path_idx);
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Null constant at index (module_idx=%u, file_idx=%u)",
+                         module_name_idx, file_path_idx);
       }
 
       if (module_name_val->type != VAL_STRING) {
-        return vm_errorf(vm, KRONOS_ERR_INTERNAL, "Module name must be a string, got type %d", module_name_val->type);
+        return vm_errorf(vm, KRONOS_ERR_INTERNAL,
+                         "Module name must be a string, got type %d",
+                         module_name_val->type);
       }
 
       const char *module_name = module_name_val->as.string.data;
@@ -4342,14 +4632,15 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       // If file_path is not null, it's a file-based import
       if (file_path_val->type != VAL_NIL) {
         if (file_path_val->type != VAL_STRING) {
-          return vm_error(vm, KRONOS_ERR_INTERNAL, "File path must be a string or null");
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "File path must be a string or null");
         }
         file_path = file_path_val->as.string.data;
       }
 
       // Load the module
-      // For built-in modules (file_path is NULL), we don't need to load anything
-      // Module resolution happens when module.function is called
+      // For built-in modules (file_path is NULL), we don't need to load
+      // anything Module resolution happens when module.function is called
       if (file_path) {
         // Find the root VM for circular import detection
         // If this VM is a module VM, use its root_vm_ref
@@ -4358,7 +4649,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
         // Use current file path as base for relative imports
         // Pass root_vm_for_import as parent_vm for circular import detection
-        int load_result = vm_load_module(vm, module_name, file_path, vm->current_file_path, root_vm_for_import);
+        int load_result =
+            vm_load_module(vm, module_name, file_path, vm->current_file_path,
+                           root_vm_for_import);
         if (load_result < 0) {
           return load_result;
         }
@@ -4377,8 +4670,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "OP_BREAK should not be emitted (break uses OP_JUMP)");
     case OP_CONTINUE:
-      return vm_error(vm, KRONOS_ERR_INTERNAL,
-                      "OP_CONTINUE should not be emitted (continue uses OP_JUMP)");
+      return vm_error(
+          vm, KRONOS_ERR_INTERNAL,
+          "OP_CONTINUE should not be emitted (continue uses OP_JUMP)");
     case OP_MAP_GET:
       return vm_error(vm, KRONOS_ERR_INTERNAL,
                       "OP_MAP_GET is not used (map access uses OP_LIST_GET)");

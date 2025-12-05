@@ -22,8 +22,8 @@
  * Tracks current position in the token stream
  */
 typedef struct {
-  TokenArray *tokens;  /**< Array of tokens to parse */
-  size_t pos;          /**< Current position in token array */
+  TokenArray *tokens; /**< Array of tokens to parse */
+  size_t pos;         /**< Current position in token array */
 } Parser;
 
 /**
@@ -93,6 +93,9 @@ static ASTNode *parse_return(Parser *p, int indent);
 static ASTNode *parse_import(Parser *p, int indent);
 static ASTNode *parse_break(Parser *p, int indent);
 static ASTNode *parse_continue(Parser *p, int indent);
+static ASTNode *parse_delete(Parser *p, int indent);
+static ASTNode *parse_try(Parser *p, int indent);
+static ASTNode *parse_raise(Parser *p, int indent);
 static ASTNode *parse_list_literal(Parser *p);
 static ASTNode *parse_range_literal(Parser *p);
 static ASTNode *parse_map_literal(Parser *p);
@@ -468,8 +471,10 @@ static ASTNode *parse_map_literal(Parser *p) {
   keys = malloc(sizeof(ASTNode *) * entry_capacity);
   values = malloc(sizeof(ASTNode *) * entry_capacity);
   if (!keys || !values) {
-    if (keys) free(keys);
-    if (values) free(values);
+    if (keys)
+      free(keys);
+    if (values)
+      free(values);
     fprintf(stderr, "Failed to allocate memory for map entries\n");
     return NULL;
   }
@@ -537,8 +542,10 @@ static ASTNode *parse_map_literal(Parser *p) {
       ASTNode **new_keys = realloc(keys, sizeof(ASTNode *) * new_capacity);
       ASTNode **new_values = realloc(values, sizeof(ASTNode *) * new_capacity);
       if (!new_keys || !new_values) {
-        if (new_keys) free(new_keys);
-        if (new_values) free(new_values);
+        if (new_keys)
+          free(new_keys);
+        if (new_values)
+          free(new_values);
         // Cleanup
         for (size_t i = 0; i < entry_count; i++) {
           ast_node_free(keys[i]);
@@ -896,11 +903,13 @@ static ASTNode *parse_primary(Parser *p) {
 /**
  * @brief Parse an expression using precedence-climbing (Pratt parser)
  *
- * Recursively parses expressions respecting operator precedence and associativity.
- * Handles unary operators (NOT) and binary operators (arithmetic, comparisons, logical).
+ * Recursively parses expressions respecting operator precedence and
+ * associativity. Handles unary operators (NOT) and binary operators
+ * (arithmetic, comparisons, logical).
  *
  * @param p Parser state
- * @param min_prec Minimum precedence to parse (stops when encountering lower precedence)
+ * @param min_prec Minimum precedence to parse (stops when encountering lower
+ * precedence)
  * @return AST node for the expression, or NULL on error
  */
 static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
@@ -931,13 +940,14 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
                  next->type == TOK_STRING || next->type == TOK_FSTRING)) {
       consume_any(p); // consume MINUS
       // Parse the operand recursively to handle nested unary operators
-      ASTNode *operand = parse_expression_prec(p, 10); // High precedence to bind tightly
+      ASTNode *operand =
+          parse_expression_prec(p, 10); // High precedence to bind tightly
       if (!operand)
         return NULL;
       ASTNode *node = ast_node_new_checked(AST_BINOP);
       node->as.binop.left = operand;
       node->as.binop.op = BINOP_NEG; // Use a new unary operator
-      node->as.binop.right = NULL; // NULL indicates unary operation
+      node->as.binop.right = NULL;   // NULL indicates unary operation
       left = node;
     } else {
       // Binary subtraction - parse primary and continue
@@ -1069,7 +1079,8 @@ static ASTNode *parse_expression(Parser *p) {
 /**
  * @brief Parse a condition for if/while statements
  *
- * Conditions are full expressions (can include comparisons and logical operators).
+ * Conditions are full expressions (can include comparisons and logical
+ * operators).
  *
  * @param p Parser state
  * @return AST node for the condition, or NULL on error
@@ -1112,7 +1123,7 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   if (at_token && at_token->type == TOK_AT) {
     // Index assignment: let var at index to value
     consume(p, TOK_AT);
-    
+
     ASTNode *index = parse_expression(p);
     if (!index) {
       return NULL;
@@ -1240,6 +1251,241 @@ static ASTNode *parse_delete(Parser *p, int indent) {
   return node;
 }
 
+// Parse raise statement: raise ErrorType "message" or raise "message"
+static ASTNode *parse_raise(Parser *p, int indent) {
+  consume(p, TOK_RAISE);
+
+  char *error_type = NULL;
+  ASTNode *message = NULL;
+
+  // Check what comes next - if it's a name, it could be error type or a
+  // variable
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_NAME) {
+    // Check if this is followed by a string or expression
+    Token *after = peek(p, 1);
+    if (after && (after->type == TOK_STRING || after->type == TOK_FSTRING)) {
+      // Syntax: raise ErrorType "message"
+      consume(p, TOK_NAME);
+      error_type = strdup(next->text);
+      if (!error_type) {
+        return NULL;
+      }
+      message = parse_expression(p);
+      if (!message) {
+        free(error_type);
+        return NULL;
+      }
+    } else {
+      // Syntax: raise expression (error_type is NULL)
+      message = parse_expression(p);
+      if (!message) {
+        return NULL;
+      }
+    }
+  } else if (next && (next->type == TOK_STRING || next->type == TOK_FSTRING)) {
+    // Syntax: raise "message" (no type specified)
+    message = parse_expression(p);
+    if (!message) {
+      return NULL;
+    }
+  } else {
+    // Error: expected error type or message
+    return NULL;
+  }
+
+  if (!consume(p, TOK_NEWLINE)) {
+    free(error_type);
+    ast_node_free(message);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_RAISE);
+  node->indent = indent;
+  node->as.raise_stmt.error_type = error_type;
+  node->as.raise_stmt.message = message;
+
+  return node;
+}
+
+// Parse try/catch/finally statement
+static ASTNode *parse_try(Parser *p, int indent) {
+  consume(p, TOK_TRY);
+
+  if (!consume(p, TOK_COLON)) {
+    return NULL;
+  }
+
+  if (!consume(p, TOK_NEWLINE)) {
+    return NULL;
+  }
+
+  // Parse try block
+  size_t try_block_size = 0;
+  ASTNode **try_block = parse_block(p, indent, &try_block_size);
+  if (!try_block) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_TRY);
+  node->indent = indent;
+  node->as.try_stmt.try_block = try_block;
+  node->as.try_stmt.try_block_size = try_block_size;
+  node->as.try_stmt.catch_blocks = NULL;
+  node->as.try_stmt.catch_block_count = 0;
+  node->as.try_stmt.finally_block = NULL;
+  node->as.try_stmt.finally_block_size = 0;
+
+  size_t catch_capacity = 4;
+  node->as.try_stmt.catch_blocks =
+      malloc(sizeof(node->as.try_stmt.catch_blocks[0]) * catch_capacity);
+  if (!node->as.try_stmt.catch_blocks) {
+    ast_node_free(node);
+    return NULL;
+  }
+
+  // Parse optional catch and finally blocks
+  while (p->pos < p->tokens->count) {
+    Token *tok = peek(p, 0);
+    if (!tok || tok->type != TOK_INDENT)
+      break;
+
+    int next_indent = tok->indent_level;
+    if (next_indent != indent)
+      break;
+
+    Token *next_tok = peek(p, 1);
+    if (!next_tok)
+      break;
+
+    if (next_tok->type == TOK_CATCH) {
+      // Parse catch block: catch [ErrorType] [as var]:
+      consume_any(p); // consume INDENT
+      consume(p, TOK_CATCH);
+
+      char *error_type = NULL;
+      char *catch_var = NULL;
+
+      // Check if next token is a name (could be error type or variable)
+      Token *name_tok = peek(p, 0);
+      if (name_tok && name_tok->type == TOK_NAME) {
+        consume_any(p); // consume name
+
+        // Check if next is "as" - if so, this was an error type
+        Token *after_name = peek(p, 0);
+        if (after_name && after_name->type == TOK_AS) {
+          // Syntax: catch ErrorType as var:
+          error_type = strdup(name_tok->text);
+          if (!error_type) {
+            ast_node_free(node);
+            return NULL;
+          }
+          consume(p, TOK_AS);
+
+          // Parse catch variable name
+          Token *var_tok = consume(p, TOK_NAME);
+          if (!var_tok) {
+            free(error_type);
+            ast_node_free(node);
+            return NULL;
+          }
+          catch_var = strdup(var_tok->text);
+          if (!catch_var) {
+            free(error_type);
+            ast_node_free(node);
+            return NULL;
+          }
+        } else {
+          // Syntax: catch var: (catch all errors)
+          catch_var = strdup(name_tok->text);
+          if (!catch_var) {
+            ast_node_free(node);
+            return NULL;
+          }
+        }
+      }
+
+      if (!consume(p, TOK_COLON)) {
+        free(error_type);
+        free(catch_var);
+        ast_node_free(node);
+        return NULL;
+      }
+
+      if (!consume(p, TOK_NEWLINE)) {
+        free(error_type);
+        free(catch_var);
+        ast_node_free(node);
+        return NULL;
+      }
+
+      size_t catch_block_size = 0;
+      ASTNode **catch_block = parse_block(p, indent, &catch_block_size);
+      if (!catch_block) {
+        free(error_type);
+        free(catch_var);
+        ast_node_free(node);
+        return NULL;
+      }
+
+      // Add catch block to array
+      if (node->as.try_stmt.catch_block_count >= catch_capacity) {
+        catch_capacity *= 2;
+        void *new_blocks =
+            realloc(node->as.try_stmt.catch_blocks,
+                    sizeof(node->as.try_stmt.catch_blocks[0]) * catch_capacity);
+        if (!new_blocks) {
+          free(error_type);
+          free(catch_var);
+          for (size_t i = 0; i < catch_block_size; i++) {
+            ast_node_free(catch_block[i]);
+          }
+          free(catch_block);
+          ast_node_free(node);
+          return NULL;
+        }
+        node->as.try_stmt.catch_blocks = new_blocks;
+      }
+
+      size_t idx = node->as.try_stmt.catch_block_count++;
+      node->as.try_stmt.catch_blocks[idx].error_type = error_type;
+      node->as.try_stmt.catch_blocks[idx].catch_var = catch_var;
+      node->as.try_stmt.catch_blocks[idx].catch_block = catch_block;
+      node->as.try_stmt.catch_blocks[idx].catch_block_size = catch_block_size;
+    } else if (next_tok->type == TOK_FINALLY) {
+      // Parse finally block
+      consume_any(p); // consume INDENT
+      consume(p, TOK_FINALLY);
+
+      if (!consume(p, TOK_COLON)) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      if (!consume(p, TOK_NEWLINE)) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      size_t finally_block_size = 0;
+      ASTNode **finally_block = parse_block(p, indent, &finally_block_size);
+      if (!finally_block) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      node->as.try_stmt.finally_block = finally_block;
+      node->as.try_stmt.finally_block_size = finally_block_size;
+      // Finally is typically last, but we'll continue to check for more blocks
+    } else {
+      // Not catch or finally, stop parsing
+      break;
+    }
+  }
+
+  return node;
+}
+
 // Parse print
 static ASTNode *parse_print(Parser *p, int indent) {
   consume(p, TOK_PRINT);
@@ -1322,6 +1568,12 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       stmt = parse_break(p, next_indent);
     } else if (tok->type == TOK_CONTINUE) {
       stmt = parse_continue(p, next_indent);
+    } else if (tok->type == TOK_DELETE) {
+      stmt = parse_delete(p, next_indent);
+    } else if (tok->type == TOK_TRY) {
+      stmt = parse_try(p, next_indent);
+    } else if (tok->type == TOK_RAISE) {
+      stmt = parse_raise(p, next_indent);
     }
 
     if (!stmt) {
@@ -1469,7 +1721,8 @@ static ASTNode *parse_if(Parser *p, int indent) {
         node->as.if_stmt.else_if_block_sizes = new_block_sizes;
         node->as.if_stmt.else_if_conditions[new_count - 1] = else_if_condition;
         node->as.if_stmt.else_if_blocks[new_count - 1] = else_if_block;
-        node->as.if_stmt.else_if_block_sizes[new_count - 1] = else_if_block_size;
+        node->as.if_stmt.else_if_block_sizes[new_count - 1] =
+            else_if_block_size;
         node->as.if_stmt.else_if_count = new_count;
       } else {
         // It's just else
@@ -1936,7 +2189,8 @@ static ASTNode *parse_import(Parser *p, int indent) {
 
       if (imported_count == capacity) {
         size_t new_capacity = capacity * 2;
-        char **new_names = realloc(imported_names, sizeof(char *) * new_capacity);
+        char **new_names =
+            realloc(imported_names, sizeof(char *) * new_capacity);
         if (!new_names) {
           // Cleanup
           for (size_t i = 0; i < imported_count; i++) {
@@ -1973,14 +2227,14 @@ static ASTNode *parse_import(Parser *p, int indent) {
     }
   } else {
     // Parse: import module_name [from "file.kr"]
-  consume(p, TOK_IMPORT);
+    consume(p, TOK_IMPORT);
 
     Token *module_tok = consume(p, TOK_NAME);
     if (!module_tok)
       return NULL;
     module_name = strdup(module_tok->text);
-  if (!module_name)
-    return NULL;
+    if (!module_name)
+      return NULL;
 
     // Check for "from" keyword
     Token *next = peek(p, 0);
@@ -2094,6 +2348,10 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_continue(p, indent);
   case TOK_DELETE:
     return parse_delete(p, indent);
+  case TOK_TRY:
+    return parse_try(p, indent);
+  case TOK_RAISE:
+    return parse_raise(p, indent);
   default:
     return NULL;
   }
@@ -2306,6 +2564,37 @@ void ast_node_free(ASTNode *node) {
   case AST_DELETE:
     ast_node_free(node->as.delete_stmt.target);
     ast_node_free(node->as.delete_stmt.key);
+    break;
+  case AST_TRY:
+    // Free try block
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      ast_node_free(node->as.try_stmt.try_block[i]);
+    }
+    free(node->as.try_stmt.try_block);
+    // Free catch blocks
+    if (node->as.try_stmt.catch_blocks) {
+      for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+        free(node->as.try_stmt.catch_blocks[i].error_type);
+        free(node->as.try_stmt.catch_blocks[i].catch_var);
+        for (size_t j = 0;
+             j < node->as.try_stmt.catch_blocks[i].catch_block_size; j++) {
+          ast_node_free(node->as.try_stmt.catch_blocks[i].catch_block[j]);
+        }
+        free(node->as.try_stmt.catch_blocks[i].catch_block);
+      }
+      free(node->as.try_stmt.catch_blocks);
+    }
+    // Free finally block
+    if (node->as.try_stmt.finally_block) {
+      for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+        ast_node_free(node->as.try_stmt.finally_block[i]);
+      }
+      free(node->as.try_stmt.finally_block);
+    }
+    break;
+  case AST_RAISE:
+    free(node->as.raise_stmt.error_type);
+    ast_node_free(node->as.raise_stmt.message);
     break;
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {

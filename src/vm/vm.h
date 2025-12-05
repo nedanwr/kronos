@@ -13,6 +13,7 @@
 #define CALL_STACK_MAX 256
 #define LOCALS_MAX 64
 #define MODULES_MAX 64
+#define EXCEPTION_HANDLERS_MAX 64
 
 // Function definition
 typedef struct {
@@ -24,11 +25,13 @@ typedef struct {
 
 // Module definition (for file-based modules)
 typedef struct {
-  char *name;              // Module name (namespace)
-  char *file_path;         // Source file path
-  KronosVM *module_vm;     // VM instance for this module (contains its globals/functions)
-  KronosVM *root_vm;       // Root VM that owns this module (for circular import detection)
-  bool is_loaded;          // Whether module has been loaded
+  char *name;      // Module name (namespace)
+  char *file_path; // Source file path
+  KronosVM *
+      module_vm; // VM instance for this module (contains its globals/functions)
+  KronosVM
+      *root_vm; // Root VM that owns this module (for circular import detection)
+  bool is_loaded; // Whether module has been loaded
 } Module;
 
 // Call frame for function calls
@@ -83,7 +86,8 @@ typedef struct KronosVM {
   // Current file path (for relative import resolution)
   char *current_file_path;
 
-  // Root VM reference (for module VMs - points to the VM that created this module)
+  // Root VM reference (for module VMs - points to the VM that created this
+  // module)
   KronosVM *root_vm_ref; // NULL for root VM, non-NULL for module VMs
 
   // Instruction pointer
@@ -94,8 +98,20 @@ typedef struct KronosVM {
 
   // Error tracking
   char *last_error_message;
+  char *last_error_type; // Error type name (e.g., "ValueError")
   KronosErrorCode last_error_code;
   KronosErrorCallback error_callback;
+
+  // Exception handler stack (for try/catch/finally)
+  struct {
+    uint8_t *handler_ip;     // IP of exception handler (catch or finally)
+    uint8_t *try_start_ip;   // IP where try block started
+    uint8_t *catch_start_ip; // IP where catch blocks start
+    size_t catch_count;      // Number of catch blocks
+    bool has_finally;        // Whether finally block exists
+    uint8_t *finally_ip;     // IP of finally block (if exists)
+  } exception_handlers[EXCEPTION_HANDLERS_MAX];
+  size_t exception_handler_count;
 } KronosVM;
 
 // VM API Error Handling Strategy:

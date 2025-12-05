@@ -48,6 +48,12 @@ typedef enum {
   OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
   OP_MAP_GET,       // Reserved (not used - map access goes through OP_LIST_GET)
   OP_DELETE,        // Delete key from map (map, key -> map)
+  OP_TRY_ENTER,     // Enter try block (marks start of exception handler)
+  OP_TRY_EXIT,      // Exit try block normally (marks end of try, jumps to finally if exists)
+  OP_CATCH,         // Catch block handler (sets catch variable, jumps to catch block)
+  OP_FINALLY,       // Finally block handler (executes cleanup code)
+  OP_THROW,         // Throw exception (error_message -> exception)
+  OP_RETHROW,       // Rethrow current exception
   OP_IMPORT,        // Import module (module_name, file_path constants)
   OP_HALT,          // End program
 } OpCode;
