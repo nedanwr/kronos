@@ -1107,6 +1107,54 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   if (!name)
     return NULL;
 
+  // Check if this is an index assignment: let var at index to value
+  Token *at_token = peek(p, 0);
+  if (at_token && at_token->type == TOK_AT) {
+    // Index assignment: let var at index to value
+    consume(p, TOK_AT);
+    
+    ASTNode *index = parse_expression(p);
+    if (!index) {
+      return NULL;
+    }
+
+    if (!consume(p, TOK_TO)) {
+      ast_node_free(index);
+      return NULL;
+    }
+
+    ASTNode *value = parse_expression(p);
+    if (!value) {
+      ast_node_free(index);
+      return NULL;
+    }
+
+    if (!consume(p, TOK_NEWLINE)) {
+      ast_node_free(index);
+      ast_node_free(value);
+      return NULL;
+    }
+
+    ASTNode *node = ast_node_new_checked(AST_ASSIGN_INDEX);
+    node->indent = indent;
+    // Create a variable AST node for the target
+    ASTNode *target = ast_node_new_checked(AST_VAR);
+    target->as.var_name = strdup(name->text);
+    if (!target->as.var_name) {
+      ast_node_free(index);
+      ast_node_free(value);
+      free(target);
+      free(node);
+      return NULL;
+    }
+    node->as.assign_index.target = target;
+    node->as.assign_index.index = index;
+    node->as.assign_index.value = value;
+
+    return node;
+  }
+
+  // Regular assignment: set/let var to value
   if (!consume(p, TOK_TO))
     return NULL;
 
@@ -1151,6 +1199,43 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   node->as.assign.value = value;
   node->as.assign.is_mutable = is_mutable;
   node->as.assign.type_name = type_name;
+
+  return node;
+}
+
+// Parse delete statement: delete var at key
+static ASTNode *parse_delete(Parser *p, int indent) {
+  consume(p, TOK_DELETE);
+
+  Token *name = consume(p, TOK_NAME);
+  if (!name)
+    return NULL;
+
+  if (!consume(p, TOK_AT))
+    return NULL;
+
+  ASTNode *key = parse_expression(p);
+  if (!key)
+    return NULL;
+
+  if (!consume(p, TOK_NEWLINE)) {
+    ast_node_free(key);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_DELETE);
+  node->indent = indent;
+  // Create a variable AST node for the target
+  ASTNode *target = ast_node_new_checked(AST_VAR);
+  target->as.var_name = strdup(name->text);
+  if (!target->as.var_name) {
+    ast_node_free(key);
+    free(target);
+    free(node);
+    return NULL;
+  }
+  node->as.delete_stmt.target = target;
+  node->as.delete_stmt.key = key;
 
   return node;
 }
@@ -2007,6 +2092,8 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_break(p, indent);
   case TOK_CONTINUE:
     return parse_continue(p, indent);
+  case TOK_DELETE:
+    return parse_delete(p, indent);
   default:
     return NULL;
   }
@@ -2210,6 +2297,15 @@ void ast_node_free(ASTNode *node) {
     ast_node_free(node->as.slice.list_expr);
     ast_node_free(node->as.slice.start);
     ast_node_free(node->as.slice.end);
+    break;
+  case AST_ASSIGN_INDEX:
+    ast_node_free(node->as.assign_index.target);
+    ast_node_free(node->as.assign_index.index);
+    ast_node_free(node->as.assign_index.value);
+    break;
+  case AST_DELETE:
+    ast_node_free(node->as.delete_stmt.target);
+    ast_node_free(node->as.delete_stmt.key);
     break;
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
