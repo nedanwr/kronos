@@ -105,6 +105,14 @@ call reverse with original         # [3, 2, 1]
 call sort with list 3, 1, 2        # [1, 2, 3]
 ```
 
+## List Index Assignment
+```kronos
+let nums to list 1, 2, 3
+let nums at 0 to 10                # Modify first element: [10, 2, 3]
+let nums at -1 to 50               # Modify last element: [10, 2, 50]
+let nums at 1 to 5 plus 5          # Modify with expression: [10, 10, 50]
+```
+
 ## Maps
 ```kronos
 # Create map
@@ -124,6 +132,20 @@ print flags at true                # "yes"
 
 # Empty map
 set empty to map
+```
+
+## Map Key Deletion
+```kronos
+let person to map name: "Alice", age: 30, city: "NYC"
+delete person at "age"             # Remove age key
+delete person at "city"            # Remove city key
+
+# Works with any key type
+let scores to map 1: 100, 2: 200
+delete scores at 2                 # Remove key 2
+
+let flags to map true: "yes", false: "no"
+delete flags at true               # Remove boolean key
 ```
 
 ## Arithmetic
