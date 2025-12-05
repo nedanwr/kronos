@@ -902,6 +902,32 @@ static void process_statements_for_symbols(ASTNode **statements, size_t count,
       }
       break;
     }
+    case AST_TRY: {
+      // Add catch variables to symbol table
+      for (size_t j = 0; j < node->as.try_stmt.catch_block_count; j++) {
+        if (node->as.try_stmt.catch_blocks[j].catch_var) {
+          sym = malloc(sizeof(Symbol));
+          if (!sym)
+            break;
+          sym->name = strdup(node->as.try_stmt.catch_blocks[j].catch_var);
+          sym->type = SYMBOL_VARIABLE;
+          sym->is_mutable = false;           // Catch variables are immutable
+          sym->type_name = strdup("string"); // Error messages are strings
+          sym->param_count = 0;
+          sym->used = false;
+          sym->written =
+              false; // Catch variables are assigned by exception handler
+          sym->read = false;
+          get_node_position(node, &line, &col);
+          sym->line = line;
+          sym->column = col;
+          sym->next = NULL;
+          **tail = sym;
+          *tail = &sym->next;
+        }
+      }
+      break;
+    }
     default:
       break;
     }
@@ -2808,18 +2834,18 @@ static void check_undefined_variables(AST *ast, const char *text,
       // Check target, index, and value expressions
       if (node->as.assign_index.target) {
         check_expression(node->as.assign_index.target, text, symbols, ast,
-                        diagnostics, pos, remaining, has_diagnostics,
-                        seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
       if (node->as.assign_index.index) {
         check_expression(node->as.assign_index.index, text, symbols, ast,
-                        diagnostics, pos, remaining, has_diagnostics,
-                        seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
       if (node->as.assign_index.value) {
         check_expression(node->as.assign_index.value, text, symbols, ast,
-                        diagnostics, pos, remaining, has_diagnostics,
-                        seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
     }
 
@@ -2828,13 +2854,53 @@ static void check_undefined_variables(AST *ast, const char *text,
       // Check target and key expressions
       if (node->as.delete_stmt.target) {
         check_expression(node->as.delete_stmt.target, text, symbols, ast,
-                        diagnostics, pos, remaining, has_diagnostics,
-                        seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
       if (node->as.delete_stmt.key) {
         check_expression(node->as.delete_stmt.key, text, symbols, ast,
-                        diagnostics, pos, remaining, has_diagnostics,
-                        seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
+      }
+    }
+
+    // Check expressions in try/catch/finally blocks
+    if (node->type == AST_TRY) {
+      // Check expressions in try block
+      if (node->as.try_stmt.try_block) {
+        AST try_ast = {node->as.try_stmt.try_block,
+                       node->as.try_stmt.try_block_size,
+                       node->as.try_stmt.try_block_size};
+        check_undefined_variables(&try_ast, text, symbols, diagnostics, pos,
+                                  remaining, has_diagnostics);
+      }
+      // Check expressions in catch blocks
+      for (size_t j = 0; j < node->as.try_stmt.catch_block_count; j++) {
+        if (node->as.try_stmt.catch_blocks[j].catch_block) {
+          AST catch_ast = {node->as.try_stmt.catch_blocks[j].catch_block,
+                           node->as.try_stmt.catch_blocks[j].catch_block_size,
+                           node->as.try_stmt.catch_blocks[j].catch_block_size};
+          check_undefined_variables(&catch_ast, text, symbols, diagnostics, pos,
+                                    remaining, has_diagnostics);
+        }
+      }
+      // Check expressions in finally block
+      if (node->as.try_stmt.finally_block) {
+        AST finally_ast = {node->as.try_stmt.finally_block,
+                           node->as.try_stmt.finally_block_size,
+                           node->as.try_stmt.finally_block_size};
+        check_undefined_variables(&finally_ast, text, symbols, diagnostics, pos,
+                                  remaining, has_diagnostics);
+      }
+    }
+
+    // Check expressions in raise statements
+    if (node->type == AST_RAISE) {
+      // Check error message expression
+      if (node->as.raise_stmt.message) {
+        check_expression(node->as.raise_stmt.message, text, symbols, ast,
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
     }
 
@@ -4417,6 +4483,11 @@ static void handle_completion(const char *id, const char *body) {
       {"break", "Break out of loop"},
       {"continue", "Continue to next iteration"},
       {"delete", "Delete map key (delete var at key)"},
+      // Exception handling
+      {"try", "Try block (exception handling)"},
+      {"catch", "Catch exception (catch ErrorType as var)"},
+      {"finally", "Finally block (always executes)"},
+      {"raise", "Raise exception (raise ErrorType \"message\")"},
       // Logical operators
       {"and", "Logical AND operator"},
       {"or", "Logical OR operator"},
