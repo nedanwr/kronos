@@ -39,6 +39,7 @@ typedef enum {
   BINOP_SUB,
   BINOP_MUL,
   BINOP_DIV,
+  BINOP_MOD,
   BINOP_EQ,
   BINOP_NEQ,
   BINOP_GT,
@@ -48,6 +49,7 @@ typedef enum {
   BINOP_AND,
   BINOP_OR,
   BINOP_NOT,
+  BINOP_NEG,
 } BinOp;
 
 struct ASTNode {
