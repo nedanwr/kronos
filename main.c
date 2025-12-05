@@ -7,6 +7,7 @@
  * pipeline: tokenization -> parsing -> compilation -> execution.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include "include/kronos.h"
 #include "src/compiler/compiler.h"
 #include "src/core/runtime.h"
