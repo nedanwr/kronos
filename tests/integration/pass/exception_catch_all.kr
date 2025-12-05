@@ -1,0 +1,11 @@
+# Catch-all exception handling
+# Expected output:
+# Caught: Custom error message
+# Done
+
+try:
+    raise RuntimeError "Custom error message"
+catch err:
+    print f"Caught: {err}"
+
+print "Done"

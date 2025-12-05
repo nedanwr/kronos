@@ -1,0 +1,11 @@
+# Basic exception handling - raise and catch
+# Expected output:
+# Caught error: Something went wrong
+# Done
+
+try:
+    raise "Something went wrong"
+catch error:
+    print f"Caught error: {error}"
+
+print "Done"

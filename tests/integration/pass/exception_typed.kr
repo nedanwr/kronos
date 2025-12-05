@@ -1,0 +1,11 @@
+# Typed exception handling - raise ValueError and catch it
+# Expected output:
+# Caught ValueError: Invalid input value
+# Done
+
+try:
+    raise ValueError "Invalid input value"
+catch ValueError as e:
+    print f"Caught ValueError: {e}"
+
+print "Done"
