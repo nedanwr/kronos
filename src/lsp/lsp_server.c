@@ -971,7 +971,9 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
       ImportedModule *mod = malloc(sizeof(ImportedModule));
       if (mod) {
         mod->name = strdup(node->as.import.module_name);
-        mod->file_path = node->as.import.file_path ? strdup(node->as.import.file_path) : NULL;
+        mod->file_path = node->as.import.file_path
+                             ? strdup(node->as.import.file_path)
+                             : NULL;
         mod->next = NULL;
         *import_tail = mod;
         import_tail = &mod->next;
@@ -1006,11 +1008,6 @@ typedef enum {
 // Forward declarations
 static ASTNode *find_variable_assignment(AST *ast, const char *var_name);
 static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast);
-
-// Infer type from AST node
-static ExprType infer_type(ASTNode *node, Symbol *symbols) {
-  return infer_type_with_ast(node, symbols, NULL);
-}
 
 // Infer type from AST node (with optional AST for variable value lookup)
 static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
@@ -1072,8 +1069,17 @@ static ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
     }
     // Other arithmetic operations return numbers
     if (node->as.binop.op == BINOP_SUB || node->as.binop.op == BINOP_MUL ||
-        node->as.binop.op == BINOP_DIV) {
+        node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) {
       return TYPE_NUMBER;
+    }
+    // Unary operators
+    if (node->as.binop.op == BINOP_NOT || node->as.binop.op == BINOP_NEG) {
+      // Unary NOT returns bool, unary NEG returns number
+      if (node->as.binop.op == BINOP_NOT) {
+        return TYPE_BOOL;
+      } else {
+        return TYPE_NUMBER;
+      }
     }
     // Comparisons return bool
     if (node->as.binop.op == BINOP_EQ || node->as.binop.op == BINOP_NEQ ||
@@ -1296,8 +1302,8 @@ static int get_builtin_arg_count(const char *func_name) {
   // One-argument functions
   if (strcmp(func_name, "sqrt") == 0 || strcmp(func_name, "abs") == 0 ||
       strcmp(func_name, "round") == 0 || strcmp(func_name, "floor") == 0 ||
-      strcmp(func_name, "ceil") == 0 ||
-      strcmp(func_name, "len") == 0 || strcmp(func_name, "uppercase") == 0 ||
+      strcmp(func_name, "ceil") == 0 || strcmp(func_name, "len") == 0 ||
+      strcmp(func_name, "uppercase") == 0 ||
       strcmp(func_name, "lowercase") == 0 || strcmp(func_name, "trim") == 0 ||
       strcmp(func_name, "to_string") == 0 ||
       strcmp(func_name, "to_number") == 0 ||
@@ -1536,8 +1542,8 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           if (strcmp(module_name, "math") == 0) {
             actual_func_name = dot + 1;
           } else if (is_module_imported(module_name)) {
-            // File-based module - skip validation for now (can't parse module files)
-            // This prevents false "unknown module" errors
+            // File-based module - skip validation for now (can't parse module
+            // files) This prevents false "unknown module" errors
             free(module_name);
             continue;
           } else {
@@ -1863,7 +1869,8 @@ static ASTNode *find_variable_assignment(AST *ast, const char *var_name) {
 }
 
 // Recursively check expressions for diagnostics
-// seen_vars and seen_count are optional - used to check if variables were assigned earlier in scope
+// seen_vars and seen_count are optional - used to check if variables were
+// assigned earlier in scope
 typedef struct {
   char *name;
   bool is_mutable;
@@ -2024,12 +2031,13 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     }
     // Other arithmetic operations require numbers
     else if (node->as.binop.op == BINOP_SUB || node->as.binop.op == BINOP_MUL ||
-             node->as.binop.op == BINOP_DIV) {
+             node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) {
       if (left_type != TYPE_NUMBER || right_type != TYPE_NUMBER) {
         if (left_type != TYPE_UNKNOWN && right_type != TYPE_UNKNOWN) {
           const char *op_name = node->as.binop.op == BINOP_SUB   ? "subtract"
                                 : node->as.binop.op == BINOP_MUL ? "multiply"
-                                                                 : "divide";
+                                : node->as.binop.op == BINOP_DIV ? "divide"
+                                                                 : "modulo";
           size_t line = 1, col = 0;
           char pattern[256];
           if (node->as.binop.op == BINOP_SUB)
@@ -2038,6 +2046,8 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
             snprintf(pattern, sizeof(pattern), "times");
           else if (node->as.binop.op == BINOP_DIV)
             snprintf(pattern, sizeof(pattern), "divided by");
+          else if (node->as.binop.op == BINOP_MOD)
+            snprintf(pattern, sizeof(pattern), "mod");
           find_node_position(node, text, pattern, &line, &col);
 
           char escaped_msg[512];
@@ -2092,6 +2102,68 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
         }
       }
     }
+    // Unary operators (NOT and NEG) - right is NULL for unary ops
+    else if (node->as.binop.op == BINOP_NOT || node->as.binop.op == BINOP_NEG) {
+      if (node->as.binop.right == NULL) {
+        // Valid unary operator - check operand type
+        ExprType operand_type =
+            infer_type_with_ast(node->as.binop.left, symbols, ast);
+        if (operand_type != TYPE_UNKNOWN) {
+          if (node->as.binop.op == BINOP_NOT) {
+            // NOT requires boolean operand
+            if (operand_type != TYPE_BOOL) {
+              size_t line = 1, col = 0;
+              find_node_position(node, text, "not", &line, &col);
+              char escaped_msg[512];
+              snprintf(escaped_msg, sizeof(escaped_msg),
+                       "Cannot negate - operand must be boolean");
+              char escaped_msg_final[512];
+              json_escape(escaped_msg, escaped_msg_final,
+                          sizeof(escaped_msg_final));
+              int written = snprintf(
+                  diagnostics + *pos, *remaining,
+                  "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                  "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                  "\"severity\":1,"
+                  "\"message\":\"%s\"}",
+                  *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 3,
+                  escaped_msg_final);
+              if (written > 0 && (size_t)written < *remaining) {
+                *pos += (size_t)written;
+                *remaining -= (size_t)written;
+                *has_diagnostics = true;
+              }
+            }
+          } else if (node->as.binop.op == BINOP_NEG) {
+            // NEG requires number operand
+            if (operand_type != TYPE_NUMBER) {
+              size_t line = 1, col = 0;
+              find_node_position(node, text, "-", &line, &col);
+              char escaped_msg[512];
+              snprintf(escaped_msg, sizeof(escaped_msg),
+                       "Cannot negate - operand must be a number");
+              char escaped_msg_final[512];
+              json_escape(escaped_msg, escaped_msg_final,
+                          sizeof(escaped_msg_final));
+              int written = snprintf(
+                  diagnostics + *pos, *remaining,
+                  "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                  "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                  "\"severity\":1,"
+                  "\"message\":\"%s\"}",
+                  *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 1,
+                  escaped_msg_final);
+              if (written > 0 && (size_t)written < *remaining) {
+                *pos += (size_t)written;
+                *remaining -= (size_t)written;
+                *has_diagnostics = true;
+              }
+            }
+          }
+        }
+      }
+      // If right is not NULL, skip unary handling (invalid state for unary op)
+    }
 
     // Comparison operations require numbers
     if (node->as.binop.op == BINOP_GT || node->as.binop.op == BINOP_LT ||
@@ -2132,10 +2204,18 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     }
 
     // Recursively check nested expressions
-    check_expression(node->as.binop.left, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics, seen_vars, seen_count);
-    check_expression(node->as.binop.right, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics, seen_vars, seen_count);
+    // For unary operators (NOT, NEG), right is NULL
+    if (node->as.binop.right == NULL) {
+      // Unary operator - only check left operand
+      check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
+                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+    } else {
+      // Binary operator - check both operands
+      check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
+                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+      check_expression(node->as.binop.right, text, symbols, ast, diagnostics,
+                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+    }
     return;
   }
 
@@ -2200,7 +2280,8 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   if (node->type == AST_LIST) {
     for (size_t i = 0; i < node->as.list.element_count; i++) {
       check_expression(node->as.list.elements[i], text, symbols, ast,
-                       diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                       diagnostics, pos, remaining, has_diagnostics, seen_vars,
+                       seen_count);
     }
     return;
   }
@@ -2223,12 +2304,7 @@ static void check_undefined_variables(AST *ast, const char *text,
     return;
 
   // Track variables we've seen assigned (for immutable reassignment check)
-  typedef struct {
-    char *name;
-    bool is_mutable;
-    size_t assignment_count; // How many times we've seen this variable assigned
-    size_t first_statement_index; // Index of first assignment in AST statements
-  } SeenVar;
+  // Use the global SeenVar type defined above
   SeenVar *seen_vars = NULL;
   size_t seen_count = 0;
   size_t seen_capacity = 16;
@@ -2278,7 +2354,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                    node->as.var_name);
           char escaped_msg_final[512];
           json_escape(escaped_msg, escaped_msg_final,
-                     sizeof(escaped_msg_final));
+                      sizeof(escaped_msg_final));
 
           int written = snprintf(
               diagnostics + *pos, *remaining,
@@ -2313,7 +2389,8 @@ static void check_undefined_variables(AST *ast, const char *text,
         // Add new variable to seen_vars
         if (seen_count >= seen_capacity) {
           seen_capacity *= 2;
-          SeenVar *new_vars = realloc(seen_vars, seen_capacity * sizeof(SeenVar));
+          SeenVar *new_vars =
+              realloc(seen_vars, seen_capacity * sizeof(SeenVar));
           if (!new_vars) {
             // Can't expand, skip adding this variable
           } else {
@@ -2369,7 +2446,8 @@ static void check_undefined_variables(AST *ast, const char *text,
         }
       } else {
         // Check if variable was already assigned (reassignment check)
-        // Note: Variable was already added to seen_vars above, so we just need to check
+        // Note: Variable was already added to seen_vars above, so we just need
+        // to check
         bool found = false;
         bool was_immutable = false;
         size_t occurrence = 0;
@@ -2644,13 +2722,14 @@ static void check_undefined_variables(AST *ast, const char *text,
           }
         }
 
-        // Note: Variable already added to seen_vars at the start of AST_ASSIGN handling
-        // (lines 2302-2333), no need to add again here
+        // Note: Variable already added to seen_vars at the start of AST_ASSIGN
+        // handling (lines 2302-2333), no need to add again here
       }
       // Check expressions in assignment value
       if (node->as.assign.value) {
         check_expression(node->as.assign.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         pos, remaining, has_diagnostics, seen_vars,
+                         seen_count);
       }
     }
 
@@ -2658,7 +2737,8 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_PRINT) {
       if (node->as.print.value) {
         check_expression(node->as.print.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         pos, remaining, has_diagnostics, seen_vars,
+                         seen_count);
       }
     }
 
@@ -2666,7 +2746,8 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_IF) {
       if (node->as.if_stmt.condition) {
         check_expression(node->as.if_stmt.condition, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
       // Check else-if conditions
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
@@ -2689,15 +2770,18 @@ static void check_undefined_variables(AST *ast, const char *text,
       }
       if (node->as.for_stmt.iterable) {
         check_expression(node->as.for_stmt.iterable, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
       if (node->as.for_stmt.end) {
         check_expression(node->as.for_stmt.end, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         pos, remaining, has_diagnostics, seen_vars,
+                         seen_count);
       }
       if (node->as.for_stmt.step) {
         check_expression(node->as.for_stmt.step, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
     }
 
@@ -2705,7 +2789,8 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_WHILE) {
       if (node->as.while_stmt.condition) {
         check_expression(node->as.while_stmt.condition, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
     }
 
@@ -2713,7 +2798,8 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_RETURN) {
       if (node->as.return_stmt.value) {
         check_expression(node->as.return_stmt.value, text, symbols, ast,
-                         diagnostics, pos, remaining, has_diagnostics, seen_vars, seen_count);
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count);
       }
     }
 
@@ -4305,6 +4391,7 @@ static void handle_completion(const char *id, const char *body) {
       {"times", "Multiplication operator"},
       {"divided", "Division operator"},
       {"by", "Step value or division (divided by)"},
+      {"mod", "Modulo operator"},
       // Comparison operators
       {"is", "Comparison prefix (is equal to)"},
       {"equal", "Equality comparison"},

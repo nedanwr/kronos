@@ -133,6 +133,8 @@ set empty to map
 | Subtraction | `a minus b` | `set diff to 10 minus 4` |
 | Multiplication | `a times b` | `set prod to 6 times 7` |
 | Division | `a divided by b` | `set quot to 20 divided by 4` |
+| Modulo | `a mod b` | `set rem to 10 mod 3` |
+| Unary Negation | `-a` | `set neg to -5` |
 
 ## Comparisons
 | Operation | Syntax |
@@ -271,6 +273,7 @@ while x is less than 100:
 - `times` - Multiplication
 - `divided` - Division
 - `by` - Division operator
+- `mod` - Modulo operator
 - `is` - Comparison start
 - `equal` - Equality
 - `not` - Negation

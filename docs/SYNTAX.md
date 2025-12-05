@@ -257,6 +257,46 @@ set quotient to 20 divided by 4
 print quotient
 ```
 
+### Modulo
+
+```
+<value> mod <value>
+```
+
+Returns the remainder after division.
+
+```kronos
+set remainder to 10 mod 3
+print remainder  # 1
+
+set result to 100 mod 7
+print result  # 2
+```
+
+**Note:** Modulo by zero will result in an error.
+
+### Unary Negation
+
+```
+-<value>
+```
+
+Negates a number (makes it negative if positive, or positive if negative).
+
+```kronos
+set neg to -5
+print neg  # -5
+
+set x to 10
+set neg_x to -x
+print neg_x  # -10
+
+set result to -5 plus 3
+print result  # -2
+```
+
+**Note:** Double negation (`--x`) is supported for multiple levels of negation.
+
 ### Complex Expressions
 
 Operations are evaluated left to right. Use variables to control order:
@@ -280,11 +320,13 @@ set sum to x plus y
 set diff to x minus y
 set prod to x times y
 set quot to x divided by y
+set rem to x mod y
 
 print sum
 print diff
 print prod
 print quot
+print rem
 ```
 
 ---

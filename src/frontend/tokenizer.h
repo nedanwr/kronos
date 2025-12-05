@@ -53,6 +53,7 @@ typedef enum {
   TOK_TIMES,
   TOK_DIVIDED,
   TOK_BY,
+  TOK_MOD,
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,

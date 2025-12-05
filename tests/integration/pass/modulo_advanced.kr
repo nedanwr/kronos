@@ -1,0 +1,26 @@
+# Test: Advanced modulo operations
+# Expected: Pass
+
+# Modulo with floating point
+set result1 to 10.5 mod 3.2
+print result1
+
+# Modulo with negative numbers
+set result2 to -10 mod 3
+print result2
+
+# Modulo in complex expression
+set a to 20
+set b to 7
+set result3 to a mod b
+print result3
+
+# Modulo with precedence
+set result4 to 10 mod 3 plus 5
+print result4
+
+# Modulo in conditional
+set x to 15
+if x mod 5 is equal 0:
+    print "divisible by 5"
+

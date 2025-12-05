@@ -234,6 +234,7 @@ static int get_precedence(TokenType type) {
     return 4; // Arithmetic (lower than multiplication)
   case TOK_TIMES:
   case TOK_DIVIDED:
+  case TOK_MOD:
     return 5; // Highest arithmetic precedence
   default:
     return 0; // Not a binary operator
@@ -903,7 +904,7 @@ static ASTNode *parse_primary(Parser *p) {
  * @return AST node for the expression, or NULL on error
  */
 static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
-  // Handle unary NOT operator (prefix)
+  // Handle unary operators (NOT and negation)
   ASTNode *left = NULL;
   Token *tok = peek(p, 0);
   if (tok && tok->type == TOK_NOT) {
@@ -917,6 +918,33 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     node->as.binop.op = BINOP_NOT;
     node->as.binop.right = NULL; // NULL indicates unary operation
     left = node;
+  } else if (tok && tok->type == TOK_MINUS) {
+    // Check if this is unary negation (not binary subtraction)
+    // Peek ahead to see if there's a value after the minus
+    Token *next = peek(p, 1);
+    if (next && (next->type == TOK_NUMBER || next->type == TOK_NAME ||
+                 next->type == TOK_LIST || next->type == TOK_RANGE ||
+                 next->type == TOK_MAP || next->type == TOK_CALL ||
+                 next->type == TOK_MINUS || next->type == TOK_NOT ||
+                 next->type == TOK_TRUE || next->type == TOK_FALSE ||
+                 next->type == TOK_NULL || next->type == TOK_UNDEFINED ||
+                 next->type == TOK_STRING || next->type == TOK_FSTRING)) {
+      consume_any(p); // consume MINUS
+      // Parse the operand recursively to handle nested unary operators
+      ASTNode *operand = parse_expression_prec(p, 10); // High precedence to bind tightly
+      if (!operand)
+        return NULL;
+      ASTNode *node = ast_node_new_checked(AST_BINOP);
+      node->as.binop.left = operand;
+      node->as.binop.op = BINOP_NEG; // Use a new unary operator
+      node->as.binop.right = NULL; // NULL indicates unary operation
+      left = node;
+    } else {
+      // Binary subtraction - parse primary and continue
+      left = parse_primary(p);
+      if (!left)
+        return NULL;
+    }
   } else {
     // Parse primary expression (values, list literals, postfix operations)
     left = parse_primary(p);
@@ -972,6 +1000,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       }
       break;
     }
+    case TOK_MOD:
+      prec = get_precedence(TOK_MOD);
+      op = BINOP_MOD;
+      is_binary_op = true;
+      break;
     case TOK_IS: {
       size_t consume_count = 0;
       if (match_comparison_operator(p, &op, &consume_count)) {

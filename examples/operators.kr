@@ -1,0 +1,50 @@
+# Kronos Operators Example
+
+print "=== Arithmetic Operators ==="
+
+# Basic arithmetic
+set x to 10
+set y to 3
+
+print f"x = {x}, y = {y}"
+print f"x plus y = {x plus y}"
+print f"x minus y = {x minus y}"
+print f"x times y = {x times y}"
+print f"x divided by y = {x divided by y}"
+
+# Modulo operator
+print ""
+print "=== Modulo Operator ==="
+set remainder to x mod y
+print f"{x} mod {y} = {remainder}"
+
+set check to 15 mod 5
+print f"15 mod 5 = {check}"
+
+# Unary negation
+print ""
+print "=== Unary Negation ==="
+set positive to 5
+set negative to -positive
+print f"positive = {positive}"
+print f"negative = {negative}"
+
+set literal_neg to -10
+print f"Literal negation: -10 = {literal_neg}"
+
+# Double negation
+set double_neg to --positive
+print f"Double negation: --{positive} = {double_neg}"
+
+# Complex expressions
+print ""
+print "=== Complex Expressions ==="
+set result1 to -x plus y
+print f"-{x} plus {y} = {result1}"
+
+set result2 to x mod y times 2
+print f"{x} mod {y} times 2 = {result2}"
+
+set result3 to -x mod y
+print f"-{x} mod {y} = {result3}"
+
