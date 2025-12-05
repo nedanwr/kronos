@@ -1,0 +1,6 @@
+# Test: Modulo by zero should error
+# Expected: Fail with error
+
+set x to 10 mod 0
+print x
+
