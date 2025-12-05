@@ -1396,6 +1396,62 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       break;
     }
 
+    case OP_MOD: {
+      KronosValue *b = pop(vm);
+      if (!b) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      KronosValue *a = pop(vm);
+      if (!a) {
+        value_release(b);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
+        if (b->as.number == 0) {
+          int err = vm_error(vm, KRONOS_ERR_RUNTIME, "Cannot modulo by zero");
+          value_release(a);
+          value_release(b);
+          return err;
+        }
+        // Use fmod for floating-point modulo
+        KronosValue *result = value_new_number(fmod(a->as.number, b->as.number));
+        push(vm, result);
+        value_release(result);
+      } else {
+        int err = vm_error(vm, KRONOS_ERR_RUNTIME,
+                           "Cannot modulo - both values must be numbers");
+        value_release(a);
+        value_release(b);
+        return err;
+      }
+
+      value_release(a);
+      value_release(b);
+      break;
+    }
+
+    case OP_NEG: {
+      KronosValue *val = pop(vm);
+      if (!val) {
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+
+      if (val->type == VAL_NUMBER) {
+        KronosValue *result = value_new_number(-val->as.number);
+        push(vm, result);
+        value_release(result);
+      } else {
+        int err = vm_error(vm, KRONOS_ERR_RUNTIME,
+                           "Cannot negate - value must be a number");
+        value_release(val);
+        return err;
+      }
+
+      value_release(val);
+      break;
+    }
+
     case OP_EQ: {
       KronosValue *b = pop(vm);
       if (!b) {
