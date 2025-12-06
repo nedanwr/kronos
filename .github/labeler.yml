@@ -1,0 +1,77 @@
+# Auto-labeling configuration for issues and PRs based on title and body
+
+# Bug labels
+bug:
+  - 'title: (?i)(bug|error|crash|exception|fail|broken|issue|fix)'
+  - 'body: (?i)(bug|error|crash|exception|fail|broken|issue|fix)'
+
+# Feature labels
+enhancement:
+  - 'title: (?i)(feature|enhancement|add|implement|new|request)'
+  - 'body: (?i)(feature|enhancement|add|implement|new|request)'
+
+# Documentation labels
+documentation:
+  - 'title: (?i)(doc|documentation|readme|guide|tutorial)'
+  - 'body: (?i)(doc|documentation|readme|guide|tutorial)'
+
+# Testing labels
+test:
+  - 'title: (?i)(test|testing|spec|coverage)'
+  - 'body: (?i)(test|testing|spec|coverage)'
+
+# Refactoring labels
+refactor:
+  - 'title: (?i)(refactor|cleanup|restructure|reorganize)'
+  - 'body: (?i)(refactor|cleanup|restructure|reorganize)'
+
+# Performance labels
+performance:
+  - 'title: (?i)(performance|optimize|speed|slow|fast)'
+  - 'body: (?i)(performance|optimize|speed|slow|fast)'
+
+# LSP labels
+lsp:
+  - 'title: (?i)(lsp|language server|autocomplete|hover|definition)'
+  - 'body: (?i)(lsp|language server|autocomplete|hover|definition)'
+
+# VM labels
+vm:
+  - 'title: (?i)(vm|virtual machine|bytecode|instruction|opcode)'
+  - 'body: (?i)(vm|virtual machine|bytecode|instruction|opcode)'
+
+# Compiler labels
+compiler:
+  - 'title: (?i)(compiler|compile|ast|bytecode generation)'
+  - 'body: (?i)(compiler|compile|ast|bytecode generation)'
+
+# Parser labels
+parser:
+  - 'title: (?i)(parser|parse|syntax|ast)'
+  - 'body: (?i)(parser|parse|syntax|ast)'
+
+# Tokenizer labels
+tokenizer:
+  - 'title: (?i)(tokenizer|token|lexer|lexical)'
+  - 'body: (?i)(tokenizer|token|lexer|lexical)'
+
+# GC labels
+gc:
+  - 'title: (?i)(gc|garbage collection|memory|leak)'
+  - 'body: (?i)(gc|garbage collection|memory|leak)'
+
+# Runtime labels
+runtime:
+  - 'title: (?i)(runtime|value|type|execution)'
+  - 'body: (?i)(runtime|value|type|execution)'
+
+# Breaking change labels
+breaking:
+  - 'title: (?i)(breaking|break|incompatible|migration)'
+  - 'body: (?i)(breaking|break|incompatible|migration)'
+
+# Question labels
+question:
+  - 'title: (?i)(question|how|why|what|help|support)'
+  - 'body: (?i)(question|how|why|what|help|support)'
+

@@ -1,0 +1,56 @@
+# Auto-labeling configuration for PRs based on changed files
+
+# Documentation changes
+documentation:
+  - '**/*.md'
+  - 'docs/**'
+  - '.github/**/*.md'
+
+# Test changes
+test:
+  - 'tests/**'
+  - '**/*test*.c'
+  - '**/*test*.kr'
+
+# Source code changes
+code:
+  - 'src/**'
+  - 'main.c'
+  - 'include/**'
+
+# Core runtime changes
+runtime:
+  - 'src/core/**'
+
+# Frontend changes (tokenizer/parser)
+frontend:
+  - 'src/frontend/**'
+
+# Compiler changes
+compiler:
+  - 'src/compiler/**'
+
+# VM changes
+vm:
+  - 'src/vm/**'
+
+# LSP changes
+lsp:
+  - 'src/lsp/**'
+  - 'vscode-extension/**'
+
+# Example changes
+examples:
+  - 'examples/**'
+
+# Build system changes
+build:
+  - 'Makefile'
+  - '*.sh'
+  - '.github/workflows/**'
+
+# CI/CD changes
+ci:
+  - '.github/workflows/**'
+  - '.github/ISSUE_TEMPLATE/**'
+

@@ -1,0 +1,95 @@
+name: Auto Label
+
+on:
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label-issues:
+    name: Label Issues
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-label issue
+        uses: actions/labeler@v4
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler.yml
+          sync-labels: true
+
+  label-prs:
+    name: Label Pull Requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Auto-label based on title and body
+        uses: actions/labeler@v4
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler.yml
+          sync-labels: true
+
+      - name: Auto-label based on changed files
+        uses: actions/labeler@v4
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler-files.yml
+          sync-labels: true
+
+      - name: Label based on commit type
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const labels = new Set();
+            
+            // Check commit messages for type prefixes
+            for (const commit of commits) {
+              const message = commit.commit.message;
+              
+              if (/\(feat\):/i.test(message)) {
+                labels.add('enhancement');
+              }
+              if (/\(fix\):/i.test(message)) {
+                labels.add('bug');
+              }
+              if (/\(docs\):/i.test(message)) {
+                labels.add('documentation');
+              }
+              if (/\(test\):/i.test(message)) {
+                labels.add('test');
+              }
+              if (/\(refactor\):/i.test(message)) {
+                labels.add('refactor');
+              }
+              if (/\(chore\):/i.test(message)) {
+                labels.add('chore');
+              }
+            }
+
+            // Add labels if any were found
+            if (labels.size > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: Array.from(labels),
+              });
+            }
