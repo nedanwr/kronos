@@ -21,7 +21,6 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const core = require('@actions/core');
             const title = context.payload.issue.title.toLowerCase();
             const body = (context.payload.issue.body || '').toLowerCase();
             const combined = `${title} ${body}`;
@@ -127,8 +126,6 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const core = require('@actions/core');
-
             let commits;
             try {
               const response = await github.rest.pulls.listCommits({
