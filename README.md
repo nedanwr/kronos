@@ -5,6 +5,7 @@ A high-performance programming language built in C with human-readable syntax, f
 ## Features
 
 ### Language Features
+
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
 - **Optional Type Annotations**: Enforce types with the `as` keyword
@@ -19,6 +20,7 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Functions**: First-class functions with parameters, return values, and local scoping
 
 ### Runtime & Performance
+
 - **Fast Execution**: Bytecode VM with optimized execution (Python/JS performance levels)
 - **Reference Counting GC**: Automatic memory management with cycle detection
 - **Direct Execution**: No build step required - just run `.kr` files directly
@@ -26,6 +28,7 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Small Binary**: ~58KB compiled binary, ~15ms startup time
 
 ### Developer Experience
+
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
 - **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
 - **Comprehensive Testing**: 71 tests (42 passing, 29 error cases) ensuring reliability
