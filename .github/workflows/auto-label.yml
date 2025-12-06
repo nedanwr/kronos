@@ -1,0 +1,166 @@
+name: Auto Label
+
+on:
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label-issues:
+    name: Label Issues
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-label issue based on title and body
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = context.payload.issue.title.toLowerCase();
+            const body = (context.payload.issue.body || '').toLowerCase();
+            const combined = `${title} ${body}`;
+
+            const labels = [];
+
+            // Bug detection
+            if (/bug|error|crash|exception|fail|broken|issue|fix/.test(combined)) {
+              labels.push('bug');
+            }
+
+            // Feature detection
+            if (/feature|enhancement|add|implement|new|request/.test(combined)) {
+              labels.push('enhancement');
+            }
+
+            // Documentation detection
+            if (/doc|documentation|readme|guide|tutorial/.test(combined)) {
+              labels.push('documentation');
+            }
+
+            // Test detection
+            if (/test|testing|spec|coverage/.test(combined)) {
+              labels.push('test');
+            }
+
+            // Refactor detection
+            if (/refactor|cleanup|restructure|reorganize/.test(combined)) {
+              labels.push('refactor');
+            }
+
+            // Performance detection
+            if (/performance|optimize|speed|slow|fast/.test(combined)) {
+              labels.push('performance');
+            }
+
+            // Component-specific labels
+            if (/lsp|language server|autocomplete|hover|definition/.test(combined)) {
+              labels.push('lsp');
+            }
+            if (/vm|virtual machine|bytecode|instruction|opcode/.test(combined)) {
+              labels.push('vm');
+            }
+            if (/compiler|compile|ast|bytecode generation/.test(combined)) {
+              labels.push('compiler');
+            }
+            if (/parser|parse|syntax|ast/.test(combined)) {
+              labels.push('parser');
+            }
+            if (/tokenizer|token|lexer|lexical/.test(combined)) {
+              labels.push('tokenizer');
+            }
+            if (/gc|garbage collection|memory|leak/.test(combined)) {
+              labels.push('gc');
+            }
+            if (/runtime|value|type|execution/.test(combined)) {
+              labels.push('runtime');
+            }
+
+            // Breaking change detection
+            if (/breaking|break|incompatible|migration/.test(combined)) {
+              labels.push('breaking');
+            }
+
+            // Question detection
+            if (/question|how|why|what|help|support/.test(combined)) {
+              labels.push('question');
+            }
+
+            // Add labels if any were found
+            if (labels.length > 0) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: labels,
+                });
+              } catch (error) {
+                console.error('Failed to add labels:', error);
+                core.setFailed(`Failed to add labels to issue #${context.issue.number}: ${error.message}`);
+              }
+            }
+
+  label-prs:
+    name: Label Pull Requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Auto-label based on changed files
+        uses: actions/labeler@v6
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler-files.yml
+          sync-labels: true
+
+      - name: Label based on PR title
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            let label = null;
+
+            if (/^\(feat\):/i.test(title)) {
+              label = 'enhancement';
+            } else if (/^\(fix\):/i.test(title)) {
+              label = 'bug';
+            } else if (/^\(docs\):/i.test(title)) {
+              label = 'documentation';
+            } else if (/^\(test\):/i.test(title)) {
+              label = 'test';
+            } else if (/^\(refactor\):/i.test(title)) {
+              label = 'refactor';
+            } else if (/^\(chore\):/i.test(title)) {
+              label = 'chore';
+            } else if (/^\(perf\):/i.test(title)) {
+              label = 'performance';
+            } else if (/^\(ci\):/i.test(title)) {
+              label = 'ci';
+            } else if (/^\(style\):/i.test(title)) {
+              label = 'style';
+            } else if (/^\(breaking\):/i.test(title)) {
+              label = 'breaking';
+            }
+
+            if (label) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: [label],
+                });
+              } catch (error) {
+                console.error('Failed to add label:', error);
+                core.setFailed(`Failed to add label to PR #${context.issue.number}: ${error.message}`);
+              }
+            }
