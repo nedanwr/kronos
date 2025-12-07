@@ -1,0 +1,6 @@
+# Test regex with wrong argument types
+# Expected: Error about wrong argument types
+
+set result to call regex.match with 123, "pattern"
+print result
+

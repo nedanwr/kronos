@@ -1,0 +1,38 @@
+# Regex special characters and escaping
+# Expected output:
+# true
+# true
+# true
+# true
+# [., !, ?]
+# [., .]
+# true
+
+# Dot matches any character
+set result1 to call regex.match with "a", "."
+print result1
+
+# Escaped dot matches literal dot
+set result2 to call regex.match with ".", "\\."
+print result2
+
+# Square brackets for character class
+set result3 to call regex.match with "a", "[abc]"
+print result3
+
+# Parentheses for grouping
+set result4 to call regex.match with "ab", "(ab)"
+print result4
+
+# Findall with special characters
+set result5 to call regex.findall with "Hello. World! How?", "[.!?]"
+print result5
+
+# Multiple dots
+set result6 to call regex.findall with "file.txt backup.tar.gz", "\\.[a-z]+"
+print result6
+
+# Asterisk (zero or more)
+set result7 to call regex.match with "ab", "a*b"
+print result7
+

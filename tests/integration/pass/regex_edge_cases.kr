@@ -1,0 +1,53 @@
+# Regex edge cases
+# Expected output:
+# true
+# false
+# true
+# null
+# []
+# [a, a, a]
+# [123]
+# true
+# false
+# true
+
+# Empty string matching with wildcard
+set result1 to call regex.match with "", ".*"
+print result1
+
+# Empty string with specific pattern (no match)
+set result2 to call regex.match with "", "a"
+print result2
+
+# Pattern matching empty string
+set result3 to call regex.match with "", ".*"
+print result3
+
+# Search with no match
+set result4 to call regex.search with "hello", "xyz"
+print result4
+
+# Findall with no matches
+set result5 to call regex.findall with "hello", "xyz"
+print result5
+
+# Findall with overlapping potential matches (should find all)
+set result6 to call regex.findall with "aaa", "a"
+print result6
+
+# Findall with single match
+set result7 to call regex.findall with "abc123def", "[0-9]+"
+print result7
+
+# Anchors - start of string
+set result8 to call regex.match with "hello", "^h"
+print result8
+
+# Anchors - end of string
+set result9 to call regex.match with "hello", "o$"
+print result9
+
+# Full string match with anchors
+set result10 to call regex.match with "hello", "^hello$"
+print result10
+

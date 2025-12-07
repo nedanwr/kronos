@@ -1,0 +1,30 @@
+# Regex alternation (OR)
+# Expected output:
+# true
+# true
+# true
+# false
+# [cat, dog]
+# [red, blue]
+
+# Alternation with pipe
+set result1 to call regex.match with "cat", "cat|dog"
+print result1
+
+set result2 to call regex.match with "dog", "cat|dog"
+print result2
+
+set result3 to call regex.match with "cat", "(cat|dog)"
+print result3
+
+set result4 to call regex.match with "bird", "cat|dog"
+print result4
+
+# Findall with alternation
+set result5 to call regex.findall with "I have a cat and a dog", "cat|dog"
+print result5
+
+# Multiple alternations
+set result6 to call regex.findall with "red blue green", "red|blue"
+print result6
+

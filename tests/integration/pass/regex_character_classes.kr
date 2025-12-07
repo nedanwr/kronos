@@ -1,0 +1,43 @@
+# Regex character classes
+# Expected output:
+# true
+# true
+# true
+# true
+# [1, 2, 3]
+# [a, b, c]
+# [A, B, C]
+# [1, 2, 3, a, b, c]
+
+# Digits
+set result1 to call regex.match with "5", "[0-9]"
+print result1
+
+# Letters
+set result2 to call regex.match with "x", "[a-z]"
+print result2
+
+# Uppercase
+set result3 to call regex.match with "X", "[A-Z]"
+print result3
+
+# Alphanumeric
+set result4 to call regex.match with "9", "[a-zA-Z0-9]"
+print result4
+
+# Findall digits
+set result5 to call regex.findall with "abc123def", "[0-9]"
+print result5
+
+# Findall lowercase
+set result6 to call regex.findall with "ABCabcDEF", "[a-z]"
+print result6
+
+# Findall uppercase
+set result7 to call regex.findall with "ABCabcDEF", "[A-Z]"
+print result7
+
+# Findall alphanumeric
+set result8 to call regex.findall with "123abc456", "[a-zA-Z0-9]"
+print result8
+

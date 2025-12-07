@@ -1,0 +1,19 @@
+# Test regex.findall function
+# Expected output:
+# [cat, bat, sat]
+# [123, 456, 789]
+# []
+# [a, a, a]
+
+set result1 to call regex.findall with "cat, bat, sat", "[a-z]at"
+print result1
+
+set result2 to call regex.findall with "abc123def456ghi789", "[0-9]+"
+print result2
+
+set result3 to call regex.findall with "hello world", "xyz"
+print result3
+
+set result4 to call regex.findall with "banana", "a"
+print result4
+
