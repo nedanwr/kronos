@@ -1334,7 +1334,12 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "to_string") == 0 ||
       strcmp(func_name, "to_number") == 0 ||
       strcmp(func_name, "to_bool") == 0 || strcmp(func_name, "reverse") == 0 ||
-      strcmp(func_name, "sort") == 0) {
+      strcmp(func_name, "sort") == 0 || strcmp(func_name, "read_file") == 0 ||
+      strcmp(func_name, "read_lines") == 0 ||
+      strcmp(func_name, "file_exists") == 0 ||
+      strcmp(func_name, "list_files") == 0 ||
+      strcmp(func_name, "dirname") == 0 ||
+      strcmp(func_name, "basename") == 0) {
     return 1;
   }
 
@@ -1344,7 +1349,9 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "power") == 0 || strcmp(func_name, "split") == 0 ||
       strcmp(func_name, "contains") == 0 ||
       strcmp(func_name, "starts_with") == 0 ||
-      strcmp(func_name, "ends_with") == 0) {
+      strcmp(func_name, "ends_with") == 0 ||
+      strcmp(func_name, "write_file") == 0 ||
+      strcmp(func_name, "join_path") == 0) {
     return 2;
   }
 
@@ -4579,6 +4586,14 @@ static void handle_completion(const char *id, const char *body) {
       {"max", "Maximum of numbers"},
       {"reverse", "Reverse a list"},
       {"sort", "Sort a list"},
+      {"read_file", "Read entire file content as string"},
+      {"write_file", "Write string content to file (path, content)"},
+      {"read_lines", "Read file and return list of lines"},
+      {"file_exists", "Check if file or directory exists"},
+      {"list_files", "List files in directory"},
+      {"join_path", "Join two path components (path1, path2)"},
+      {"dirname", "Get directory name from path"},
+      {"basename", "Get file name from path"},
   };
 
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {

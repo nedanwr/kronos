@@ -1,0 +1,6 @@
+# Attempt to read non-existent file
+# Expected: Runtime error about file not found
+
+set content to call read_file with "nonexistent_file_12345.txt"
+print content
+

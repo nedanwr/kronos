@@ -1,0 +1,33 @@
+# Basic file I/O operations
+# Expected output:
+# File content: Hello, World!
+# File exists: true
+# Lines: 1
+# Line 1: Single line content
+
+# Write a test file
+call write_file with "test_file.txt", "Hello, World!"
+
+# Read it back
+set content to call read_file with "test_file.txt"
+print f"File content: {content}"
+
+# Check if file exists
+set exists to call file_exists with "test_file.txt"
+print f"File exists: {exists}"
+
+# Write a single-line file
+call write_file with "test_lines.txt", "Single line content"
+
+# Read lines
+set lines to call read_lines with "test_lines.txt"
+set line_count to call len with lines
+print f"Lines: {line_count}"
+
+# Print each line (only if we have lines)
+if line_count is greater than 0:
+    for i in range 0 to line_count minus 1:
+        let line_num to i plus 1
+        set line to lines at i
+        print f"Line {line_num}: {line}"
+

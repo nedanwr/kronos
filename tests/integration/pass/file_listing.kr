@@ -1,0 +1,14 @@
+# File listing operations
+# Expected output:
+# Current directory has files
+# Files listed successfully
+
+# Check if current directory exists
+set dir_exists to call file_exists with "."
+print f"Current directory has files: {dir_exists}"
+
+# List files in current directory
+set files to call list_files with "."
+set file_count to call len with files
+print f"Files listed successfully: {file_count is greater than 0}"
+

@@ -101,22 +101,22 @@ This document outlines the planned features and release schedule for Kronos.
       print "Cleanup"
   ```
 
-- 🔄 **File I/O Operations** - Complete file system interface
+- ✅ **File I/O Operations** - Complete file system interface (completed)
 
   ```kronos
-  set content to read_file "data.txt"
-  write_file "output.txt", content
-  set lines to read_lines "data.txt"
-  set exists to file_exists "data.txt"
-  set files to list_files "."
+  set content to call read_file with "data.txt"
+  call write_file with "output.txt", content
+  set lines to call read_lines with "data.txt"
+  set exists to call file_exists with "data.txt"
+  set files to call list_files with "."
   ```
 
-- 🔄 **Path Operations** - File path utilities
+- ✅ **Path Operations** - File path utilities (completed)
 
   ```kronos
-  set full_path to join_path "dir", "file.txt"
-  set dir to dirname "/path/to/file.txt"
-  set file to basename "/path/to/file.txt"
+  set full_path to call join_path with "dir", "file.txt"
+  set dir to call dirname with "/path/to/file.txt"
+  set file to call basename with "/path/to/file.txt"
   ```
 
 - 🔄 **Regular Expressions** - Pattern matching and text processing

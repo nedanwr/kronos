@@ -22,6 +22,7 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3489,6 +3490,509 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         push(vm, result);
         value_release(result);
         value_release(arg);
+        break;
+      }
+
+      // Built-in: read_file(path)
+      if (strcmp(func_name, "read_file") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'read_file' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'read_file' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        FILE *file = fopen(path_arg->as.string.data, "r");
+        if (!file) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to open file '%s'",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          return err;
+        }
+
+        // Get file size
+        fseek(file, 0, SEEK_END);
+        long file_size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        if (file_size < 0) {
+          fclose(file);
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to determine file size for '%s'",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          return err;
+        }
+
+        // Read file content
+        char *content = malloc((size_t)file_size + 1);
+        if (!content) {
+          fclose(file);
+          value_release(path_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+
+        size_t bytes_read = fread(content, 1, (size_t)file_size, file);
+        content[bytes_read] = '\0';
+        fclose(file);
+
+        KronosValue *result = value_new_string(content, bytes_read);
+        free(content);
+        value_release(path_arg);
+
+        if (!result) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: write_file(path, content)
+      if (strcmp(func_name, "write_file") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'write_file' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *content_arg = pop(vm);
+        if (!content_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          value_release(content_arg);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING || content_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'write_file' requires two string arguments");
+          value_release(path_arg);
+          value_release(content_arg);
+          return err;
+        }
+
+        FILE *file = fopen(path_arg->as.string.data, "w");
+        if (!file) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to open file '%s' for writing",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          value_release(content_arg);
+          return err;
+        }
+
+        size_t bytes_written = fwrite(content_arg->as.string.data, 1,
+                                      content_arg->as.string.length, file);
+        fclose(file);
+
+        if (bytes_written != content_arg->as.string.length) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to write all content to file '%s'",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          value_release(content_arg);
+          return err;
+        }
+
+        // Return nil (success)
+        KronosValue *result = value_new_nil();
+        push(vm, result);
+        value_release(result);
+        value_release(path_arg);
+        value_release(content_arg);
+        break;
+      }
+
+      // Built-in: read_lines(path)
+      if (strcmp(func_name, "read_lines") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'read_lines' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'read_lines' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        FILE *file = fopen(path_arg->as.string.data, "r");
+        if (!file) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to open file '%s'",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          return err;
+        }
+
+        KronosValue *result = value_new_list(16);
+        if (!result) {
+          fclose(file);
+          value_release(path_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+
+        char *line = NULL;
+        size_t line_len = 0;
+        ssize_t read;
+
+        while ((read = getline(&line, &line_len, file)) != -1) {
+          // Remove trailing newline if present
+          if (read > 0 && line[read - 1] == '\n') {
+            read--;
+            line[read] = '\0';
+          }
+
+          KronosValue *line_val = value_new_string(line, (size_t)read);
+          if (!line_val) {
+            free(line);
+            fclose(file);
+            value_release(result);
+            value_release(path_arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to create string value");
+          }
+
+          // Grow list if needed
+          if (result->as.list.count >= result->as.list.capacity) {
+            size_t new_cap = result->as.list.capacity * 2;
+            KronosValue **new_items =
+                realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+            if (!new_items) {
+              value_release(line_val);
+              free(line);
+              fclose(file);
+              value_release(result);
+              value_release(path_arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+            }
+            result->as.list.items = new_items;
+            result->as.list.capacity = new_cap;
+          }
+
+          value_retain(line_val);
+          result->as.list.items[result->as.list.count++] = line_val;
+          value_release(line_val);
+        }
+
+        free(line);
+        fclose(file);
+        value_release(path_arg);
+
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: file_exists(path)
+      if (strcmp(func_name, "file_exists") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'file_exists' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'file_exists' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        struct stat st;
+        int exists = (stat(path_arg->as.string.data, &st) == 0);
+        value_release(path_arg);
+
+        KronosValue *result = value_new_bool(exists);
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: list_files(path)
+      if (strcmp(func_name, "list_files") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'list_files' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'list_files' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        DIR *dir = opendir(path_arg->as.string.data);
+        if (!dir) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Failed to open directory '%s'",
+                              path_arg->as.string.data);
+          value_release(path_arg);
+          return err;
+        }
+
+        KronosValue *result = value_new_list(16);
+        if (!result) {
+          closedir(dir);
+          value_release(path_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+          // Skip . and ..
+          if (strcmp(entry->d_name, ".") == 0 ||
+              strcmp(entry->d_name, "..") == 0) {
+            continue;
+          }
+
+          size_t name_len = strlen(entry->d_name);
+          KronosValue *name_val = value_new_string(entry->d_name, name_len);
+          if (!name_val) {
+            closedir(dir);
+            value_release(result);
+            value_release(path_arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to create string value");
+          }
+
+          // Grow list if needed
+          if (result->as.list.count >= result->as.list.capacity) {
+            size_t new_cap = result->as.list.capacity * 2;
+            KronosValue **new_items =
+                realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+            if (!new_items) {
+              value_release(name_val);
+              closedir(dir);
+              value_release(result);
+              value_release(path_arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+            }
+            result->as.list.items = new_items;
+            result->as.list.capacity = new_cap;
+          }
+
+          value_retain(name_val);
+          result->as.list.items[result->as.list.count++] = name_val;
+          value_release(name_val);
+        }
+
+        closedir(dir);
+        value_release(path_arg);
+
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: join_path(path1, path2)
+      if (strcmp(func_name, "join_path") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'join_path' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *path2_arg = pop(vm);
+        if (!path2_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *path1_arg = pop(vm);
+        if (!path1_arg) {
+          value_release(path2_arg);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path1_arg->type != VAL_STRING || path2_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'join_path' requires two string arguments");
+          value_release(path1_arg);
+          value_release(path2_arg);
+          return err;
+        }
+
+        const char *path1 = path1_arg->as.string.data;
+        const char *path2 = path2_arg->as.string.data;
+        size_t path1_len = path1_arg->as.string.length;
+        size_t path2_len = path2_arg->as.string.length;
+
+        // Calculate result length
+        size_t result_len = path1_len + path2_len + 1; // +1 for separator
+        char *joined = malloc(result_len + 1);
+        if (!joined) {
+          value_release(path1_arg);
+          value_release(path2_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+        }
+
+        // Copy first path
+        memcpy(joined, path1, path1_len);
+        size_t offset = path1_len;
+
+        // Add separator if needed
+        if (path1_len > 0 && path1[path1_len - 1] != '/' && path2_len > 0 && path2[0] != '/') {
+          joined[offset++] = '/';
+        }
+
+        // Copy second path
+        memcpy(joined + offset, path2, path2_len);
+        offset += path2_len;
+        joined[offset] = '\0';
+
+        KronosValue *result = value_new_string(joined, offset);
+        free(joined);
+        value_release(path1_arg);
+        value_release(path2_arg);
+
+        if (!result) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: dirname(path)
+      if (strcmp(func_name, "dirname") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'dirname' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'dirname' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        const char *path = path_arg->as.string.data;
+        size_t path_len = path_arg->as.string.length;
+
+        // Find last separator
+        size_t last_sep = path_len;
+        for (size_t i = path_len; i > 0; i--) {
+          if (path[i - 1] == '/') {
+            last_sep = i - 1;
+            break;
+          }
+        }
+
+        // If no separator found, return "."
+        if (last_sep == path_len) {
+          KronosValue *result = value_new_string(".", 1);
+          value_release(path_arg);
+          if (!result) {
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to create string value");
+          }
+          push(vm, result);
+          value_release(result);
+          break;
+        }
+
+        // If separator is at start, return "/"
+        if (last_sep == 0) {
+          KronosValue *result = value_new_string("/", 1);
+          value_release(path_arg);
+          if (!result) {
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to create string value");
+          }
+          push(vm, result);
+          value_release(result);
+          break;
+        }
+
+        // Return path up to (but not including) last separator
+        KronosValue *result = value_new_string(path, last_sep);
+        value_release(path_arg);
+        if (!result) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
+        break;
+      }
+
+      // Built-in: basename(path)
+      if (strcmp(func_name, "basename") == 0) {
+        if (arg_count != 1) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'basename' expects 1 argument, got %d",
+                           arg_count);
+        }
+        KronosValue *path_arg = pop(vm);
+        if (!path_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (path_arg->type != VAL_STRING) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Function 'basename' requires a string argument");
+          value_release(path_arg);
+          return err;
+        }
+
+        const char *path = path_arg->as.string.data;
+        size_t path_len = path_arg->as.string.length;
+
+        // Find last separator
+        size_t last_sep = path_len;
+        for (size_t i = path_len; i > 0; i--) {
+          if (path[i - 1] == '/') {
+            last_sep = i - 1;
+            break;
+          }
+        }
+
+        // If no separator found, return entire path
+        if (last_sep == path_len) {
+          value_retain(path_arg);
+          push(vm, path_arg);
+          value_release(path_arg);
+          break;
+        }
+
+        // Return path after last separator
+        size_t name_start = last_sep + 1;
+        size_t name_len = path_len - name_start;
+        KronosValue *result = value_new_string(path + name_start, name_len);
+        value_release(path_arg);
+        if (!result) {
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create string value");
+        }
+        push(vm, result);
+        value_release(result);
         break;
       }
 

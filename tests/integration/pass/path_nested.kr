@@ -1,0 +1,24 @@
+# Nested path operations
+# Expected output:
+# Full path: /home/user/documents/file.txt
+# Directory: /home/user/documents
+# Parent dir: /home/user
+# File name: file.txt
+
+# Create a nested path
+set path1 to call join_path with "/home/user", "documents"
+set full_path to call join_path with path1, "file.txt"
+print f"Full path: {full_path}"
+
+# Get directory
+set dir to call dirname with full_path
+print f"Directory: {dir}"
+
+# Get parent directory
+set parent_dir to call dirname with dir
+print f"Parent dir: {parent_dir}"
+
+# Get file name
+set file_name to call basename with full_path
+print f"File name: {file_name}"
+
