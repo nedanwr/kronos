@@ -264,6 +264,18 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
   if (compiler_has_error(c))
     return SIZE_MAX;
 
+  // Check if this constant already exists (deduplication)
+  for (size_t i = 0; i < c->bytecode->const_count; i++) {
+    if (value_equals(c->bytecode->constants[i], value)) {
+      // Found existing constant - return its index
+      // Don't release here - let the caller (emit_constant) handle it
+      return i;
+    }
+  }
+
+  // Not found - add new constant
+  // Retain the value since the constant pool now owns a reference
+  value_retain(value);
   c->bytecode->constants[c->bytecode->const_count] = value;
   return c->bytecode->const_count++;
 }
@@ -292,8 +304,14 @@ static void emit_constant(Compiler *c, KronosValue *value) {
 
   if (idx > UINT16_MAX) {
     compiler_set_error(c, "Too many constants (limit 65535)");
+    if (value)
+      value_release(value);
     return;
   }
+
+  // Release our reference - the constant pool now owns it
+  value_release(value);
+
   emit_byte(c, OP_LOAD_CONST);
   emit_uint16(c, (uint16_t)idx);
 }
@@ -361,6 +379,8 @@ static void compile_expression(Compiler *c, ASTNode *node) {
         value_release(to_string_name);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(to_string_name);
       emit_byte(c, OP_CALL_FUNC);
       emit_uint16(c, (uint16_t)to_string_idx);
       emit_byte(c, 1); // 1 argument
@@ -394,6 +414,8 @@ static void compile_expression(Compiler *c, ASTNode *node) {
           value_release(to_string_name);
           return;
         }
+        // Release our reference - constant pool now owns it
+        value_release(to_string_name);
         emit_byte(c, OP_CALL_FUNC);
         emit_uint16(c, (uint16_t)to_string_idx);
         emit_byte(c, 1); // 1 argument
@@ -430,8 +452,11 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     }
     if (idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(name);
     emit_byte(c, OP_LOAD_VAR);
     emit_uint16(c, (uint16_t)idx);
     break;
@@ -565,6 +590,8 @@ static void compile_expression(Compiler *c, ASTNode *node) {
         value_release(one);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(one);
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)step_idx);
       if (compiler_has_error(c))
@@ -643,6 +670,8 @@ static void compile_expression(Compiler *c, ASTNode *node) {
         value_release(end_marker);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(end_marker);
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)end_idx);
       if (compiler_has_error(c))
@@ -672,8 +701,11 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     }
     if (name_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(func_name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(func_name);
 
     emit_byte(c, OP_CALL_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
@@ -717,8 +749,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     }
     if (idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(name);
     emit_byte(c, OP_STORE_VAR);
     emit_uint16(c, (uint16_t)idx);
     if (compiler_has_error(c))
@@ -741,8 +776,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
       if (type_idx > UINT16_MAX) {
         compiler_set_error(c, "Too many constants (limit 65535)");
+        value_release(type_val);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(type_val);
       emit_uint16(c, (uint16_t)type_idx);
     } else {
       emit_byte(c, 0); // no type specified
@@ -847,8 +885,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         }
         if (error_type_idx > UINT16_MAX) {
           compiler_set_error(c, "Too many constants");
+          value_release(error_type_val);
           return;
         }
+        // Release our reference - constant pool now owns it
+        value_release(error_type_val);
         emit_uint16(c, (uint16_t)error_type_idx);
       } else {
         // Catch all - use 0xFFFF as marker
@@ -867,8 +908,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         }
         if (catch_var_idx > UINT16_MAX) {
           compiler_set_error(c, "Too many constants");
+          value_release(catch_var_val);
           return;
         }
+        // Release our reference - constant pool now owns it
+        value_release(catch_var_val);
         emit_uint16(c, (uint16_t)catch_var_idx);
 
         // After OP_CATCH pushes error onto stack, store it as variable
@@ -905,8 +949,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
           }
           if (error_type_idx > UINT16_MAX) {
             compiler_set_error(c, "Too many constants");
+            value_release(error_type_val);
             return;
           }
+          // Release our reference - constant pool now owns it
+          value_release(error_type_val);
           emit_uint16(c, (uint16_t)error_type_idx);
         } else {
           emit_uint16(c, 0xFFFF);
@@ -922,8 +969,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
           }
           if (catch_var_idx > UINT16_MAX) {
             compiler_set_error(c, "Too many constants");
+            value_release(catch_var_val);
             return;
           }
+          // Release our reference - constant pool now owns it
+          value_release(catch_var_val);
           emit_uint16(c, (uint16_t)catch_var_idx);
 
           // After OP_CATCH pushes error onto stack, store it as variable
@@ -1005,8 +1055,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
       if (error_type_idx > UINT16_MAX) {
         compiler_set_error(c, "Too many constants");
+        value_release(error_type_val);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(error_type_val);
       emit_uint16(c, (uint16_t)error_type_idx);
     } else {
       // Generic Error type
@@ -1239,8 +1292,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     }
     if (var_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(var_name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(var_name);
 
     if (node->as.for_stmt.is_range) {
       // Range iteration: for i in range start to end [by step]
@@ -1397,6 +1453,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         value_release(iter_index_name_val);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(iter_index_name_val);
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_index_name_idx);
       emit_byte(c, 1); // mutable
@@ -1412,6 +1470,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         value_release(iter_list_name_val);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(iter_list_name_val);
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_list_name_idx);
       emit_byte(c, 1); // mutable
@@ -1614,8 +1674,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Store parameter count
     if (name_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(func_name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(func_name);
     emit_byte(c, OP_DEFINE_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
@@ -1635,8 +1698,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
       if (param_idx > UINT16_MAX) {
         compiler_set_error(c, "Too many constants (limit 65535)");
+        value_release(param_name);
         return;
       }
+      // Release our reference - constant pool now owns it
+      value_release(param_name);
       emit_uint16(c, (uint16_t)param_idx);
       if (compiler_has_error(c))
         return;
@@ -1700,8 +1766,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Call function
     if (name_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
+      value_release(func_name);
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(func_name);
     emit_byte(c, OP_CALL_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
@@ -1767,12 +1836,13 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
     }
     size_t file_path_idx = add_constant(c, file_path_val);
-    // add_constant takes ownership of the value - don't release on success
     if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
       value_release(file_path_val); // Only release on error
       compiler_set_error(c, "Failed to add file path constant");
       return;
     }
+    // Release our reference - constant pool now owns it
+    value_release(file_path_val);
     emit_uint16(c, (uint16_t)file_path_idx);
 
     break;
