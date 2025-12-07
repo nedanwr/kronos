@@ -1,0 +1,112 @@
+# File Operations Example
+# Demonstrates file I/O and path operations in Kronos
+
+print "=== File Operations Example ==="
+print ""
+
+# 1. Basic File Writing and Reading
+print "1. Basic File Operations:"
+call write_file with "example_data.txt", "Hello, Kronos!"
+set content to call read_file with "example_data.txt"
+print f"   Written and read: {content}"
+print ""
+
+# 2. Check File Existence
+print "2. File Existence Check:"
+set exists to call file_exists with "example_data.txt"
+print f"   File exists: {exists}"
+
+set not_exists to call file_exists with "nonexistent.txt"
+print f"   Non-existent file: {not_exists}"
+print ""
+
+# 3. Reading Lines from a File
+print "3. Reading File Lines:"
+# Create a multi-line file by writing content that will be read as lines
+call write_file with "example_lines.txt", "Line 1 content"
+# Note: For true multi-line files, you would need actual newlines
+# This demonstrates the read_lines function
+set lines to call read_lines with "example_lines.txt"
+set line_count to call len with lines
+print f"   Number of lines: {line_count}"
+for i in range 0 to line_count minus 1:
+    set line to lines at i
+    print f"   Line {i plus 1}: {line}"
+print ""
+
+# 4. Path Operations
+print "4. Path Operations:"
+# Join paths
+set data_dir to call join_path with "data", "files"
+set full_path to call join_path with data_dir, "example.txt"
+print f"   Joined path: {full_path}"
+
+# Get directory name
+set dir_name to call dirname with full_path
+print f"   Directory: {dir_name}"
+
+# Get file name
+set file_name to call basename with full_path
+print f"   File name: {file_name}"
+print ""
+
+# 5. Working with Multiple Files
+print "5. Multiple File Operations:"
+call write_file with "file1.txt", "Content from file 1"
+call write_file with "file2.txt", "Content from file 2"
+call write_file with "file3.txt", "Content from file 3"
+
+set file1_content to call read_file with "file1.txt"
+set file2_content to call read_file with "file2.txt"
+set file3_content to call read_file with "file3.txt"
+print f"   File 1: {file1_content}"
+print f"   File 2: {file2_content}"
+print f"   File 3: {file3_content}"
+print ""
+
+# 6. Directory Listing
+print "6. Directory Listing:"
+set files to call list_files with "."
+set file_count to call len with files
+print f"   Files in current directory: {file_count}"
+if file_count is greater than 0:
+    print "   Sample files:"
+    set max_show to 5
+    if file_count is less than max_show:
+        let max_show to file_count
+    for i in range 0 to max_show minus 1:
+        let listed_file to files at i
+        print f"     - {listed_file}"
+print ""
+
+# 7. Path Manipulation Example
+print "7. Path Manipulation:"
+# Build a path step by step
+set base_dir to "projects"
+set project_name to "kronos"
+set main_file to "main.kr"
+
+set project_path to call join_path with base_dir, project_name
+set full_file_path to call join_path with project_path, main_file
+print f"   Full path: {full_file_path}"
+
+# Extract components
+set extracted_dir to call dirname with full_file_path
+set extracted_file to call basename with full_file_path
+print f"   Extracted directory: {extracted_dir}"
+print f"   Extracted file: {extracted_file}"
+print ""
+
+# 8. File Overwrite
+print "8. File Overwrite:"
+call write_file with "overwrite_demo.txt", "Original content"
+set original to call read_file with "overwrite_demo.txt"
+print f"   Original: {original}"
+
+call write_file with "overwrite_demo.txt", "New content"
+set updated to call read_file with "overwrite_demo.txt"
+print f"   Updated: {updated}"
+print ""
+
+print "=== Example Complete ==="
+
