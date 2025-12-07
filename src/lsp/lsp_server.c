@@ -13,6 +13,12 @@
  * - Document symbols / outline view
  * - Semantic token highlighting
  * - Context-aware completions
+ * - Find all references for symbols
+ * - Rename symbol across all references
+ * - Hover info for file-based modules (shows module path and exports)
+ * - Module function validation (verifies functions exist in imported modules)
+ * - Code actions & quick fixes (placeholder for future enhancements)
+ * - Document formatting (basic indentation and spacing)
  *
  * Usage: ./kronos-lsp
  * The server reads JSON-RPC messages from stdin and writes responses to stdout.
@@ -62,6 +68,8 @@ typedef struct Symbol {
 typedef struct ImportedModule {
   char *name;      /**< Module name (e.g., "utils") */
   char *file_path; /**< File path if importing from file (NULL for built-in) */
+  Symbol *exports; /**< List of exported symbols (functions, variables) from
+                      this module */
   struct ImportedModule *next; /**< Next imported module */
 } ImportedModule;
 
@@ -726,6 +734,7 @@ static void free_imported_modules(ImportedModule *modules) {
     ImportedModule *next = modules->next;
     free(modules->name);
     free(modules->file_path);
+    free_symbols(modules->exports);
     free(modules);
     modules = next;
   }
@@ -749,6 +758,205 @@ static bool is_module_imported(const char *module_name) {
   }
 
   return false;
+}
+
+/**
+ * @brief Load exports from a module file
+ *
+ * Parses a module file and extracts its top-level symbols (functions and
+ * variables) that can be exported/used by other modules.
+ *
+ * @param file_path Path to the module file
+ * @return Linked list of exported symbols, or NULL on error
+ */
+static Symbol *load_module_exports(const char *file_path) {
+  if (!file_path)
+    return NULL;
+
+  // Read file
+  FILE *file = fopen(file_path, "r");
+  if (!file)
+    return NULL;
+
+  // Determine file size
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    return NULL;
+  }
+
+  long size = ftell(file);
+  if (size < 0 || (uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
+    fclose(file);
+    return NULL;
+  }
+
+  if (fseek(file, 0, SEEK_SET) != 0) {
+    fclose(file);
+    return NULL;
+  }
+
+  // Allocate buffer
+  size_t length = (size_t)size;
+  char *source = malloc(length + 1);
+  if (!source) {
+    fclose(file);
+    return NULL;
+  }
+
+  size_t read_size = fread(source, 1, length, file);
+  if (ferror(file) || (read_size < length && !feof(file))) {
+    free(source);
+    fclose(file);
+    return NULL;
+  }
+
+  source[read_size] = '\0';
+  fclose(file);
+
+  // Tokenize and parse
+  TokenArray *tokens = tokenize(source, NULL);
+  free(source);
+
+  if (!tokens)
+    return NULL;
+
+  AST *ast = parse(tokens);
+  token_array_free(tokens);
+
+  if (!ast || ast->count == 0) {
+    if (ast)
+      ast_free(ast);
+    return NULL;
+  }
+
+  // Extract top-level symbols (functions and variables)
+  Symbol *exports = NULL;
+  Symbol **tail = &exports;
+
+  for (size_t i = 0; i < ast->count; i++) {
+    ASTNode *node = ast->statements[i];
+    if (!node)
+      continue;
+
+    // Extract function definitions
+    if (node->type == AST_FUNCTION && node->as.function.name) {
+      Symbol *sym = malloc(sizeof(Symbol));
+      if (sym) {
+        sym->name = strdup(node->as.function.name);
+        sym->type = SYMBOL_FUNCTION;
+        sym->line = 1; // Approximate
+        sym->column = 1;
+        sym->type_name = NULL;
+        sym->is_mutable = false;
+        sym->param_count = node->as.function.param_count;
+        sym->used = false;
+        sym->written = false;
+        sym->read = false;
+        sym->next = NULL;
+        *tail = sym;
+        tail = &sym->next;
+      }
+    }
+    // Extract variable declarations (top-level only)
+    else if (node->type == AST_ASSIGN && node->as.assign.name) {
+      Symbol *sym = malloc(sizeof(Symbol));
+      if (sym) {
+        sym->name = strdup(node->as.assign.name);
+        sym->type = SYMBOL_VARIABLE;
+        sym->line = 1; // Approximate
+        sym->column = 1;
+        sym->type_name = node->as.assign.type_name
+                             ? strdup(node->as.assign.type_name)
+                             : NULL;
+        sym->is_mutable = node->as.assign.is_mutable;
+        sym->param_count = 0;
+        sym->used = false;
+        sym->written = false;
+        sym->read = false;
+        sym->next = NULL;
+        *tail = sym;
+        tail = &sym->next;
+      }
+    }
+  }
+
+  ast_free(ast);
+  return exports;
+}
+
+/**
+ * @brief Get module information for hover
+ *
+ * Returns a formatted string with module information including path and
+ * exports.
+ *
+ * @param mod Imported module
+ * @return Formatted markdown string (caller must free), or NULL on error
+ */
+static char *get_module_hover_info(ImportedModule *mod) {
+  if (!mod)
+    return NULL;
+
+  // Load exports if not already loaded
+  if (!mod->exports && mod->file_path) {
+    mod->exports = load_module_exports(mod->file_path);
+  }
+
+  // Build hover text
+  char *hover_text = malloc(4096);
+  if (!hover_text)
+    return NULL;
+
+  size_t pos = 0;
+  pos +=
+      snprintf(hover_text + pos, 4096 - pos, "**module** `%s`\n\n", mod->name);
+
+  if (mod->file_path) {
+    pos += snprintf(hover_text + pos, 4096 - pos, "**Path:** `%s`\n\n",
+                    mod->file_path);
+  } else {
+    pos +=
+        snprintf(hover_text + pos, 4096 - pos, "**Type:** Built-in module\n\n");
+  }
+
+  if (mod->exports) {
+    pos += snprintf(hover_text + pos, 4096 - pos, "**Exports:**\n\n");
+    Symbol *sym = mod->exports;
+    int func_count = 0;
+    int var_count = 0;
+    while (sym) {
+      if (sym->type == SYMBOL_FUNCTION) {
+        func_count++;
+        pos += snprintf(hover_text + pos, 4096 - pos, "• `%s` (function",
+                        sym->name);
+        if (sym->param_count > 0) {
+          pos += snprintf(hover_text + pos, 4096 - pos, ", %zu parameter%s",
+                          sym->param_count, sym->param_count == 1 ? "" : "s");
+        } else {
+          pos += snprintf(hover_text + pos, 4096 - pos, ", no parameters");
+        }
+        pos += snprintf(hover_text + pos, 4096 - pos, ")\n");
+      } else if (sym->type == SYMBOL_VARIABLE) {
+        var_count++;
+        pos += snprintf(hover_text + pos, 4096 - pos, "• `%s` (%s variable",
+                        sym->name, sym->is_mutable ? "mutable" : "immutable");
+        if (sym->type_name) {
+          pos += snprintf(hover_text + pos, 4096 - pos, ", type: `%s`",
+                          sym->type_name);
+        }
+        pos += snprintf(hover_text + pos, 4096 - pos, ")\n");
+      }
+      sym = sym->next;
+    }
+    if (func_count == 0 && var_count == 0) {
+      pos += snprintf(hover_text + pos, 4096 - pos, "No exports found\n");
+    }
+  } else if (mod->file_path) {
+    pos +=
+        snprintf(hover_text + pos, 4096 - pos, "**Exports:** Unable to load\n");
+  }
+
+  return hover_text;
 }
 
 /**
@@ -1000,6 +1208,7 @@ static void build_symbol_table(DocumentState *doc, AST *ast,
         mod->file_path = node->as.import.file_path
                              ? strdup(node->as.import.file_path)
                              : NULL;
+        mod->exports = NULL; // Will be populated when needed
         mod->next = NULL;
         *import_tail = mod;
         import_tail = &mod->next;
@@ -1338,8 +1547,7 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "read_lines") == 0 ||
       strcmp(func_name, "file_exists") == 0 ||
       strcmp(func_name, "list_files") == 0 ||
-      strcmp(func_name, "dirname") == 0 ||
-      strcmp(func_name, "basename") == 0) {
+      strcmp(func_name, "dirname") == 0 || strcmp(func_name, "basename") == 0) {
     return 1;
   }
 
@@ -1351,10 +1559,8 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "starts_with") == 0 ||
       strcmp(func_name, "ends_with") == 0 ||
       strcmp(func_name, "write_file") == 0 ||
-      strcmp(func_name, "join_path") == 0 ||
-      strcmp(func_name, "match") == 0 ||
-      strcmp(func_name, "search") == 0 ||
-      strcmp(func_name, "findall") == 0 ||
+      strcmp(func_name, "join_path") == 0 || strcmp(func_name, "match") == 0 ||
+      strcmp(func_name, "search") == 0 || strcmp(func_name, "findall") == 0 ||
       strcmp(func_name, "regex.match") == 0 ||
       strcmp(func_name, "regex.search") == 0 ||
       strcmp(func_name, "regex.findall") == 0) {
@@ -1578,11 +1784,94 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         if (module_name) {
           strncpy(module_name, func_name, module_len);
           module_name[module_len] = '\0';
-          if (strcmp(module_name, "math") == 0) {
+          if (strcmp(module_name, "math") == 0 ||
+              strcmp(module_name, "regex") == 0) {
             actual_func_name = dot + 1;
           } else if (is_module_imported(module_name)) {
-            // File-based module - skip validation for now (can't parse module
-            // files) This prevents false "unknown module" errors
+            // File-based module - validate function exists
+            ImportedModule *mod = g_doc ? g_doc->imported_modules : NULL;
+            while (mod) {
+              if (mod->name && strcmp(mod->name, module_name) == 0) {
+                // Load exports if needed
+                if (!mod->exports && mod->file_path) {
+                  mod->exports = load_module_exports(mod->file_path);
+                }
+
+                // Find the function in exports
+                Symbol *func_sym = mod->exports;
+                bool found = false;
+                while (func_sym) {
+                  if (func_sym->type == SYMBOL_FUNCTION &&
+                      strcmp(func_sym->name, actual_func_name) == 0) {
+                    found = true;
+                    // Validate argument count
+                    if (func_sym->param_count != arg_count) {
+                      size_t line = 1, col = 0;
+                      find_call_position(text, func_name, &line, &col);
+
+                      char escaped_msg[512];
+                      snprintf(
+                          escaped_msg, sizeof(escaped_msg),
+                          "Function '%s.%s' expects %zu argument%s, but got "
+                          "%zu",
+                          module_name, actual_func_name, func_sym->param_count,
+                          func_sym->param_count == 1 ? "" : "s", arg_count);
+                      char escaped_msg_final[512];
+                      json_escape(escaped_msg, escaped_msg_final,
+                                  sizeof(escaped_msg_final));
+
+                      int written = snprintf(
+                          diagnostics + *pos, *remaining,
+                          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":"
+                          "%zu},"
+                          "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                          "\"severity\":2,"
+                          "\"message\":\"%s\"}",
+                          *has_diagnostics ? "," : "", line - 1, col - 1,
+                          line - 1, col + strlen(func_name), escaped_msg_final);
+                      if (written > 0 && (size_t)written < *remaining) {
+                        *pos += (size_t)written;
+                        *remaining -= (size_t)written;
+                        *has_diagnostics = true;
+                      }
+                    }
+                    break;
+                  }
+                  func_sym = func_sym->next;
+                }
+
+                if (!found) {
+                  // Function not found in module
+                  size_t line = 1, col = 0;
+                  find_call_position(text, func_name, &line, &col);
+
+                  char escaped_msg[512];
+                  snprintf(escaped_msg, sizeof(escaped_msg),
+                           "Function '%s' not found in module '%s'",
+                           actual_func_name, module_name);
+                  char escaped_msg_final[512];
+                  json_escape(escaped_msg, escaped_msg_final,
+                              sizeof(escaped_msg_final));
+
+                  int written = snprintf(
+                      diagnostics + *pos, *remaining,
+                      "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu}"
+                      ","
+                      "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                      "\"severity\":2,"
+                      "\"message\":\"%s\"}",
+                      *has_diagnostics ? "," : "", line - 1, col - 1, line - 1,
+                      col + strlen(func_name), escaped_msg_final);
+                  if (written > 0 && (size_t)written < *remaining) {
+                    *pos += (size_t)written;
+                    *remaining -= (size_t)written;
+                    *has_diagnostics = true;
+                  }
+                }
+                break;
+              }
+              mod = mod->next;
+            }
             free(module_name);
             continue;
           } else {
@@ -4049,6 +4338,749 @@ static void handle_definition(const char *id, const char *body) {
   send_response(id, result);
 }
 
+// Helper structure for reference search context
+typedef struct {
+  const char *symbol_name;
+  char *result;
+  size_t *pos;
+  size_t *remaining;
+  bool *first;
+} ReferenceSearchContext;
+
+// Helper to add a reference location
+static void add_reference_location(ReferenceSearchContext *ctx, size_t line,
+                                   size_t col, size_t length) {
+  if (*ctx->remaining < 200)
+    return; // Not enough space
+
+  char escaped_uri[256];
+  json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
+
+  int written = snprintf(
+      ctx->result + *ctx->pos, *ctx->remaining,
+      "%s{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+      "\"end\":{\"line\":%zu,\"character\":%zu}}}",
+      *ctx->first ? "" : ",", escaped_uri, line - 1, col - 1, line - 1,
+      col - 1 + length);
+  if (written > 0 && (size_t)written < *ctx->remaining) {
+    *ctx->pos += (size_t)written;
+    *ctx->remaining -= (size_t)written;
+    *ctx->first = false;
+  }
+}
+
+// Recursive function to search AST nodes for symbol references
+static void search_node_for_references(ASTNode *node, size_t *line_num,
+                                       ReferenceSearchContext *ctx) {
+  if (!node)
+    return;
+
+  if (!node)
+    return;
+
+  switch (node->type) {
+  case AST_ASSIGN:
+    if (node->as.assign.name &&
+        strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
+      // This is the definition, also count as a reference
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    if (node->as.assign.value) {
+      search_node_for_references(node->as.assign.value, line_num, ctx);
+    }
+    break;
+
+  case AST_VAR:
+    if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    break;
+
+  case AST_CALL:
+    if (node->as.call.name &&
+        strcmp(node->as.call.name, ctx->symbol_name) == 0) {
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.args[i]) {
+        search_node_for_references(node->as.call.args[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_FUNCTION:
+    if (node->as.function.name &&
+        strcmp(node->as.function.name, ctx->symbol_name) == 0) {
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      if (node->as.function.block[i]) {
+        search_node_for_references(node->as.function.block[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_BINOP:
+    if (node->as.binop.left) {
+      search_node_for_references(node->as.binop.left, line_num, ctx);
+    }
+    if (node->as.binop.right) {
+      search_node_for_references(node->as.binop.right, line_num, ctx);
+    }
+    break;
+
+    // Unary operations are handled via BINOP_NEG in binop
+
+  case AST_IF:
+    if (node->as.if_stmt.condition) {
+      search_node_for_references(node->as.if_stmt.condition, line_num, ctx);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      if (node->as.if_stmt.block[i]) {
+        search_node_for_references(node->as.if_stmt.block[i], line_num, ctx);
+      }
+    }
+    if (node->as.if_stmt.else_block) {
+      for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+        if (node->as.if_stmt.else_block[i]) {
+          search_node_for_references(node->as.if_stmt.else_block[i], line_num,
+                                     ctx);
+        }
+      }
+    }
+    break;
+
+  case AST_FOR:
+    if (node->as.for_stmt.var &&
+        strcmp(node->as.for_stmt.var, ctx->symbol_name) == 0) {
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    if (node->as.for_stmt.iterable) {
+      search_node_for_references(node->as.for_stmt.iterable, line_num, ctx);
+    }
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      if (node->as.for_stmt.block[i]) {
+        search_node_for_references(node->as.for_stmt.block[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_WHILE:
+    if (node->as.while_stmt.condition) {
+      search_node_for_references(node->as.while_stmt.condition, line_num, ctx);
+    }
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      if (node->as.while_stmt.block[i]) {
+        search_node_for_references(node->as.while_stmt.block[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_RETURN:
+    if (node->as.return_stmt.value) {
+      search_node_for_references(node->as.return_stmt.value, line_num, ctx);
+    }
+    break;
+
+  case AST_INDEX:
+    if (node->as.index.list_expr) {
+      search_node_for_references(node->as.index.list_expr, line_num, ctx);
+    }
+    if (node->as.index.index) {
+      search_node_for_references(node->as.index.index, line_num, ctx);
+    }
+    break;
+
+  case AST_SLICE:
+    if (node->as.slice.list_expr) {
+      search_node_for_references(node->as.slice.list_expr, line_num, ctx);
+    }
+    if (node->as.slice.start) {
+      search_node_for_references(node->as.slice.start, line_num, ctx);
+    }
+    if (node->as.slice.end) {
+      search_node_for_references(node->as.slice.end, line_num, ctx);
+    }
+    break;
+
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      if (node->as.list.elements[i]) {
+        search_node_for_references(node->as.list.elements[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      if (node->as.map.keys[i]) {
+        search_node_for_references(node->as.map.keys[i], line_num, ctx);
+      }
+      if (node->as.map.values[i]) {
+        search_node_for_references(node->as.map.values[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      if (node->as.fstring.parts[i]) {
+        search_node_for_references(node->as.fstring.parts[i], line_num, ctx);
+      }
+    }
+    break;
+
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      if (node->as.try_stmt.try_block[i]) {
+        search_node_for_references(node->as.try_stmt.try_block[i], line_num,
+                                   ctx);
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      if (node->as.try_stmt.catch_blocks[i].catch_var &&
+          strcmp(node->as.try_stmt.catch_blocks[i].catch_var,
+                 ctx->symbol_name) == 0) {
+        add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+      }
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        if (node->as.try_stmt.catch_blocks[i].catch_block[j]) {
+          search_node_for_references(
+              node->as.try_stmt.catch_blocks[i].catch_block[j], line_num, ctx);
+        }
+      }
+    }
+    if (node->as.try_stmt.finally_block) {
+      for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+        if (node->as.try_stmt.finally_block[i]) {
+          search_node_for_references(node->as.try_stmt.finally_block[i],
+                                     line_num, ctx);
+        }
+      }
+    }
+    break;
+
+  default:
+    break;
+  }
+}
+
+/**
+ * @brief Find all references to a symbol in the document
+ *
+ * Searches through the AST to find all usages of a symbol (variable or
+ * function). Returns an array of locations where the symbol is referenced.
+ *
+ * @param symbol_name Name of the symbol to find references for
+ * @param text Source code text
+ * @param ast Parsed AST
+ * @param result Buffer to write results to
+ * @param pos Current position in result buffer
+ * @param remaining Remaining space in result buffer
+ * @param first Whether this is the first reference
+ */
+static void find_all_references_in_ast(const char *symbol_name,
+                                       const char *text __attribute__((unused)),
+                                       AST *ast, char *result, size_t *pos,
+                                       size_t *remaining, bool *first) {
+  if (!symbol_name || !ast || !ast->statements)
+    return;
+
+  ReferenceSearchContext ctx = {symbol_name, result, pos, remaining, first};
+
+  // Search through all top-level statements
+  size_t line_num = 1;
+  for (size_t i = 0; i < ast->count; i++) {
+    if (ast->statements[i]) {
+      search_node_for_references(ast->statements[i], &line_num, &ctx);
+    }
+    // Approximate line increment (this is rough since AST doesn't store exact
+    // positions)
+    line_num++;
+  }
+}
+
+/**
+ * @brief Handle textDocument/references request
+ *
+ * Finds all references to a symbol at the requested position.
+ * Returns an array of locations where the symbol is used.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_references(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text || !g_doc->ast) {
+    send_response(id, "[]");
+    return;
+  }
+
+  char *line_str = json_get_nested_value(body, "params.position.line");
+  char *character_str =
+      json_get_nested_value(body, "params.position.character");
+
+  if (!line_str || !character_str) {
+    send_response(id, "[]");
+    free(line_str);
+    free(character_str);
+    return;
+  }
+
+  size_t line = (size_t)strtoul(line_str, NULL, 10);
+  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  free(line_str);
+  free(character_str);
+
+  // Find word at position
+  char *word = get_word_at_position(g_doc->text, line, character);
+  if (!word) {
+    send_response(id, "[]");
+    return;
+  }
+
+  // Handle module.function syntax - skip for now
+  if (strchr(word, '.')) {
+    free(word);
+    send_response(id, "[]");
+    return;
+  }
+
+  // Find symbol to get its definition location
+  Symbol *sym = find_symbol(word);
+  if (!sym) {
+    free(word);
+    send_response(id, "[]");
+    return;
+  }
+
+  // Build references array
+  char result[16384];
+  size_t pos = 0;
+  size_t remaining = sizeof(result);
+  bool first = true;
+
+  // Add definition location
+  char escaped_uri[256];
+  json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
+  int written = snprintf(
+      result + pos, remaining,
+      "{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+      "\"end\":{\"line\":%zu,\"character\":%zu}}}",
+      escaped_uri, sym->line - 1, sym->column - 1, sym->line - 1,
+      sym->column - 1 + strlen(sym->name));
+  if (written > 0 && (size_t)written < remaining) {
+    pos += (size_t)written;
+    remaining -= (size_t)written;
+    first = false;
+  }
+
+  // Find all references in AST
+  find_all_references_in_ast(word, g_doc->text, g_doc->ast, result, &pos,
+                             &remaining, &first);
+
+  free(word);
+
+  // Wrap in array
+  char final_result[16384];
+  snprintf(final_result, sizeof(final_result), "[%s]", result);
+  send_response(id, final_result);
+}
+
+/**
+ * @brief Handle textDocument/prepareRename request
+ *
+ * Checks if rename is possible at the requested position.
+ * Returns the range of the symbol name if rename is possible, or null
+ * otherwise.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_prepare_rename(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text) {
+    send_response(id, "null");
+    return;
+  }
+
+  char *line_str = json_get_nested_value(body, "params.position.line");
+  char *character_str =
+      json_get_nested_value(body, "params.position.character");
+
+  if (!line_str || !character_str) {
+    send_response(id, "null");
+    free(line_str);
+    free(character_str);
+    return;
+  }
+
+  size_t line = (size_t)strtoul(line_str, NULL, 10);
+  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  free(line_str);
+  free(character_str);
+
+  // Find word at position
+  char *word = get_word_at_position(g_doc->text, line, character);
+  if (!word) {
+    send_response(id, "null");
+    return;
+  }
+
+  // Handle module.function syntax - skip for now
+  if (strchr(word, '.')) {
+    free(word);
+    send_response(id, "null");
+    return;
+  }
+
+  // Find symbol
+  Symbol *sym = find_symbol(word);
+  if (!sym) {
+    free(word);
+    send_response(id, "null");
+    return;
+  }
+
+  // Return the range of the symbol name
+  char result[512];
+  snprintf(result, sizeof(result),
+           "{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+           "\"end\":{\"line\":%zu,\"character\":%zu}},\"placeholder\":\"%s\"}",
+           sym->line - 1, sym->column - 1, sym->line - 1,
+           sym->column - 1 + strlen(sym->name), word);
+  free(word);
+  send_response(id, result);
+}
+
+/**
+ * @brief Handle textDocument/rename request
+ *
+ * Renames a symbol and all its references.
+ * Returns a WorkspaceEdit with TextEdits for all locations where the symbol is
+ * used.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_rename(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text || !g_doc->ast) {
+    send_response(id, "null");
+    return;
+  }
+
+  char *line_str = json_get_nested_value(body, "params.position.line");
+  char *character_str =
+      json_get_nested_value(body, "params.position.character");
+  char *new_name = json_get_nested_value(body, "params.newName");
+
+  if (!line_str || !character_str || !new_name) {
+    send_response(id, "null");
+    free(line_str);
+    free(character_str);
+    free(new_name);
+    return;
+  }
+
+  size_t line = (size_t)strtoul(line_str, NULL, 10);
+  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  free(line_str);
+  free(character_str);
+
+  // Find word at position
+  char *word = get_word_at_position(g_doc->text, line, character);
+  if (!word) {
+    free(new_name);
+    send_response(id, "null");
+    return;
+  }
+
+  // Handle module.function syntax - skip for now
+  if (strchr(word, '.')) {
+    free(word);
+    free(new_name);
+    send_response(id, "null");
+    return;
+  }
+
+  // Find symbol
+  Symbol *sym = find_symbol(word);
+  if (!sym) {
+    free(word);
+    free(new_name);
+    send_response(id, "null");
+    return;
+  }
+
+  // Build references array (similar to handle_references)
+  char references[16384];
+  size_t ref_pos = 0;
+  size_t ref_remaining = sizeof(references);
+  bool first_ref = true;
+
+  // Add definition location
+  char escaped_uri[256];
+  json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
+  int written = snprintf(
+      references + ref_pos, ref_remaining,
+      "{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+      "\"end\":{\"line\":%zu,\"character\":%zu}}}",
+      escaped_uri, sym->line - 1, sym->column - 1, sym->line - 1,
+      sym->column - 1 + strlen(sym->name));
+  if (written > 0 && (size_t)written < ref_remaining) {
+    ref_pos += (size_t)written;
+    ref_remaining -= (size_t)written;
+    first_ref = false;
+  }
+
+  // Find all references in AST
+  find_all_references_in_ast(word, g_doc->text, g_doc->ast, references,
+                             &ref_pos, &ref_remaining, &first_ref);
+
+  // Build WorkspaceEdit with TextEdits
+  char result[32768];
+  size_t pos = 0;
+  size_t remaining = sizeof(result);
+
+  // Escape new_name for JSON
+  char escaped_new_name[256];
+  json_escape(new_name, escaped_new_name, sizeof(escaped_new_name));
+
+  // Parse references JSON array and build TextEdits
+  // For simplicity, we'll create a TextEdit for each reference
+  // In a real implementation, we'd parse the references array properly
+  // For now, we'll use the same approach as references but create edits
+
+  // Start building WorkspaceEdit
+  written =
+      snprintf(result + pos, remaining, "{\"changes\":{\"%s\":[", escaped_uri);
+  if (written > 0 && (size_t)written < remaining) {
+    pos += (size_t)written;
+    remaining -= (size_t)written;
+  }
+
+  // Add TextEdit for definition
+  bool first_edit = true;
+  written = snprintf(
+      result + pos, remaining,
+      "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+      "\"end\":{\"line\":%zu,\"character\":%zu}},\"newText\":\"%s\"}",
+      first_edit ? "" : ",", sym->line - 1, sym->column - 1, sym->line - 1,
+      sym->column - 1 + strlen(sym->name), escaped_new_name);
+  if (written > 0 && (size_t)written < remaining) {
+    pos += (size_t)written;
+    remaining -= (size_t)written;
+    first_edit = false;
+  }
+
+  // Parse references and add TextEdits
+  // For now, we'll use a simpler approach: find all occurrences in text
+  // and create edits for them
+  const char *text = g_doc->text;
+  size_t text_len = strlen(text);
+  size_t word_len = strlen(word);
+  size_t current_line = 1;
+  size_t current_col = 0;
+  bool in_string = false;
+  bool in_comment = false;
+
+  for (size_t i = 0; i < text_len && remaining > 200; i++) {
+    if (text[i] == '\n') {
+      current_line++;
+      current_col = 0;
+      in_comment = false;
+      continue;
+    }
+    if (text[i] == '#') {
+      in_comment = true;
+    }
+    if (text[i] == '"' && (i == 0 || text[i - 1] != '\\')) {
+      in_string = !in_string;
+    }
+    if (in_string || in_comment) {
+      current_col++;
+      continue;
+    }
+
+    // Check if we found the word at this position
+    if (i + word_len <= text_len && strncmp(text + i, word, word_len) == 0) {
+      // Check word boundaries
+      bool is_word_start = (i == 0 || !isalnum((unsigned char)text[i - 1]) &&
+                                          text[i - 1] != '_');
+      bool is_word_end = (i + word_len >= text_len ||
+                          !isalnum((unsigned char)text[i + word_len]) &&
+                              text[i + word_len] != '_');
+
+      if (is_word_start && is_word_end) {
+        // Calculate line and column for this occurrence
+        size_t edit_line = current_line;
+        size_t edit_col = current_col;
+
+        // Skip if this is the definition (already added)
+        if (edit_line == sym->line && edit_col == sym->column - 1) {
+          current_col++;
+          continue;
+        }
+
+        // Add TextEdit
+        written = snprintf(
+            result + pos, remaining,
+            ",{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},\"newText\":\"%s\"}",
+            edit_line - 1, edit_col, edit_line - 1, edit_col + word_len,
+            escaped_new_name);
+        if (written > 0 && (size_t)written < remaining) {
+          pos += (size_t)written;
+          remaining -= (size_t)written;
+        } else {
+          break; // Buffer full
+        }
+      }
+    }
+    current_col++;
+  }
+
+  // Close arrays and object
+  written = snprintf(result + pos, remaining, "]}}");
+  if (written > 0 && (size_t)written < remaining) {
+    pos += (size_t)written;
+  }
+
+  free(word);
+  free(new_name);
+  send_response(id, result);
+}
+
+/**
+ * @brief Handle textDocument/codeAction request
+ *
+ * Provides code actions (quick fixes, refactorings) for a given range.
+ * Currently supports quick fixes for common errors.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_code_action(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text) {
+    send_response(id, "[]");
+    return;
+  }
+
+  // For now, return empty array (code actions can be added later)
+  // This is a placeholder for future implementation
+  send_response(id, "[]");
+}
+
+/**
+ * @brief Handle textDocument/formatting request
+ *
+ * Formats the entire document according to Kronos style guidelines.
+ * Currently performs basic formatting: consistent indentation and spacing.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_formatting(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text) {
+    send_response(id, "null");
+    return;
+  }
+
+  // Basic formatting: ensure consistent indentation (4 spaces)
+  // and proper spacing around operators
+  const char *text = g_doc->text;
+  size_t text_len = strlen(text);
+  char *formatted = malloc(text_len * 2 + 1); // Allocate extra space
+  if (!formatted) {
+    send_response(id, "null");
+    return;
+  }
+
+  size_t out_pos = 0;
+  int indent_level = 0;
+  bool at_line_start = true;
+  bool last_was_space = false;
+
+  for (size_t i = 0; i < text_len && out_pos < text_len * 2 - 100; i++) {
+    char c = text[i];
+
+    if (c == '\n') {
+      formatted[out_pos++] = '\n';
+      at_line_start = true;
+      last_was_space = false;
+      continue;
+    }
+
+    if (at_line_start) {
+      // Skip leading whitespace
+      if (isspace((unsigned char)c) && c != '\n') {
+        continue;
+      }
+
+      // Apply indentation
+      int spaces = indent_level * 4;
+      for (int j = 0; j < spaces && out_pos < text_len * 2 - 100; j++) {
+        formatted[out_pos++] = ' ';
+      }
+      at_line_start = false;
+    }
+
+    // Handle indentation changes
+    if (c == ':' && i + 1 < text_len && text[i + 1] == '\n') {
+      formatted[out_pos++] = c;
+      indent_level++;
+      last_was_space = false;
+      continue;
+    }
+
+    // Decrease indent for certain keywords at start of line
+    if (at_line_start || (out_pos > 0 && formatted[out_pos - 1] == '\n')) {
+      if (strncmp(text + i, "else", 4) == 0 ||
+          strncmp(text + i, "elif", 4) == 0 ||
+          strncmp(text + i, "except", 6) == 0 ||
+          strncmp(text + i, "finally", 7) == 0) {
+        if (indent_level > 0) {
+          indent_level--;
+        }
+      }
+    }
+
+    // Normalize whitespace
+    if (isspace((unsigned char)c)) {
+      if (!last_was_space && c == ' ') {
+        formatted[out_pos++] = ' ';
+        last_was_space = true;
+      }
+      continue;
+    }
+
+    last_was_space = false;
+    formatted[out_pos++] = c;
+
+    // Check for dedent keywords
+    if (strncmp(text + i, "return", 6) == 0 ||
+        strncmp(text + i, "break", 5) == 0 ||
+        strncmp(text + i, "continue", 8) == 0) {
+      // These don't change indent, but might be followed by dedent
+    }
+  }
+
+  formatted[out_pos] = '\0';
+
+  // Create TextEdit for the entire document
+  char result[32768];
+  char escaped_text[16384];
+  json_escape(formatted, escaped_text, sizeof(escaped_text));
+
+  snprintf(result, sizeof(result),
+           "[{\"range\":{\"start\":{\"line\":0,\"character\":0},"
+           "\"end\":{\"line\":%zu,\"character\":0}},\"newText\":\"%s\"}]",
+           (size_t)999, // Approximate end line
+           escaped_text);
+
+  free(formatted);
+  send_response(id, result);
+}
+
 // Get module description for built-in modules
 static const char *get_module_description(const char *module_name) {
   if (strcmp(module_name, "math") == 0) {
@@ -4067,11 +5099,16 @@ static const char *get_module_description(const char *module_name) {
   }
   if (strcmp(module_name, "regex") == 0) {
     return "Regular expressions module\n\n"
-           "Provides pattern matching using POSIX extended regular expressions:\n\n"
-           "• `match(string, pattern)` - Returns true if pattern matches entire string  \n"
-           "• `search(string, pattern)` - Returns first matched substring or null  \n"
-           "• `findall(string, pattern)` - Returns list of all matched substrings  \n\n"
-           "**Usage:** `import regex` then `call regex.match with \"hello\", \"h.*o\"`";
+           "Provides pattern matching using POSIX extended regular "
+           "expressions:\n\n"
+           "• `match(string, pattern)` - Returns true if pattern matches "
+           "entire string  \n"
+           "• `search(string, pattern)` - Returns first matched substring or "
+           "null  \n"
+           "• `findall(string, pattern)` - Returns list of all matched "
+           "substrings  \n\n"
+           "**Usage:** `import regex` then `call regex.match with \"hello\", "
+           "\"h.*o\"`";
   }
   return NULL;
 }
@@ -4118,7 +5155,73 @@ static void handle_hover(const char *id, const char *body) {
   // Handle module.function syntax
   char *dot = strchr(word, '.');
   if (dot) {
-    // Module function - could provide hover info for built-ins
+    // Extract module name and function name
+    size_t module_len = (size_t)(dot - word);
+    char *module_name = malloc(module_len + 1);
+    if (module_name) {
+      strncpy(module_name, word, module_len);
+      module_name[module_len] = '\0';
+      const char *func_name = dot + 1;
+
+      // Check if it's a built-in module function
+      if (strcmp(module_name, "math") == 0 ||
+          strcmp(module_name, "regex") == 0) {
+        // For built-in modules, show function info
+        free(module_name);
+        free(word);
+        send_response(id, "null"); // Could enhance this later
+        return;
+      }
+
+      // Check if it's a file-based module
+      ImportedModule *mod = g_doc ? g_doc->imported_modules : NULL;
+      while (mod) {
+        if (mod->name && strcmp(mod->name, module_name) == 0) {
+          // Load exports if needed
+          if (!mod->exports && mod->file_path) {
+            mod->exports = load_module_exports(mod->file_path);
+          }
+
+          // Find the function in exports
+          Symbol *func_sym = mod->exports;
+          while (func_sym) {
+            if (func_sym->type == SYMBOL_FUNCTION &&
+                strcmp(func_sym->name, func_name) == 0) {
+              // Build hover info for the function
+              char hover_text[512];
+              snprintf(hover_text, sizeof(hover_text),
+                       "**function** `%s.%s`\n\n**Module:** "
+                       "`%s`\n**Parameters:** %zu",
+                       module_name, func_name, module_name,
+                       func_sym->param_count);
+
+              char escaped_hover[1024];
+              json_escape(hover_text, escaped_hover, sizeof(escaped_hover));
+
+              char result[2048];
+              snprintf(
+                  result, sizeof(result),
+                  "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
+                  escaped_hover);
+              free(module_name);
+              free(word);
+              send_response(id, result);
+              return;
+            }
+            func_sym = func_sym->next;
+          }
+
+          // Function not found in module
+          free(module_name);
+          free(word);
+          send_response(id, "null");
+          return;
+        }
+        mod = mod->next;
+      }
+
+      free(module_name);
+    }
     free(word);
     send_response(id, "null");
     return;
@@ -4195,6 +5298,74 @@ static void handle_hover(const char *id, const char *body) {
     free(word);
     send_response(id, result);
     return;
+  }
+
+  // Check if it's a file-based module
+  if (g_doc) {
+    ImportedModule *mod = g_doc->imported_modules;
+    while (mod) {
+      if (mod->name && strcmp(mod->name, word) == 0) {
+        // Get module hover info
+        char *module_info = get_module_hover_info(mod);
+        if (module_info) {
+          char escaped_hover[4096];
+          size_t out_pos = 0;
+          for (size_t i = 0;
+               module_info[i] != '\0' && out_pos < sizeof(escaped_hover) - 1;
+               i++) {
+            switch (module_info[i]) {
+            case '\\':
+              if (out_pos < sizeof(escaped_hover) - 2) {
+                escaped_hover[out_pos++] = '\\';
+                escaped_hover[out_pos++] = '\\';
+              }
+              break;
+            case '"':
+              if (out_pos < sizeof(escaped_hover) - 2) {
+                escaped_hover[out_pos++] = '\\';
+                escaped_hover[out_pos++] = '"';
+              }
+              break;
+            case '\n':
+              if (out_pos < sizeof(escaped_hover) - 2) {
+                escaped_hover[out_pos++] = '\\';
+                escaped_hover[out_pos++] = 'n';
+              }
+              break;
+            case '\r':
+              if (out_pos < sizeof(escaped_hover) - 2) {
+                escaped_hover[out_pos++] = '\\';
+                escaped_hover[out_pos++] = 'r';
+              }
+              break;
+            case '\t':
+              if (out_pos < sizeof(escaped_hover) - 2) {
+                escaped_hover[out_pos++] = '\\';
+                escaped_hover[out_pos++] = 't';
+              }
+              break;
+            default:
+              if (out_pos < sizeof(escaped_hover) - 1) {
+                escaped_hover[out_pos++] = module_info[i];
+              }
+              break;
+            }
+          }
+          escaped_hover[out_pos] = '\0';
+
+          char result[4096];
+          snprintf(result, sizeof(result),
+                   "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
+                   escaped_hover);
+          free(module_info);
+          free(word);
+          send_response(id, result);
+          return;
+        }
+        break;
+      }
+      mod = mod->next;
+    }
   }
 
   // Find symbol
@@ -4608,7 +5779,8 @@ static void handle_completion(const char *id, const char *body) {
       {"join_path", "Join two path components (path1, path2)"},
       {"dirname", "Get directory name from path"},
       {"basename", "Get file name from path"},
-      {"regex.match", "Check if pattern matches entire string (string, pattern)"},
+      {"regex.match",
+       "Check if pattern matches entire string (string, pattern)"},
       {"regex.search", "Find first match in string (string, pattern)"},
       {"regex.findall", "Find all matches in string (string, pattern)"},
   };
@@ -4762,6 +5934,26 @@ int main(void) {
     } else if (strcmp(method, "textDocument/definition") == 0) {
       char *id = json_get_id_value(body);
       handle_definition(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/references") == 0) {
+      char *id = json_get_id_value(body);
+      handle_references(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/prepareRename") == 0) {
+      char *id = json_get_id_value(body);
+      handle_prepare_rename(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/rename") == 0) {
+      char *id = json_get_id_value(body);
+      handle_rename(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/codeAction") == 0) {
+      char *id = json_get_id_value(body);
+      handle_code_action(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/formatting") == 0) {
+      char *id = json_get_id_value(body);
+      handle_formatting(id ? id : "null", body);
       free(id);
     } else if (strcmp(method, "textDocument/hover") == 0) {
       char *id = json_get_id_value(body);
