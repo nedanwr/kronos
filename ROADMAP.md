@@ -119,7 +119,7 @@ This document outlines the planned features and release schedule for Kronos.
   set file to call basename with "/path/to/file.txt"
   ```
 
-- 🔄 **Regular Expressions** - Pattern matching and text processing
+- ✅ **Regular Expressions** - Pattern matching and text processing (completed)
 
   ```kronos
   import regex
