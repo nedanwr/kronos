@@ -1,9 +1,9 @@
 # Path operations edge cases
 # Expected output:
 # Root dirname: /
-# Root basename: 
+# Root basename:
 # Trailing slash dirname: /path/to
-# Trailing slash basename: 
+# Trailing slash basename:
 # Single component dirname: .
 # Single component basename: file
 # Join with empty: dir/file.txt
