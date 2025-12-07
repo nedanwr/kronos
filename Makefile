@@ -24,7 +24,7 @@ DEP = $(OBJ:.o=.d)
 # Output binary
 TARGET = kronos
 
-.PHONY: all clean run test test-unit install lsp
+.PHONY: all clean run test test-unit test-lsp install lsp
 
 all: $(TARGET)
 
@@ -85,6 +85,21 @@ tests/unit/%.o: tests/unit/%.c
 # Run unit tests
 test-unit: $(TEST_TARGET)
 	./$(TEST_TARGET)
+
+# LSP test sources
+TEST_LSP_SRC = tests/lsp/test_lsp_framework.c tests/lsp/test_lsp_features.c
+TEST_LSP_OBJ = $(TEST_LSP_SRC:.c=.o)
+TEST_LSP_TARGET = tests/lsp/kronos_lsp_tests
+
+# Build LSP tests
+test-lsp: lsp $(TEST_LSP_TARGET)
+	./$(TEST_LSP_TARGET)
+
+$(TEST_LSP_TARGET): tests/lsp/test_lsp_main.c $(TEST_LSP_OBJ) $(TEST_FRAMEWORK_SRC:.c=.o) $(TEST_OBJ_BASE)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/lsp/%.o: tests/lsp/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Install target (optional)
 install: $(TARGET)
