@@ -28,6 +28,7 @@
 #include "../frontend/parser.h"
 #include "../frontend/tokenizer.h"
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -618,22 +619,51 @@ static void json_escape(const char *input, char *output, size_t output_size) {
  * @brief Send a JSON-RPC response
  *
  * Formats and sends a response message to stdout with Content-Length header.
+ * Uses dynamic allocation for large responses to prevent buffer overflow.
  *
  * @param id Request ID (JSON value, e.g., "1" or "\"abc\"")
  * @param result Result JSON (can be "null" for void responses)
  */
 static void send_response(const char *id, const char *result) {
+  // Try with fixed-size buffer first (common case)
   char buffer[8192];
   int snprintf_result =
       snprintf(buffer, sizeof(buffer),
                "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id, result);
-  size_t body_len =
-      (snprintf_result < 0 || (size_t)snprintf_result >= sizeof(buffer))
-          ? sizeof(buffer) - 1
-          : (size_t)snprintf_result;
+
+  size_t body_len;
+  char *output = buffer;
+  bool needs_free = false;
+
+  if (snprintf_result < 0) {
+    // Error in snprintf
+    body_len = 0;
+  } else if ((size_t)snprintf_result < sizeof(buffer)) {
+    // Fits in buffer
+    body_len = (size_t)snprintf_result;
+  } else {
+    // Needs larger buffer - allocate dynamically
+    size_t needed = (size_t)snprintf_result + 1;
+    output = malloc(needed);
+    if (!output) {
+      // Fallback: truncate
+      body_len = sizeof(buffer) - 1;
+      output = buffer;
+    } else {
+      needs_free = true;
+      snprintf(output, needed, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}",
+               id, result);
+      body_len = needed - 1;
+    }
+  }
+
   printf("Content-Length: %zu\r\n\r\n", body_len);
-  fwrite(buffer, 1, body_len, stdout);
+  fwrite(output, 1, body_len, stdout);
   fflush(stdout);
+
+  if (needs_free) {
+    free(output);
+  }
 }
 
 /**
@@ -1761,9 +1791,54 @@ static bool find_call_argument_position(const char *text, const char *func_name,
 }
 
 // Check function call argument counts in AST
+// Helper function to ensure diagnostics buffer has enough space
+// Returns true if buffer was successfully grown or had enough space, false on
+// error
+static bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity,
+                                    size_t pos, size_t needed) {
+  if (pos + needed < *capacity) {
+    return true; // Already enough space
+  }
+
+  // Grow buffer by at least 2x or to accommodate needed space
+  size_t new_capacity = *capacity * 2;
+  if (new_capacity < pos + needed + 1024) {
+    new_capacity = pos + needed + 1024; // Add extra padding
+  }
+
+  // Limit maximum size to prevent excessive memory usage
+  const size_t MAX_DIAGNOSTICS_SIZE = 1024 * 1024; // 1MB max
+  if (new_capacity > MAX_DIAGNOSTICS_SIZE) {
+    return false; // Would exceed maximum
+  }
+
+  char *new_buffer = realloc(*diagnostics, new_capacity);
+  if (!new_buffer) {
+    return false; // Allocation failed
+  }
+
+  *diagnostics = new_buffer;
+  *capacity = new_capacity;
+  return true;
+}
+
+// Macro to safely write to diagnostics buffer with automatic growth
+#define SAFE_DIAGNOSTICS_WRITE(diag, cap, pos, rem, needed, ...)               \
+  do {                                                                         \
+    if (grow_diagnostics_buffer((diag), (cap), *(pos), (needed))) {            \
+      *(rem) = *(cap) - *(pos);                                                \
+      int _written = snprintf(*(diag) + *(pos), *(rem), __VA_ARGS__);          \
+      if (_written > 0 && (size_t)_written < *(rem)) {                         \
+        *(pos) += (size_t)_written;                                            \
+        *(rem) = *(cap) - *(pos);                                              \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+
 static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
-                                 char *diagnostics, size_t *pos,
-                                 size_t *remaining, bool *has_diagnostics) {
+                                 char **diagnostics, size_t *pos,
+                                 size_t *remaining, bool *has_diagnostics,
+                                 size_t *capacity) {
   if (!ast || !ast->statements)
     return;
 
@@ -1821,8 +1896,9 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                       json_escape(escaped_msg, escaped_msg_final,
                                   sizeof(escaped_msg_final));
 
-                      int written = snprintf(
-                          diagnostics + *pos, *remaining,
+                      size_t needed = strlen(escaped_msg_final) + 200;
+                      SAFE_DIAGNOSTICS_WRITE(
+                          diagnostics, capacity, pos, remaining, needed,
                           "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":"
                           "%zu},"
                           "\"end\":{\"line\":%zu,\"character\":%zu}},"
@@ -1830,11 +1906,7 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                           "\"message\":\"%s\"}",
                           *has_diagnostics ? "," : "", line - 1, col - 1,
                           line - 1, col + strlen(func_name), escaped_msg_final);
-                      if (written > 0 && (size_t)written < *remaining) {
-                        *pos += (size_t)written;
-                        *remaining -= (size_t)written;
-                        *has_diagnostics = true;
-                      }
+                      *has_diagnostics = true;
                     }
                     break;
                   }
@@ -1854,8 +1926,9 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                   json_escape(escaped_msg, escaped_msg_final,
                               sizeof(escaped_msg_final));
 
-                  int written = snprintf(
-                      diagnostics + *pos, *remaining,
+                  size_t needed = strlen(escaped_msg_final) + 200;
+                  SAFE_DIAGNOSTICS_WRITE(
+                      diagnostics, capacity, pos, remaining, needed,
                       "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu}"
                       ","
                       "\"end\":{\"line\":%zu,\"character\":%zu}},"
@@ -1863,11 +1936,7 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                       "\"message\":\"%s\"}",
                       *has_diagnostics ? "," : "", line - 1, col - 1, line - 1,
                       col + strlen(func_name), escaped_msg_final);
-                  if (written > 0 && (size_t)written < *remaining) {
-                    *pos += (size_t)written;
-                    *remaining -= (size_t)written;
-                    *has_diagnostics = true;
-                  }
+                  *has_diagnostics = true;
                 }
                 break;
               }
@@ -1900,19 +1969,16 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       } else if (expected_args == -2) {
         // Variable arguments - check at least 1
@@ -1928,19 +1994,16 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       } else {
         // Check user-defined functions
@@ -1959,19 +2022,16 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
                 escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
         } else if (!sym) {
           // Undefined function (not built-in and not user-defined)
@@ -1985,19 +2045,16 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
@@ -2009,7 +2066,7 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         AST temp_ast = {node->as.if_stmt.block, node->as.if_stmt.block_size,
                         node->as.if_stmt.block_size};
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
-                             remaining, has_diagnostics);
+                             remaining, has_diagnostics, capacity);
       }
       // Check else-if blocks
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
@@ -2018,7 +2075,7 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                           node->as.if_stmt.else_if_block_sizes[j],
                           node->as.if_stmt.else_if_block_sizes[j]};
           check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
-                               remaining, has_diagnostics);
+                               remaining, has_diagnostics, capacity);
         }
       }
       // Check else block
@@ -2027,7 +2084,7 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                         node->as.if_stmt.else_block_size,
                         node->as.if_stmt.else_block_size};
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
-                             remaining, has_diagnostics);
+                             remaining, has_diagnostics, capacity);
       }
     } else if (node->type == AST_FOR || node->type == AST_WHILE) {
       ASTNode **block = NULL;
@@ -2042,14 +2099,14 @@ static void check_function_calls(AST *ast, const char *text, Symbol *symbols,
       if (block) {
         AST temp_ast = {block, block_size, block_size};
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
-                             remaining, has_diagnostics);
+                             remaining, has_diagnostics, capacity);
       }
     } else if (node->type == AST_FUNCTION) {
       if (node->as.function.block) {
         AST temp_ast = {node->as.function.block, node->as.function.block_size,
                         node->as.function.block_size};
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
-                             remaining, has_diagnostics);
+                             remaining, has_diagnostics, capacity);
       }
     }
   }
@@ -2078,12 +2135,14 @@ static bool find_nth_occurrence(const char *text, const char *varname, size_t n,
     const char *pos;
     size_t len;
   } Match;
-  Match matches[256]; // Max 256 matches
+  const size_t MAX_MATCHES = 256; // Prevent stack overflow
+  Match matches[MAX_MATCHES];
   size_t match_count = 0;
 
   // Search for "let" pattern
   const char *pos = text;
-  while ((pos = strstr(pos, pattern_let)) != NULL && match_count < 256) {
+  while ((pos = strstr(pos, pattern_let)) != NULL &&
+         match_count < MAX_MATCHES) {
     matches[match_count].pos = pos;
     matches[match_count].len = pattern_let_len;
     match_count++;
@@ -2092,7 +2151,8 @@ static bool find_nth_occurrence(const char *text, const char *varname, size_t n,
 
   // Search for "set" pattern
   pos = text;
-  while ((pos = strstr(pos, pattern_set)) != NULL && match_count < 256) {
+  while ((pos = strstr(pos, pattern_set)) != NULL &&
+         match_count < MAX_MATCHES) {
     matches[match_count].pos = pos;
     matches[match_count].len = pattern_set_len;
     match_count++;
@@ -2208,9 +2268,10 @@ typedef struct {
 } SeenVar;
 
 static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
-                             AST *ast, char *diagnostics, size_t *pos,
+                             AST *ast, char **diagnostics, size_t *pos,
                              size_t *remaining, bool *has_diagnostics,
-                             SeenVar *seen_vars, size_t seen_count) {
+                             SeenVar *seen_vars, size_t seen_count,
+                             size_t *capacity) {
   if (!node)
     return;
 
@@ -2240,19 +2301,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-      int written =
-          snprintf(diagnostics + *pos, *remaining,
-                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                   "\"severity\":1,"
-                   "\"message\":\"%s\"}",
-                   *has_diagnostics ? "," : "", line - 1, col, line - 1,
-                   col + 20, escaped_msg_final);
-      if (written > 0 && (size_t)written < *remaining) {
-        *pos += (size_t)written;
-        *remaining -= (size_t)written;
-        *has_diagnostics = true;
-      }
+      size_t needed = strlen(escaped_msg_final) + 200;
+      SAFE_DIAGNOSTICS_WRITE(
+          diagnostics, capacity, pos, remaining, needed,
+          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+          "\"end\":{\"line\":%zu,\"character\":%zu}},"
+          "\"severity\":1,"
+          "\"message\":\"%s\"}",
+          *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+          escaped_msg_final);
+      *has_diagnostics = true;
     }
 
     // Index must be a number for lists/strings/ranges, but maps accept any key
@@ -2271,19 +2329,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-      int written =
-          snprintf(diagnostics + *pos, *remaining,
-                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                   "\"severity\":1,"
-                   "\"message\":\"%s\"}",
-                   *has_diagnostics ? "," : "", line - 1, col, line - 1,
-                   col + 20, escaped_msg_final);
-      if (written > 0 && (size_t)written < *remaining) {
-        *pos += (size_t)written;
-        *remaining -= (size_t)written;
-        *has_diagnostics = true;
-      }
+      size_t needed = strlen(escaped_msg_final) + 200;
+      SAFE_DIAGNOSTICS_WRITE(
+          diagnostics, capacity, pos, remaining, needed,
+          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+          "\"end\":{\"line\":%zu,\"character\":%zu}},"
+          "\"severity\":1,"
+          "\"message\":\"%s\"}",
+          *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+          escaped_msg_final);
+      *has_diagnostics = true;
     }
 
     // Check for out-of-bounds (constant list and index)
@@ -2319,28 +2374,25 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
 
     // Recursively check nested expressions
     check_expression(node->as.index.list_expr, text, symbols, ast, diagnostics,
-                     pos, remaining, has_diagnostics, NULL, 0);
+                     pos, remaining, has_diagnostics, NULL, 0, capacity);
     check_expression(node->as.index.index, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics, NULL, 0);
+                     remaining, has_diagnostics, NULL, 0, capacity);
     return;
   }
 
@@ -2386,19 +2438,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
 
@@ -2415,19 +2464,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
@@ -2449,19 +2495,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
               char escaped_msg_final[512];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
-              int written = snprintf(
-                  diagnostics + *pos, *remaining,
+              size_t needed = strlen(escaped_msg_final) + 200;
+              SAFE_DIAGNOSTICS_WRITE(
+                  diagnostics, capacity, pos, remaining, needed,
                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
                   "\"severity\":1,"
                   "\"message\":\"%s\"}",
                   *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 3,
                   escaped_msg_final);
-              if (written > 0 && (size_t)written < *remaining) {
-                *pos += (size_t)written;
-                *remaining -= (size_t)written;
-                *has_diagnostics = true;
-              }
+              *has_diagnostics = true;
             }
           } else if (node->as.binop.op == BINOP_NEG) {
             // NEG requires number operand
@@ -2474,19 +2517,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
               char escaped_msg_final[512];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
-              int written = snprintf(
-                  diagnostics + *pos, *remaining,
+              size_t needed = strlen(escaped_msg_final) + 200;
+              SAFE_DIAGNOSTICS_WRITE(
+                  diagnostics, capacity, pos, remaining, needed,
                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
                   "\"severity\":1,"
                   "\"message\":\"%s\"}",
                   *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 1,
                   escaped_msg_final);
-              if (written > 0 && (size_t)written < *remaining) {
-                *pos += (size_t)written;
-                *remaining -= (size_t)written;
-                *has_diagnostics = true;
-              }
+              *has_diagnostics = true;
             }
           }
         }
@@ -2515,19 +2555,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
@@ -2537,13 +2574,16 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     if (node->as.binop.right == NULL) {
       // Unary operator - only check left operand
       check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+                       pos, remaining, has_diagnostics, seen_vars, seen_count,
+                       capacity);
     } else {
       // Binary operator - check both operands
       check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+                       pos, remaining, has_diagnostics, seen_vars, seen_count,
+                       capacity);
       check_expression(node->as.binop.right, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+                       pos, remaining, has_diagnostics, seen_vars, seen_count,
+                       capacity);
     }
     return;
   }
@@ -2587,19 +2627,17 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
         char escaped_msg_final[512];
         json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-        int written =
-            snprintf(diagnostics + *pos, *remaining,
-                     "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                     "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                     "\"severity\":1,"
-                     "\"message\":\"%s\"}",
-                     *has_diagnostics ? "," : "", line - 1, col, line - 1,
-                     col + strlen(node->as.var_name), escaped_msg_final);
-        if (written > 0 && (size_t)written < *remaining) {
-          *pos += (size_t)written;
-          *remaining -= (size_t)written;
-          *has_diagnostics = true;
-        }
+        size_t needed =
+            strlen(escaped_msg_final) + strlen(node->as.var_name) + 200;
+        SAFE_DIAGNOSTICS_WRITE(
+            diagnostics, capacity, pos, remaining, needed,
+            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},"
+            "\"severity\":1,"
+            "\"message\":\"%s\"}",
+            *has_diagnostics ? "," : "", line - 1, col, line - 1,
+            col + strlen(node->as.var_name), escaped_msg_final);
+        *has_diagnostics = true;
       }
     }
     return;
@@ -2610,7 +2648,7 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     for (size_t i = 0; i < node->as.list.element_count; i++) {
       check_expression(node->as.list.elements[i], text, symbols, ast,
                        diagnostics, pos, remaining, has_diagnostics, seen_vars,
-                       seen_count);
+                       seen_count, capacity);
     }
     return;
   }
@@ -2619,16 +2657,17 @@ static void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   if (node->type == AST_CALL) {
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       check_expression(node->as.call.args[i], text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count);
+                       pos, remaining, has_diagnostics, seen_vars, seen_count,
+                       capacity);
     }
     return;
   }
 }
 
 static void check_undefined_variables(AST *ast, const char *text,
-                                      Symbol *symbols, char *diagnostics,
+                                      Symbol *symbols, char **diagnostics,
                                       size_t *pos, size_t *remaining,
-                                      bool *has_diagnostics) {
+                                      bool *has_diagnostics, size_t *capacity) {
   if (!ast || !ast->statements)
     return;
 
@@ -2685,19 +2724,17 @@ static void check_undefined_variables(AST *ast, const char *text,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed =
+              strlen(escaped_msg_final) + strlen(node->as.var_name) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1,
               col + strlen(node->as.var_name), escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
@@ -2721,22 +2758,29 @@ static void check_undefined_variables(AST *ast, const char *text,
           SeenVar *new_vars =
               realloc(seen_vars, seen_capacity * sizeof(SeenVar));
           if (!new_vars) {
-            // Can't expand, skip adding this variable
-          } else {
-            seen_vars = new_vars;
-            seen_vars[seen_count].name = strdup(node->as.assign.name);
-            seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
-            seen_vars[seen_count].assignment_count = 1;
-            seen_vars[seen_count].first_statement_index = i;
-            seen_count++;
+            // Can't expand - free existing array and return early
+            // to prevent partial state and potential memory issues
+            for (size_t k = 0; k < seen_count; k++) {
+              free(seen_vars[k].name);
+            }
+            free(seen_vars);
+            return;
           }
-        } else {
-          seen_vars[seen_count].name = strdup(node->as.assign.name);
-          seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
-          seen_vars[seen_count].assignment_count = 1;
-          seen_vars[seen_count].first_statement_index = i;
-          seen_count++;
+          seen_vars = new_vars;
         }
+        seen_vars[seen_count].name = strdup(node->as.assign.name);
+        if (!seen_vars[seen_count].name) {
+          // strdup failed - free and return
+          for (size_t k = 0; k < seen_count; k++) {
+            free(seen_vars[k].name);
+          }
+          free(seen_vars);
+          return;
+        }
+        seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
+        seen_vars[seen_count].assignment_count = 1;
+        seen_vars[seen_count].first_statement_index = i;
+        seen_count++;
       }
 
       // Mark variable as written to (assignment)
@@ -2760,19 +2804,16 @@ static void check_undefined_variables(AST *ast, const char *text,
         char escaped_msg_final[512];
         json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-        int written =
-            snprintf(diagnostics + *pos, *remaining,
-                     "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                     "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                     "\"severity\":1,"
-                     "\"message\":\"%s\"}",
-                     *has_diagnostics ? "," : "", line - 1, col, line - 1,
-                     col + 20, escaped_msg_final);
-        if (written > 0 && (size_t)written < *remaining) {
-          *pos += (size_t)written;
-          *remaining -= (size_t)written;
-          *has_diagnostics = true;
-        }
+        size_t needed = strlen(escaped_msg_final) + 200;
+        SAFE_DIAGNOSTICS_WRITE(
+            diagnostics, capacity, pos, remaining, needed,
+            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},"
+            "\"severity\":1,"
+            "\"message\":\"%s\"}",
+            *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+            escaped_msg_final);
+        *has_diagnostics = true;
       } else {
         // Check if variable was already assigned (reassignment check)
         // Note: Variable was already added to seen_vars above, so we just need
@@ -2812,19 +2853,16 @@ static void check_undefined_variables(AST *ast, const char *text,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
 
         // Check for type-annotated variables initialized with null/undefined
@@ -2921,19 +2959,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + value_length + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1,
                 col + value_length, escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
         }
 
@@ -3034,19 +3069,16 @@ static void check_undefined_variables(AST *ast, const char *text,
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
 
-              int written = snprintf(
-                  diagnostics + *pos, *remaining,
+              size_t needed = strlen(escaped_msg_final) + value_length + 200;
+              SAFE_DIAGNOSTICS_WRITE(
+                  diagnostics, capacity, pos, remaining, needed,
                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
                   "\"severity\":1,"
                   "\"message\":\"%s\"}",
                   *has_diagnostics ? "," : "", line - 1, col, line - 1,
                   col + value_length, escaped_msg_final);
-              if (written > 0 && (size_t)written < *remaining) {
-                *pos += (size_t)written;
-                *remaining -= (size_t)written;
-                *has_diagnostics = true;
-              }
+              *has_diagnostics = true;
             }
           }
         }
@@ -3057,8 +3089,8 @@ static void check_undefined_variables(AST *ast, const char *text,
       // Check expressions in assignment value
       if (node->as.assign.value) {
         check_expression(node->as.assign.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars,
-                         seen_count);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count,
+                         capacity);
       }
     }
 
@@ -3066,8 +3098,8 @@ static void check_undefined_variables(AST *ast, const char *text,
     if (node->type == AST_PRINT) {
       if (node->as.print.value) {
         check_expression(node->as.print.value, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars,
-                         seen_count);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count,
+                         capacity);
       }
     }
 
@@ -3076,14 +3108,14 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.if_stmt.condition) {
         check_expression(node->as.if_stmt.condition, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
       // Check else-if conditions
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
         if (node->as.if_stmt.else_if_conditions[j]) {
           check_expression(node->as.if_stmt.else_if_conditions[j], text,
                            symbols, ast, diagnostics, pos, remaining,
-                           has_diagnostics, seen_vars, seen_count);
+                           has_diagnostics, seen_vars, seen_count, capacity);
         }
       }
     }
@@ -3100,17 +3132,17 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.for_stmt.iterable) {
         check_expression(node->as.for_stmt.iterable, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
       if (node->as.for_stmt.end) {
         check_expression(node->as.for_stmt.end, text, symbols, ast, diagnostics,
-                         pos, remaining, has_diagnostics, seen_vars,
-                         seen_count);
+                         pos, remaining, has_diagnostics, seen_vars, seen_count,
+                         capacity);
       }
       if (node->as.for_stmt.step) {
         check_expression(node->as.for_stmt.step, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3119,7 +3151,7 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.while_stmt.condition) {
         check_expression(node->as.while_stmt.condition, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3128,7 +3160,7 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.return_stmt.value) {
         check_expression(node->as.return_stmt.value, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3138,17 +3170,17 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.assign_index.target) {
         check_expression(node->as.assign_index.target, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
       if (node->as.assign_index.index) {
         check_expression(node->as.assign_index.index, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
       if (node->as.assign_index.value) {
         check_expression(node->as.assign_index.value, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3158,12 +3190,12 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.delete_stmt.target) {
         check_expression(node->as.delete_stmt.target, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
       if (node->as.delete_stmt.key) {
         check_expression(node->as.delete_stmt.key, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3175,7 +3207,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                        node->as.try_stmt.try_block_size,
                        node->as.try_stmt.try_block_size};
         check_undefined_variables(&try_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
       // Check expressions in catch blocks
       for (size_t j = 0; j < node->as.try_stmt.catch_block_count; j++) {
@@ -3184,7 +3216,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                            node->as.try_stmt.catch_blocks[j].catch_block_size,
                            node->as.try_stmt.catch_blocks[j].catch_block_size};
           check_undefined_variables(&catch_ast, text, symbols, diagnostics, pos,
-                                    remaining, has_diagnostics);
+                                    remaining, has_diagnostics, capacity);
         }
       }
       // Check expressions in finally block
@@ -3193,7 +3225,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                            node->as.try_stmt.finally_block_size,
                            node->as.try_stmt.finally_block_size};
         check_undefined_variables(&finally_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
     }
 
@@ -3203,7 +3235,7 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (node->as.raise_stmt.message) {
         check_expression(node->as.raise_stmt.message, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
-                         seen_vars, seen_count);
+                         seen_vars, seen_count, capacity);
       }
     }
 
@@ -3257,19 +3289,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
                 escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
             break;
           }
         }
@@ -3293,19 +3322,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
                 escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
         }
       } else if (strcmp(actual_func_name, "len") == 0) {
@@ -3334,19 +3360,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
                 escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
           if (strcmp(actual_func_name, "sort") == 0) {
             // Check if sort list has mixed types (all must be numbers or all
@@ -3421,19 +3444,16 @@ static void check_undefined_variables(AST *ast, const char *text,
                 json_escape(escaped_msg, escaped_msg_final,
                             sizeof(escaped_msg_final));
 
-                int written = snprintf(
-                    diagnostics + *pos, *remaining,
+                size_t needed = strlen(escaped_msg_final) + 200;
+                SAFE_DIAGNOSTICS_WRITE(
+                    diagnostics, capacity, pos, remaining, needed,
                     "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                     "\"end\":{\"line\":%zu,\"character\":%zu}},"
                     "\"severity\":1,"
                     "\"message\":\"%s\"}",
                     *has_diagnostics ? "," : "", line - 1, col, line - 1,
                     col + 20, escaped_msg_final);
-                if (written > 0 && (size_t)written < *remaining) {
-                  *pos += (size_t)written;
-                  *remaining -= (size_t)written;
-                  *has_diagnostics = true;
-                }
+                *has_diagnostics = true;
               }
             }
           }
@@ -3456,19 +3476,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
                 escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
         }
       } else if (strcmp(actual_func_name, "to_number") == 0) {
@@ -3494,19 +3511,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + arg_length + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1,
                 col + arg_length, escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           } else if (arg_node->type == AST_STRING) {
             // Check if string literal can be converted to number
             // For AST_STRING, check if the string value is a valid number
@@ -3532,19 +3546,16 @@ static void check_undefined_variables(AST *ast, const char *text,
                 json_escape(escaped_msg, escaped_msg_final,
                             sizeof(escaped_msg_final));
 
-                int written = snprintf(
-                    diagnostics + *pos, *remaining,
+                size_t needed = strlen(escaped_msg_final) + arg_length + 200;
+                SAFE_DIAGNOSTICS_WRITE(
+                    diagnostics, capacity, pos, remaining, needed,
                     "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                     "\"end\":{\"line\":%zu,\"character\":%zu}},"
                     "\"severity\":1,"
                     "\"message\":\"%s\"}",
                     *has_diagnostics ? "," : "", line - 1, col, line - 1,
                     col + arg_length, escaped_msg_final);
-                if (written > 0 && (size_t)written < *remaining) {
-                  *pos += (size_t)written;
-                  *remaining -= (size_t)written;
-                  *has_diagnostics = true;
-                }
+                *has_diagnostics = true;
               } else {
                 // Try to parse as number - if it fails, it's not a valid
                 // numeric string
@@ -3571,20 +3582,17 @@ static void check_undefined_variables(AST *ast, const char *text,
                   json_escape(escaped_msg, escaped_msg_final,
                               sizeof(escaped_msg_final));
 
-                  int written =
-                      snprintf(diagnostics + *pos, *remaining,
-                               "%s{\"range\":{\"start\":{\"line\":%zu,"
-                               "\"character\":%zu},"
-                               "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                               "\"severity\":1,"
-                               "\"message\":\"%s\"}",
-                               *has_diagnostics ? "," : "", line - 1, col,
-                               line - 1, col + arg_length, escaped_msg_final);
-                  if (written > 0 && (size_t)written < *remaining) {
-                    *pos += (size_t)written;
-                    *remaining -= (size_t)written;
-                    *has_diagnostics = true;
-                  }
+                  size_t needed = strlen(escaped_msg_final) + arg_length + 200;
+                  SAFE_DIAGNOSTICS_WRITE(
+                      diagnostics, capacity, pos, remaining, needed,
+                      "%s{\"range\":{\"start\":{\"line\":%zu,"
+                      "\"character\":%zu},"
+                      "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                      "\"severity\":1,"
+                      "\"message\":\"%s\"}",
+                      *has_diagnostics ? "," : "", line - 1, col, line - 1,
+                      col + arg_length, escaped_msg_final);
+                  *has_diagnostics = true;
                 }
               }
             }
@@ -3613,19 +3621,16 @@ static void check_undefined_variables(AST *ast, const char *text,
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
-            int written = snprintf(
-                diagnostics + *pos, *remaining,
+            size_t needed = strlen(escaped_msg_final) + arg_length + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
                 "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
                 "\"end\":{\"line\":%zu,\"character\":%zu}},"
                 "\"severity\":1,"
                 "\"message\":\"%s\"}",
                 *has_diagnostics ? "," : "", line - 1, col, line - 1,
                 col + arg_length, escaped_msg_final);
-            if (written > 0 && (size_t)written < *remaining) {
-              *pos += (size_t)written;
-              *remaining -= (size_t)written;
-              *has_diagnostics = true;
-            }
+            *has_diagnostics = true;
           }
         }
       }
@@ -3645,19 +3650,16 @@ static void check_undefined_variables(AST *ast, const char *text,
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
-          int written = snprintf(
-              diagnostics + *pos, *remaining,
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
               "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
               "\"end\":{\"line\":%zu,\"character\":%zu}},"
               "\"severity\":1,"
               "\"message\":\"%s\"}",
               *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
               escaped_msg_final);
-          if (written > 0 && (size_t)written < *remaining) {
-            *pos += (size_t)written;
-            *remaining -= (size_t)written;
-            *has_diagnostics = true;
-          }
+          *has_diagnostics = true;
         }
       }
     }
@@ -3668,7 +3670,7 @@ static void check_undefined_variables(AST *ast, const char *text,
         AST temp_ast = {node->as.if_stmt.block, node->as.if_stmt.block_size,
                         node->as.if_stmt.block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
       for (size_t j = 0; j < node->as.if_stmt.else_if_count; j++) {
         if (node->as.if_stmt.else_if_blocks[j]) {
@@ -3676,7 +3678,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                           node->as.if_stmt.else_if_block_sizes[j],
                           node->as.if_stmt.else_if_block_sizes[j]};
           check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
-                                    remaining, has_diagnostics);
+                                    remaining, has_diagnostics, capacity);
         }
       }
       if (node->as.if_stmt.else_block) {
@@ -3684,7 +3686,7 @@ static void check_undefined_variables(AST *ast, const char *text,
                         node->as.if_stmt.else_block_size,
                         node->as.if_stmt.else_block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
     } else if (node->type == AST_FOR || node->type == AST_WHILE) {
       ASTNode **block = NULL;
@@ -3699,14 +3701,14 @@ static void check_undefined_variables(AST *ast, const char *text,
       if (block) {
         AST temp_ast = {block, block_size, block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
     } else if (node->type == AST_FUNCTION) {
       if (node->as.function.block) {
         AST temp_ast = {node->as.function.block, node->as.function.block_size,
                         node->as.function.block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
-                                  remaining, has_diagnostics);
+                                  remaining, has_diagnostics, capacity);
       }
     }
   }
@@ -3748,8 +3750,9 @@ static bool is_loop_variable(Symbol *sym, AST *ast) {
 
 // Check for unused variables and functions
 static void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
-                                 char *diagnostics, size_t *pos,
-                                 size_t *remaining, bool *has_diagnostics) {
+                                 char **diagnostics, size_t *pos,
+                                 size_t *remaining, bool *has_diagnostics,
+                                 size_t *capacity) {
   if (!symbols || !text)
     return;
 
@@ -3848,19 +3851,16 @@ static void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
         var_col = (size_t)(var_start - line_start);
       }
 
-      int written =
-          snprintf(diagnostics + *pos, *remaining,
-                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                   "\"severity\":1,"
-                   "\"message\":\"%s\"}",
-                   *has_diagnostics ? "," : "", line - 1, var_col, line - 1,
-                   var_col + strlen(sym->name), escaped_msg_final);
-      if (written > 0 && (size_t)written < *remaining) {
-        *pos += (size_t)written;
-        *remaining -= (size_t)written;
-        *has_diagnostics = true;
-      }
+      size_t needed = strlen(escaped_msg_final) + strlen(sym->name) + 200;
+      SAFE_DIAGNOSTICS_WRITE(
+          diagnostics, capacity, pos, remaining, needed,
+          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+          "\"end\":{\"line\":%zu,\"character\":%zu}},"
+          "\"severity\":1,"
+          "\"message\":\"%s\"}",
+          *has_diagnostics ? "," : "", line - 1, var_col, line - 1,
+          var_col + strlen(sym->name), escaped_msg_final);
+      *has_diagnostics = true;
     }
 
     // Check for completely unused variables and functions (not written or read)
@@ -3961,19 +3961,16 @@ static void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
       char escaped_msg_final[512];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
-      int written =
-          snprintf(diagnostics + *pos, *remaining,
-                   "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                   "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                   "\"severity\":2,"
-                   "\"message\":\"%s\"}",
-                   *has_diagnostics ? "," : "", line - 1, name_col, line - 1,
-                   name_col + strlen(sym->name), escaped_msg_final);
-      if (written > 0 && (size_t)written < *remaining) {
-        *pos += (size_t)written;
-        *remaining -= (size_t)written;
-        *has_diagnostics = true;
-      }
+      size_t needed = strlen(escaped_msg_final) + strlen(sym->name) + 200;
+      SAFE_DIAGNOSTICS_WRITE(
+          diagnostics, capacity, pos, remaining, needed,
+          "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+          "\"end\":{\"line\":%zu,\"character\":%zu}},"
+          "\"severity\":2,"
+          "\"message\":\"%s\"}",
+          *has_diagnostics ? "," : "", line - 1, name_col, line - 1,
+          name_col + strlen(sym->name), escaped_msg_final);
+      *has_diagnostics = true;
     }
   }
 }
@@ -3982,27 +3979,63 @@ static void check_diagnostics(const char *uri, const char *text) {
   TokenizeError *tokenize_err = NULL;
   TokenArray *tokens = tokenize(text, &tokenize_err);
 
-  char diagnostics[8192];
-  size_t pos = 0;
-  size_t remaining = sizeof(diagnostics);
-
-  // Start building JSON
-  int written = snprintf(diagnostics + pos, remaining,
-                         "{\"uri\":\"%s\",\"diagnostics\":[", uri);
-  if (written < 0 || (size_t)written >= remaining) {
+  // Start with a reasonable initial size
+  size_t diagnostics_capacity = 8192;
+  char *diagnostics = malloc(diagnostics_capacity);
+  if (!diagnostics) {
     if (tokenize_err)
       tokenize_error_free(tokenize_err);
     return;
   }
+
+  size_t pos = 0;
+  size_t remaining = diagnostics_capacity;
+
+  // Start building JSON
+  int written = snprintf(diagnostics + pos, remaining,
+                         "{\"uri\":\"%s\",\"diagnostics\":[", uri);
+  if (written < 0) {
+    free(diagnostics);
+    if (tokenize_err)
+      tokenize_error_free(tokenize_err);
+    return;
+  }
+
+  // Grow buffer if needed
+  if ((size_t)written >= remaining) {
+    if (!grow_diagnostics_buffer(&diagnostics, &diagnostics_capacity, pos,
+                                 (size_t)written + 1)) {
+      free(diagnostics);
+      if (tokenize_err)
+        tokenize_error_free(tokenize_err);
+      return;
+    }
+    remaining = diagnostics_capacity - pos;
+    // Retry snprintf with larger buffer
+    written = snprintf(diagnostics + pos, remaining,
+                       "{\"uri\":\"%s\",\"diagnostics\":[", uri);
+    if (written < 0 || (size_t)written >= remaining) {
+      free(diagnostics);
+      if (tokenize_err)
+        tokenize_error_free(tokenize_err);
+      return;
+    }
+  }
+
   pos += (size_t)written;
-  remaining -= (size_t)written;
+  remaining = diagnostics_capacity - pos;
 
   bool has_diagnostics = false;
 
   // Check tokenization errors
   if (tokenize_err) {
-    size_t line = tokenize_err->line > 0 ? tokenize_err->line - 1 : 0;
-    size_t col = tokenize_err->column > 0 ? tokenize_err->column - 1 : 0;
+    // Validate line/column to prevent integer overflow
+    size_t line = (tokenize_err->line > 0 && tokenize_err->line <= SIZE_MAX)
+                      ? tokenize_err->line - 1
+                      : 0;
+    size_t col = (tokenize_err->column > 0 && tokenize_err->column <= SIZE_MAX)
+                     ? tokenize_err->column - 1
+                     : 0;
 
     char escaped_msg[512];
     json_escape(tokenize_err->message, escaped_msg, sizeof(escaped_msg));
@@ -4031,17 +4064,22 @@ static void check_diagnostics(const char *uri, const char *text) {
       if (tokens->count > 0) {
         size_t line = 1, col = 1;
         // Estimate position (tokens don't store line/column, so we estimate)
-        written = snprintf(
-            diagnostics + pos, remaining,
-            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-            "\"end\":{\"line\":%zu,\"character\":%zu}},"
-            "\"severity\":1,"
-            "\"message\":\"Syntax error: failed to parse\"}",
-            has_diagnostics ? "," : "", line - 1, col - 1, line - 1, col);
-        if (written > 0 && (size_t)written < remaining) {
-          pos += (size_t)written;
-          remaining -= (size_t)written;
-          has_diagnostics = true;
+        size_t needed = 200; // Estimate for error message
+        if (grow_diagnostics_buffer(&diagnostics, &diagnostics_capacity, pos,
+                                    needed)) {
+          remaining = diagnostics_capacity - pos;
+          written = snprintf(
+              diagnostics + pos, remaining,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"Syntax error: failed to parse\"}",
+              has_diagnostics ? "," : "", line - 1, col - 1, line - 1, col);
+          if (written > 0 && (size_t)written < remaining) {
+            pos += (size_t)written;
+            remaining = diagnostics_capacity - pos;
+            has_diagnostics = true;
+          }
         }
       }
     } else {
@@ -4055,16 +4093,18 @@ static void check_diagnostics(const char *uri, const char *text) {
 
       // Check function call argument counts
       Symbol *symbols = g_doc ? g_doc->symbols : NULL;
-      check_function_calls(ast, text, symbols, diagnostics, &pos, &remaining,
-                           &has_diagnostics);
+      // Pass capacity pointer so helper functions can grow buffer
+      size_t *capacity_ptr = &diagnostics_capacity;
+      check_function_calls(ast, text, symbols, &diagnostics, &pos, &remaining,
+                           &has_diagnostics, capacity_ptr);
 
       // Check for undefined variables, type errors, and other diagnostics
-      check_undefined_variables(ast, text, symbols, diagnostics, &pos,
-                                &remaining, &has_diagnostics);
+      check_undefined_variables(ast, text, symbols, &diagnostics, &pos,
+                                &remaining, &has_diagnostics, capacity_ptr);
 
       // Check for unused variables and functions
-      check_unused_symbols(symbols, text, ast, diagnostics, &pos, &remaining,
-                           &has_diagnostics);
+      check_unused_symbols(symbols, text, ast, &diagnostics, &pos, &remaining,
+                           &has_diagnostics, capacity_ptr);
 
       // Free AST if not stored in document
       if (!g_doc) {
@@ -4075,12 +4115,16 @@ static void check_diagnostics(const char *uri, const char *text) {
   }
 
   // Close the JSON array and object
-  written = snprintf(diagnostics + pos, remaining, "]}");
-  if (written > 0 && (size_t)written < remaining) {
-    pos += (size_t)written;
+  if (grow_diagnostics_buffer(&diagnostics, &diagnostics_capacity, pos, 10)) {
+    remaining = diagnostics_capacity - pos;
+    written = snprintf(diagnostics + pos, remaining, "]}");
+    if (written > 0 && (size_t)written < remaining) {
+      pos += (size_t)written;
+    }
   }
 
   send_notification("textDocument/publishDiagnostics", diagnostics);
+  free(diagnostics);
 }
 
 /**
@@ -4373,9 +4417,6 @@ static void add_reference_location(ReferenceSearchContext *ctx, size_t line,
 // Recursive function to search AST nodes for symbol references
 static void search_node_for_references(ASTNode *node, size_t *line_num,
                                        ReferenceSearchContext *ctx) {
-  if (!node)
-    return;
-
   if (!node)
     return;
 
@@ -4904,12 +4945,12 @@ static void handle_rename(const char *id, const char *body) {
 
     // Check if we found the word at this position
     if (i + word_len <= text_len && strncmp(text + i, word, word_len) == 0) {
-      // Check word boundaries
-      bool is_word_start = (i == 0 || !isalnum((unsigned char)text[i - 1]) &&
-                                          text[i - 1] != '_');
+      // Check word boundaries (fixed operator precedence)
+      bool is_word_start = (i == 0 || (!isalnum((unsigned char)text[i - 1]) &&
+                                       text[i - 1] != '_'));
       bool is_word_end = (i + word_len >= text_len ||
-                          !isalnum((unsigned char)text[i + word_len]) &&
-                              text[i + word_len] != '_');
+                          (!isalnum((unsigned char)text[i + word_len]) &&
+                           text[i + word_len] != '_'));
 
       if (is_word_start && is_word_end) {
         // Calculate line and column for this occurrence
@@ -4960,7 +5001,8 @@ static void handle_rename(const char *id, const char *body) {
  * @param id Request ID
  * @param body Request body JSON
  */
-static void handle_code_action(const char *id, const char *body) {
+static void handle_code_action(const char *id,
+                               const char *body __attribute__((unused))) {
   if (!g_doc || !g_doc->text) {
     send_response(id, "[]");
     return;
@@ -4980,7 +5022,8 @@ static void handle_code_action(const char *id, const char *body) {
  * @param id Request ID
  * @param body Request body JSON
  */
-static void handle_formatting(const char *id, const char *body) {
+static void handle_formatting(const char *id,
+                              const char *body __attribute__((unused))) {
   if (!g_doc || !g_doc->text) {
     send_response(id, "null");
     return;
@@ -5036,8 +5079,7 @@ static void handle_formatting(const char *id, const char *body) {
     // Decrease indent for certain keywords at start of line
     if (at_line_start || (out_pos > 0 && formatted[out_pos - 1] == '\n')) {
       if (strncmp(text + i, "else", 4) == 0 ||
-          strncmp(text + i, "elif", 4) == 0 ||
-          strncmp(text + i, "except", 6) == 0 ||
+          strncmp(text + i, "catch", 5) == 0 ||
           strncmp(text + i, "finally", 7) == 0) {
         if (indent_level > 0) {
           indent_level--;
@@ -5072,11 +5114,18 @@ static void handle_formatting(const char *id, const char *body) {
   char escaped_text[16384];
   json_escape(formatted, escaped_text, sizeof(escaped_text));
 
+  // Calculate actual line count
+  size_t line_count = 1;
+  for (size_t i = 0; i < out_pos; i++) {
+    if (formatted[i] == '\n') {
+      line_count++;
+    }
+  }
+
   snprintf(result, sizeof(result),
            "[{\"range\":{\"start\":{\"line\":0,\"character\":0},"
            "\"end\":{\"line\":%zu,\"character\":0}},\"newText\":\"%s\"}]",
-           (size_t)999, // Approximate end line
-           escaped_text);
+           line_count > 0 ? line_count - 1 : 0, escaped_text);
 
   free(formatted);
   send_response(id, result);
