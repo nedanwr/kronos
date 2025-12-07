@@ -1351,7 +1351,13 @@ static int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "starts_with") == 0 ||
       strcmp(func_name, "ends_with") == 0 ||
       strcmp(func_name, "write_file") == 0 ||
-      strcmp(func_name, "join_path") == 0) {
+      strcmp(func_name, "join_path") == 0 ||
+      strcmp(func_name, "match") == 0 ||
+      strcmp(func_name, "search") == 0 ||
+      strcmp(func_name, "findall") == 0 ||
+      strcmp(func_name, "regex.match") == 0 ||
+      strcmp(func_name, "regex.search") == 0 ||
+      strcmp(func_name, "regex.findall") == 0) {
     return 2;
   }
 
@@ -4059,6 +4065,14 @@ static const char *get_module_description(const char *module_name) {
            "• `max(...)` - Maximum of numbers  \n\n"
            "**Usage:** `import math` then `call math.sqrt with 16`";
   }
+  if (strcmp(module_name, "regex") == 0) {
+    return "Regular expressions module\n\n"
+           "Provides pattern matching using POSIX extended regular expressions:\n\n"
+           "• `match(string, pattern)` - Returns true if pattern matches entire string  \n"
+           "• `search(string, pattern)` - Returns first matched substring or null  \n"
+           "• `findall(string, pattern)` - Returns list of all matched substrings  \n\n"
+           "**Usage:** `import regex` then `call regex.match with \"hello\", \"h.*o\"`";
+  }
   return NULL;
 }
 
@@ -4594,6 +4608,9 @@ static void handle_completion(const char *id, const char *body) {
       {"join_path", "Join two path components (path1, path2)"},
       {"dirname", "Get directory name from path"},
       {"basename", "Get file name from path"},
+      {"regex.match", "Check if pattern matches entire string (string, pattern)"},
+      {"regex.search", "Find first match in string (string, pattern)"},
+      {"regex.findall", "Find all matches in string (string, pattern)"},
   };
 
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
