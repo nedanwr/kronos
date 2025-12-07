@@ -135,6 +135,18 @@ set dir to call dirname with "/path/to/file.txt"
 set file to call basename with "/path/to/file.txt"
 ```
 
+## Regular Expressions
+```kronos
+# Check if pattern matches entire string
+set matches to call regex.match with "hello", "h.*o"
+
+# Find first match
+set result to call regex.search with "hello world", "world"
+
+# Find all matches
+set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
+```
+
 ## List Index Assignment
 ```kronos
 let nums to list 1, 2, 3
