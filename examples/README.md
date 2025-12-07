@@ -33,6 +33,9 @@ Run any example:
 ### File Operations
 - **file_operations.kr** - File I/O (read_file, write_file, read_lines, file_exists, list_files) and path operations (join_path, dirname, basename)
 
+### Regular Expressions
+- **regex_usage.kr** - Pattern matching with regex module (match, search, findall)
+
 ### Advanced
 - **builtins.kr** - Built-in constants (Pi) and math functions
 - **syntax_showcase.kr** - Complete feature demonstration
@@ -46,7 +49,8 @@ Run any example:
 3. **functions_simple.kr** → **functions.kr**
 4. **lists.kr** → **maps.kr** → **range_objects.kr**
 5. **file_operations.kr** - File I/O and path operations
-6. **builtins.kr** → **syntax_showcase.kr** → **fizzbuzz.kr**
+6. **regex_usage.kr** - Regular expressions and pattern matching
+7. **builtins.kr** → **syntax_showcase.kr** → **fizzbuzz.kr**
 
 ## Running All Examples
 
