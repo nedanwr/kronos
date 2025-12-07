@@ -105,6 +105,36 @@ call reverse with original         # [3, 2, 1]
 call sort with list 3, 1, 2        # [1, 2, 3]
 ```
 
+## File I/O Operations
+```kronos
+# Read file
+set content to call read_file with "data.txt"
+
+# Write file
+call write_file with "output.txt", "Hello, World!"
+
+# Read lines
+set lines to call read_lines with "data.txt"
+
+# Check if file exists
+set exists to call file_exists with "data.txt"
+
+# List files in directory
+set files to call list_files with "."
+```
+
+## Path Operations
+```kronos
+# Join paths
+set path to call join_path with "dir", "file.txt"
+
+# Get directory name
+set dir to call dirname with "/path/to/file.txt"
+
+# Get file name
+set file to call basename with "/path/to/file.txt"
+```
+
 ## List Index Assignment
 ```kronos
 let nums to list 1, 2, 3

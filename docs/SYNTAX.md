@@ -968,6 +968,62 @@ set words to list "zebra", "apple", "banana"
 set sorted_words to call sort with words      # Returns ["apple", "banana", "zebra"]
 ```
 
+**File I/O Operations:**
+
+- `read_file(path)` - Reads entire file content as a string
+- `write_file(path, content)` - Writes string content to a file (returns nil on success)
+- `read_lines(path)` - Reads file and returns a list of lines (one string per line)
+- `file_exists(path)` - Checks if a file or directory exists (returns boolean)
+- `list_files(path)` - Lists files in a directory (returns list of file names as strings)
+
+**Examples:**
+
+```kronos
+# Read a file
+set content to call read_file with "data.txt"
+print content
+
+# Write to a file
+call write_file with "output.txt", "Hello, World!"
+
+# Read file line by line
+set lines to call read_lines with "data.txt"
+for line in lines:
+    print line
+
+# Check if file exists
+set exists to call file_exists with "data.txt"
+if exists:
+    print "File exists!"
+
+# List files in directory
+set files to call list_files with "."
+for file in files:
+    print file
+```
+
+**Path Operations:**
+
+- `join_path(path1, path2)` - Joins two path components with appropriate separator
+- `dirname(path)` - Returns the directory name from a file path
+- `basename(path)` - Returns the file name from a file path
+
+**Examples:**
+
+```kronos
+# Join paths
+set full_path to call join_path with "dir", "file.txt"        # Returns "dir/file.txt"
+set full_path2 to call join_path with "/path/to", "file.txt"  # Returns "/path/to/file.txt"
+
+# Get directory name
+set dir to call dirname with "/path/to/file.txt"  # Returns "/path/to"
+set dir2 to call dirname with "file.txt"          # Returns "."
+
+# Get file name
+set file to call basename with "/path/to/file.txt"  # Returns "file.txt"
+set file2 to call basename with "dir/subdir"        # Returns "subdir"
+```
+
 **Notes:**
 
 - Built-in functions require exact argument counts
@@ -975,6 +1031,9 @@ set sorted_words to call sort with words      # Returns ["apple", "banana", "zeb
 - String functions require string arguments (except `len` which also works with lists)
 - Division by zero returns nil and prints an error
 - Function names are reserved and cannot be used as variable names
+- File I/O functions will raise errors if files cannot be opened or read
+- Path operations work with both absolute and relative paths
+- `list_files` excludes `.` and `..` entries
 
 ---
 
