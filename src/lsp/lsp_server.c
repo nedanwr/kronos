@@ -19,6 +19,7 @@
  * - Module function validation (verifies functions exist in imported modules)
  * - Code actions & quick fixes (placeholder for future enhancements)
  * - Document formatting (basic indentation and spacing)
+ * - Workspace symbols (search symbols across workspace)
  *
  * Usage: ./kronos-lsp
  * The server reads JSON-RPC messages from stdin and writes responses to stdout.
@@ -5474,6 +5475,390 @@ static void handle_document_symbols(const char *id) {
   send_response(id, symbols);
 }
 
+/**
+ * @brief Handle workspace/symbol request
+ *
+ * Searches for symbols across the workspace matching a query string.
+ * Currently searches within the current document only (single-file mode).
+ * Returns a list of symbols with their locations.
+ *
+ * @param id Request ID
+ * @param body Request body JSON
+ */
+static void handle_workspace_symbol(const char *id, const char *body) {
+  if (!g_doc || !g_doc->symbols) {
+    send_response(id, "[]");
+    return;
+  }
+
+  // Get query string from request
+  char *query = json_get_nested_value(body, "params.query");
+  if (!query || strlen(query) == 0) {
+    // Empty query - return all symbols
+    handle_document_symbols(id);
+    free(query);
+    return;
+  }
+
+  // Convert query to lowercase for case-insensitive matching
+  char query_lower[256];
+  size_t query_len = strlen(query);
+  if (query_len >= sizeof(query_lower)) {
+    query_len = sizeof(query_lower) - 1;
+  }
+  for (size_t i = 0; i < query_len; i++) {
+    query_lower[i] = (char)tolower((unsigned char)query[i]);
+  }
+  query_lower[query_len] = '\0';
+
+  char symbols[8192];
+  size_t pos = 0;
+  size_t remaining = sizeof(symbols);
+  bool first = true;
+
+  pos += snprintf(symbols + pos, remaining - pos, "[");
+
+  Symbol *sym = g_doc->symbols;
+  while (sym && pos < remaining - 200) {
+    // Case-insensitive partial match
+    char name_lower[256];
+    size_t name_len = strlen(sym->name);
+    if (name_len >= sizeof(name_lower)) {
+      name_len = sizeof(name_lower) - 1;
+    }
+    for (size_t i = 0; i < name_len; i++) {
+      name_lower[i] = (char)tolower((unsigned char)sym->name[i]);
+    }
+    name_lower[name_len] = '\0';
+
+    // Check if query matches symbol name
+    if (strstr(name_lower, query_lower) != NULL) {
+      if (!first)
+        pos += snprintf(symbols + pos, remaining - pos, ",");
+      first = false;
+
+      const char *kind_str = "6"; // Variable
+      if (sym->type == SYMBOL_FUNCTION)
+        kind_str = "12"; // Function
+      else if (sym->type == SYMBOL_PARAMETER)
+        kind_str = "5"; // Property
+
+      char *escaped_name = malloc(strlen(sym->name) * 2 + 1);
+      if (escaped_name) {
+        json_escape(sym->name, escaped_name, strlen(sym->name) * 2 + 1);
+        char escaped_uri[256];
+        json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
+
+        pos += snprintf(symbols + pos, remaining - pos,
+                        "{\"name\":\"%s\",\"kind\":%s,"
+                        "\"location\":{\"uri\":\"%s\","
+                        "\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                        "\"end\":{\"line\":%zu,\"character\":%zu}}}}",
+                        escaped_name, kind_str, escaped_uri, sym->line - 1,
+                        sym->column - 1, sym->line - 1,
+                        sym->column - 1 + strlen(sym->name));
+        free(escaped_name);
+      }
+    }
+    sym = sym->next;
+  }
+
+  pos += snprintf(symbols + pos, remaining - pos, "]");
+  free(query);
+  send_response(id, symbols);
+}
+
+// Helper structure for counting references
+typedef struct {
+  const char *symbol_name;
+  size_t count;
+} ReferenceCountContext;
+
+// Recursive helper to count references in AST nodes
+static void count_references_in_node(ASTNode *node,
+                                     ReferenceCountContext *ctx) {
+  if (!node)
+    return;
+
+  if (!node)
+    return;
+
+  switch (node->type) {
+  case AST_ASSIGN:
+    if (node->as.assign.name &&
+        strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
+      ctx->count++; // Definition counts as a reference
+    }
+    if (node->as.assign.value) {
+      count_references_in_node(node->as.assign.value, ctx);
+    }
+    break;
+
+  case AST_VAR:
+    if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
+      ctx->count++;
+    }
+    break;
+
+  case AST_CALL:
+    if (node->as.call.name &&
+        strcmp(node->as.call.name, ctx->symbol_name) == 0) {
+      ctx->count++;
+    }
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.args[i]) {
+        count_references_in_node(node->as.call.args[i], ctx);
+      }
+    }
+    break;
+
+  case AST_FUNCTION:
+    if (node->as.function.name &&
+        strcmp(node->as.function.name, ctx->symbol_name) == 0) {
+      ctx->count++; // Definition counts as a reference
+    }
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      if (node->as.function.block[i]) {
+        count_references_in_node(node->as.function.block[i], ctx);
+      }
+    }
+    break;
+
+  case AST_BINOP:
+    if (node->as.binop.left) {
+      count_references_in_node(node->as.binop.left, ctx);
+    }
+    if (node->as.binop.right) {
+      count_references_in_node(node->as.binop.right, ctx);
+    }
+    break;
+
+  case AST_IF:
+    if (node->as.if_stmt.condition) {
+      count_references_in_node(node->as.if_stmt.condition, ctx);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      if (node->as.if_stmt.block[i]) {
+        count_references_in_node(node->as.if_stmt.block[i], ctx);
+      }
+    }
+    if (node->as.if_stmt.else_block) {
+      for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+        if (node->as.if_stmt.else_block[i]) {
+          count_references_in_node(node->as.if_stmt.else_block[i], ctx);
+        }
+      }
+    }
+    break;
+
+  case AST_FOR:
+    if (node->as.for_stmt.var &&
+        strcmp(node->as.for_stmt.var, ctx->symbol_name) == 0) {
+      ctx->count++;
+    }
+    if (node->as.for_stmt.iterable) {
+      count_references_in_node(node->as.for_stmt.iterable, ctx);
+    }
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      if (node->as.for_stmt.block[i]) {
+        count_references_in_node(node->as.for_stmt.block[i], ctx);
+      }
+    }
+    break;
+
+  case AST_WHILE:
+    if (node->as.while_stmt.condition) {
+      count_references_in_node(node->as.while_stmt.condition, ctx);
+    }
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      if (node->as.while_stmt.block[i]) {
+        count_references_in_node(node->as.while_stmt.block[i], ctx);
+      }
+    }
+    break;
+
+  case AST_RETURN:
+    if (node->as.return_stmt.value) {
+      count_references_in_node(node->as.return_stmt.value, ctx);
+    }
+    break;
+
+  case AST_INDEX:
+    if (node->as.index.list_expr) {
+      count_references_in_node(node->as.index.list_expr, ctx);
+    }
+    if (node->as.index.index) {
+      count_references_in_node(node->as.index.index, ctx);
+    }
+    break;
+
+  case AST_SLICE:
+    if (node->as.slice.list_expr) {
+      count_references_in_node(node->as.slice.list_expr, ctx);
+    }
+    if (node->as.slice.start) {
+      count_references_in_node(node->as.slice.start, ctx);
+    }
+    if (node->as.slice.end) {
+      count_references_in_node(node->as.slice.end, ctx);
+    }
+    break;
+
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      if (node->as.list.elements[i]) {
+        count_references_in_node(node->as.list.elements[i], ctx);
+      }
+    }
+    break;
+
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      if (node->as.map.keys[i]) {
+        count_references_in_node(node->as.map.keys[i], ctx);
+      }
+      if (node->as.map.values[i]) {
+        count_references_in_node(node->as.map.values[i], ctx);
+      }
+    }
+    break;
+
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      if (node->as.fstring.parts[i]) {
+        count_references_in_node(node->as.fstring.parts[i], ctx);
+      }
+    }
+    break;
+
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      if (node->as.try_stmt.try_block[i]) {
+        count_references_in_node(node->as.try_stmt.try_block[i], ctx);
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      if (node->as.try_stmt.catch_blocks[i].catch_var &&
+          strcmp(node->as.try_stmt.catch_blocks[i].catch_var,
+                 ctx->symbol_name) == 0) {
+        ctx->count++;
+      }
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        if (node->as.try_stmt.catch_blocks[i].catch_block[j]) {
+          count_references_in_node(
+              node->as.try_stmt.catch_blocks[i].catch_block[j], ctx);
+        }
+      }
+    }
+    if (node->as.try_stmt.finally_block) {
+      for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+        if (node->as.try_stmt.finally_block[i]) {
+          count_references_in_node(node->as.try_stmt.finally_block[i], ctx);
+        }
+      }
+    }
+    break;
+
+  default:
+    break;
+  }
+}
+
+/**
+ * @brief Count references to a symbol in the document
+ *
+ * Helper function to count how many times a symbol is referenced.
+ *
+ * @param symbol_name Name of the symbol to count references for
+ * @param ast Parsed AST
+ * @return Number of references (including definition)
+ */
+static size_t count_symbol_references(const char *symbol_name, AST *ast) {
+  if (!symbol_name || !ast || !ast->statements)
+    return 0;
+
+  ReferenceCountContext ctx = {symbol_name, 0};
+
+  // Count references in all top-level statements
+  for (size_t i = 0; i < ast->count; i++) {
+    if (ast->statements[i]) {
+      count_references_in_node(ast->statements[i], &ctx);
+    }
+  }
+
+  return ctx.count;
+}
+
+/**
+ * @brief Handle textDocument/codeLens request
+ *
+ * Provides code lens items (actionable information) above code elements.
+ * Currently shows reference counts for functions and variables.
+ *
+ * @param id Request ID
+ * @param body Request body JSON (unused, but kept for consistency)
+ */
+static void handle_code_lens(const char *id,
+                             const char *body __attribute__((unused))) {
+  if (!g_doc || !g_doc->symbols || !g_doc->ast) {
+    send_response(id, "[]");
+    return;
+  }
+
+  char lenses[8192];
+  size_t pos = 0;
+  size_t remaining = sizeof(lenses);
+  bool first = true;
+
+  pos += snprintf(lenses + pos, remaining - pos, "[");
+
+  Symbol *sym = g_doc->symbols;
+  while (sym && pos < remaining - 200) {
+    // Only show code lens for functions and top-level variables
+    if (sym->type == SYMBOL_FUNCTION ||
+        (sym->type == SYMBOL_VARIABLE && sym->line > 0)) {
+      // Count references
+      size_t ref_count = count_symbol_references(sym->name, g_doc->ast);
+
+      if (!first)
+        pos += snprintf(lenses + pos, remaining - pos, ",");
+      first = false;
+
+      // Build code lens text
+      char lens_text[128];
+      if (sym->type == SYMBOL_FUNCTION) {
+        snprintf(lens_text, sizeof(lens_text), "%zu reference%s", ref_count,
+                 ref_count == 1 ? "" : "s");
+        if (sym->param_count > 0) {
+          char temp[128];
+          snprintf(temp, sizeof(temp), "%s • %zu parameter%s", lens_text,
+                   sym->param_count, sym->param_count == 1 ? "" : "s");
+          strncpy(lens_text, temp, sizeof(lens_text) - 1);
+          lens_text[sizeof(lens_text) - 1] = '\0';
+        }
+      } else {
+        snprintf(lens_text, sizeof(lens_text), "%zu reference%s", ref_count,
+                 ref_count == 1 ? "" : "s");
+      }
+
+      char escaped_text[256];
+      json_escape(lens_text, escaped_text, sizeof(escaped_text));
+
+      pos += snprintf(lenses + pos, remaining - pos,
+                      "{\"range\":{\"start\":{\"line\":%zu,\"character\":0},"
+                      "\"end\":{\"line\":%zu,\"character\":0}},\"command\":{"
+                      "\"title\":\"%s\","
+                      "\"command\":\"\",\"arguments\":[]}}",
+                      sym->line - 1, sym->line - 1, escaped_text);
+    }
+    sym = sym->next;
+  }
+
+  pos += snprintf(lenses + pos, remaining - pos, "]");
+  send_response(id, lenses);
+}
+
 // Handle semantic tokens request
 /**
  * @brief Handle textDocument/semanticTokens/full request
@@ -5864,6 +6249,8 @@ static void handle_completion(const char *id, const char *body) {
  * - textDocument/hover: Hover information
  * - textDocument/documentSymbol: Document outline
  * - textDocument/semanticTokens/full: Semantic highlighting
+ * - workspace/symbol: Search symbols across workspace
+ * - textDocument/codeLens: Show reference counts and parameter info
  *
  * @return 0 on normal exit
  */
@@ -5966,6 +6353,14 @@ int main(void) {
     } else if (strcmp(method, "textDocument/semanticTokens/full") == 0) {
       char *id = json_get_id_value(body);
       handle_semantic_tokens(id ? id : "null");
+      free(id);
+    } else if (strcmp(method, "workspace/symbol") == 0) {
+      char *id = json_get_id_value(body);
+      handle_workspace_symbol(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/codeLens") == 0) {
+      char *id = json_get_id_value(body);
+      handle_code_lens(id ? id : "null", body);
       free(id);
     } else {
       fprintf(stderr, "Unsupported LSP method: %s\n", method);
