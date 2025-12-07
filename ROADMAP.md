@@ -128,15 +128,15 @@ This document outlines the planned features and release schedule for Kronos.
   set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
   ```
 
-- 🔄 **LSP Improvements**
-  - Hover info for file-based modules (show module path and exports)
-  - Module function validation (verify functions exist in imported modules)
-  - Find all references
-  - Rename symbol
-  - Code actions & quick fixes
-  - Document formatting
-  - Workspace symbols
-  - Code lens
+- ✅ **LSP Improvements** (Completed)
+  - ✅ Hover info for file-based modules (show module path and exports)
+  - ✅ Module function validation (verify functions exist in imported modules)
+  - ✅ Find all references
+  - ✅ Rename symbol
+  - ✅ Code actions & quick fixes
+  - ✅ Document formatting
+  - ✅ Workspace symbols
+  - ✅ Code lens
 
 ---
 
