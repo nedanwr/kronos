@@ -1,0 +1,70 @@
+# Regular Expressions Example
+# Demonstrates pattern matching and text processing with the regex module
+
+print "=== Regular Expressions Examples ==="
+print ""
+
+# Example 1: Check if pattern matches entire string
+print "1. Pattern Matching:"
+set text1 to "hello"
+set pattern1 to "h.*o"
+set matches to call regex.match with text1, pattern1
+print f"  regex.match(\"{text1}\", \"{pattern1}\") = {matches}"
+
+set text2 to "world"
+set pattern2 to "h.*o"
+set matches2 to call regex.match with text2, pattern2
+print f"  regex.match(\"{text2}\", \"{pattern2}\") = {matches2}"
+print ""
+
+# Example 2: Find first match
+print "2. Finding First Match:"
+set text3 to "hello world"
+set pattern3 to "world"
+set result3 to call regex.search with text3, pattern3
+print f"  regex.search(\"{text3}\", \"{pattern3}\") = {result3}"
+
+set text4 to "The quick brown fox"
+set pattern4 to "[a-z]+"
+set result4 to call regex.search with text4, pattern4
+print f"  regex.search(\"{text4}\", \"{pattern4}\") = {result4}"
+print ""
+
+# Example 3: Find all matches
+print "3. Finding All Matches:"
+set text5 to "cat, bat, sat"
+set pattern5 to "[a-z]at"
+set all_matches to call regex.findall with text5, pattern5
+print f"  regex.findall(\"{text5}\", \"{pattern5}\")"
+print "  Result:"
+print all_matches
+
+set text6 to "abc123def456ghi789"
+set pattern6 to "[0-9]+"
+set numbers to call regex.findall with text6, pattern6
+print f"  regex.findall(\"{text6}\", \"{pattern6}\")"
+print "  Result:"
+print numbers
+print ""
+
+# Example 4: Extract email-like patterns
+print "4. Extracting Patterns:"
+set text7 to "Contact: alice@example.com or bob@test.org"
+set pattern7 to "[a-z]+@[a-z]+\\.[a-z]+"
+set emails to call regex.findall with text7, pattern7
+print f"  Text: {text7}"
+print f"  Pattern: {pattern7}"
+print "  Found:"
+print emails
+print ""
+
+# Example 5: Validate format
+print "5. Format Validation:"
+set phone1 to "123-456-7890"
+set phone2 to "invalid"
+set phone_pattern to "^[0-9]{3}-[0-9]{3}-[0-9]{4}$"
+set valid1 to call regex.match with phone1, phone_pattern
+set valid2 to call regex.match with phone2, phone_pattern
+print f"  \"{phone1}\" matches pattern: {valid1}"
+print f"  \"{phone2}\" matches pattern: {valid2}"
+

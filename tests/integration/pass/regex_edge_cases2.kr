@@ -1,0 +1,43 @@
+# More regex edge cases
+# Expected output:
+# null
+# []
+# [a]
+# true
+# false
+# true
+# false
+# [a, a]
+
+# Search in empty string
+set result1 to call regex.search with "", "a"
+print result1
+
+# Findall in empty string
+set result2 to call regex.findall with "", "a"
+print result2
+
+# Single character match
+set result3 to call regex.findall with "a", "a"
+print result3
+
+# Pattern at start
+set result4 to call regex.match with "hello", "^h.*"
+print result4
+
+# Pattern at end
+set result5 to call regex.match with "hello", ".*o$"
+print result5
+
+# Pattern spanning entire string
+set result6 to call regex.match with "hello", "^hello$"
+print result6
+
+# Pattern not at start
+set result7 to call regex.match with "hello", "^e.*"
+print result7
+
+# Multiple single character matches
+set result8 to call regex.findall with "aa", "a"
+print result8
+

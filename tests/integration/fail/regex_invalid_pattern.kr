@@ -1,0 +1,6 @@
+# Test regex with invalid pattern
+# Expected: Error about invalid regex pattern
+
+set result to call regex.match with "hello", "[invalid"
+print result
+

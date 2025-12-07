@@ -18,11 +18,12 @@
 #include "../frontend/parser.h"
 #include "../frontend/tokenizer.h"
 #include <ctype.h>
+#include <dirent.h>
 #include <limits.h>
 #include <math.h>
+#include <regex.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2043,6 +2044,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           free(module_name);
           // Continue to built-in function checks below with actual_func_name
           func_name = actual_func_name;
+        } else if (strcmp(module_name, "regex") == 0) {
+          // Regex functions are implemented as built-ins
+          free(module_name);
+          // Continue to built-in function checks below with actual_func_name
+          func_name = actual_func_name;
         } else {
           // Check for loaded file-based modules
           Module *mod = vm_get_module(vm, module_name);
@@ -3505,17 +3511,18 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'read_file' requires a string argument");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'read_file' requires a string argument");
           value_release(path_arg);
           return err;
         }
 
         FILE *file = fopen(path_arg->as.string.data, "r");
         if (!file) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Failed to open file '%s'",
-                              path_arg->as.string.data);
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open file '%s'",
+                        path_arg->as.string.data);
           value_release(path_arg);
           return err;
         }
@@ -3576,8 +3583,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path_arg->type != VAL_STRING || content_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'write_file' requires two string arguments");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'write_file' requires two string arguments");
           value_release(path_arg);
           value_release(content_arg);
           return err;
@@ -3627,17 +3635,18 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'read_lines' requires a string argument");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'read_lines' requires a string argument");
           value_release(path_arg);
           return err;
         }
 
         FILE *file = fopen(path_arg->as.string.data, "r");
         if (!file) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Failed to open file '%s'",
-                              path_arg->as.string.data);
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open file '%s'",
+                        path_arg->as.string.data);
           value_release(path_arg);
           return err;
         }
@@ -3713,8 +3722,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'file_exists' requires a string argument");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'file_exists' requires a string argument");
           value_release(path_arg);
           return err;
         }
@@ -3741,17 +3751,18 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'list_files' requires a string argument");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'list_files' requires a string argument");
           value_release(path_arg);
           return err;
         }
 
         DIR *dir = opendir(path_arg->as.string.data);
         if (!dir) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Failed to open directory '%s'",
-                              path_arg->as.string.data);
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open directory '%s'",
+                        path_arg->as.string.data);
           value_release(path_arg);
           return err;
         }
@@ -3827,8 +3838,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
         if (path1_arg->type != VAL_STRING || path2_arg->type != VAL_STRING) {
-          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                              "Function 'join_path' requires two string arguments");
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'join_path' requires two string arguments");
           value_release(path1_arg);
           value_release(path2_arg);
           return err;
@@ -3853,7 +3865,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         size_t offset = path1_len;
 
         // Add separator if needed
-        if (path1_len > 0 && path1[path1_len - 1] != '/' && path2_len > 0 && path2[0] != '/') {
+        if (path1_len > 0 && path1[path1_len - 1] != '/' && path2_len > 0 &&
+            path2[0] != '/') {
           joined[offset++] = '/';
         }
 
@@ -3993,6 +4006,238 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
         push(vm, result);
         value_release(result);
+        break;
+      }
+
+      // Built-in regex module functions
+      // regex.match(string, pattern) - Check if pattern matches entire string
+      if (strcmp(func_name, "regex.match") == 0 ||
+          strcmp(func_name, "match") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                           "Function 'regex.match' expects 2 arguments, got %d",
+                           arg_count);
+        }
+        KronosValue *pattern_arg = pop(vm);
+        if (!pattern_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *string_arg = pop(vm);
+        if (!pattern_arg) {
+          value_release(string_arg);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'regex.match' requires string arguments");
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        regex_t regex;
+        int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
+        if (ret != 0) {
+          char errbuf[256];
+          regerror(ret, &regex, errbuf, sizeof(errbuf));
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Invalid regex pattern: %s", errbuf);
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        int match =
+            regexec(&regex, string_arg->as.string.data, 0, NULL, 0) == 0;
+        regfree(&regex);
+
+        KronosValue *result = value_new_bool(match);
+        push(vm, result);
+        value_release(result);
+        value_release(pattern_arg);
+        value_release(string_arg);
+        break;
+      }
+
+      // regex.search(string, pattern) - Find first match in string
+      if (strcmp(func_name, "regex.search") == 0 ||
+          strcmp(func_name, "search") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(
+              vm, KRONOS_ERR_RUNTIME,
+              "Function 'regex.search' expects 2 arguments, got %d", arg_count);
+        }
+        KronosValue *pattern_arg = pop(vm);
+        if (!pattern_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *string_arg = pop(vm);
+        if (!string_arg) {
+          value_release(pattern_arg);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'regex.search' requires string arguments");
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        regex_t regex;
+        int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
+        if (ret != 0) {
+          char errbuf[256];
+          regerror(ret, &regex, errbuf, sizeof(errbuf));
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Invalid regex pattern: %s", errbuf);
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        regmatch_t match;
+        int found =
+            regexec(&regex, string_arg->as.string.data, 1, &match, 0) == 0;
+
+        KronosValue *result;
+        if (found && match.rm_so >= 0) {
+          // Extract matched substring
+          size_t match_len = (size_t)(match.rm_eo - match.rm_so);
+          result = value_new_string(string_arg->as.string.data + match.rm_so,
+                                    match_len);
+        } else {
+          // No match - return nil
+          result = value_new_nil();
+        }
+        regfree(&regex);
+
+        if (!result) {
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to create result value");
+        }
+        push(vm, result);
+        value_release(result);
+        value_release(pattern_arg);
+        value_release(string_arg);
+        break;
+      }
+
+      // regex.findall(string, pattern) - Find all matches in string
+      if (strcmp(func_name, "regex.findall") == 0 ||
+          strcmp(func_name, "findall") == 0) {
+        if (arg_count != 2) {
+          return vm_errorf(
+              vm, KRONOS_ERR_RUNTIME,
+              "Function 'regex.findall' expects 2 arguments, got %d",
+              arg_count);
+        }
+        KronosValue *pattern_arg = pop(vm);
+        if (!pattern_arg) {
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        KronosValue *string_arg = pop(vm);
+        if (!string_arg) {
+          value_release(pattern_arg);
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        }
+        if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
+          int err =
+              vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'regex.findall' requires string arguments");
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        regex_t regex;
+        int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
+        if (ret != 0) {
+          char errbuf[256];
+          regerror(ret, &regex, errbuf, sizeof(errbuf));
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                              "Invalid regex pattern: %s", errbuf);
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return err;
+        }
+
+        KronosValue *result = value_new_list(16);
+        if (!result) {
+          regfree(&regex);
+          value_release(pattern_arg);
+          value_release(string_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+        }
+
+        const char *search_str = string_arg->as.string.data;
+        size_t search_len = string_arg->as.string.length;
+        size_t offset = 0;
+        regmatch_t match;
+
+        while (offset < search_len) {
+          int found = regexec(&regex, search_str + offset, 1, &match, 0) == 0;
+          if (!found || match.rm_so < 0) {
+            break;
+          }
+
+          // Adjust match positions to absolute offsets
+          size_t match_start = offset + (size_t)match.rm_so;
+          size_t match_end = offset + (size_t)match.rm_eo;
+          size_t match_len = match_end - match_start;
+
+          // Extract matched substring
+          KronosValue *match_val =
+              value_new_string(search_str + match_start, match_len);
+          if (!match_val) {
+            regfree(&regex);
+            value_release(result);
+            value_release(pattern_arg);
+            value_release(string_arg);
+            return vm_error(vm, KRONOS_ERR_INTERNAL,
+                            "Failed to create string value");
+          }
+
+          // Grow list if needed
+          if (result->as.list.count >= result->as.list.capacity) {
+            size_t new_cap = result->as.list.capacity * 2;
+            KronosValue **new_items =
+                realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+            if (!new_items) {
+              value_release(match_val);
+              regfree(&regex);
+              value_release(result);
+              value_release(pattern_arg);
+              value_release(string_arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+            }
+            result->as.list.items = new_items;
+            result->as.list.capacity = new_cap;
+          }
+
+          value_retain(match_val);
+          result->as.list.items[result->as.list.count++] = match_val;
+          value_release(match_val);
+
+          // Move offset past this match
+          if (match.rm_eo > match.rm_so) {
+            offset = match_end;
+          } else {
+            // Zero-length match - advance by one character to avoid infinite
+            // loop
+            offset++;
+          }
+        }
+
+        regfree(&regex);
+        push(vm, result);
+        value_release(result);
+        value_release(pattern_arg);
+        value_release(string_arg);
         break;
       }
 

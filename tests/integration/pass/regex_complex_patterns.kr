@@ -1,0 +1,30 @@
+# Complex regex patterns
+# Expected output:
+# true
+# true
+# [abc, def, ghi]
+# [123, 456, 789]
+# true
+# false
+# [a, b, c]
+
+# Multiple groups in findall
+set result1 to call regex.findall with "abc def ghi", "[a-z]+"
+print result1
+
+# Numbers separated by text
+set result2 to call regex.findall with "abc123def456ghi789", "[0-9]+"
+print result2
+
+# Word boundaries (simulated with spaces)
+set result3 to call regex.match with "hello world", "hello world"
+print result3
+
+# Partial match (should not match entire string)
+set result4 to call regex.match with "hello world", "hello"
+print result4
+
+# Character class with negation (using [^...])
+set result5 to call regex.findall with "abc123", "[^0-9]"
+print result5
+

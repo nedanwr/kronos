@@ -1,0 +1,19 @@
+# Test regex.match function
+# Expected output:
+# true
+# false
+# true
+# false
+
+set result1 to call regex.match with "hello", "h.*o"
+print result1
+
+set result2 to call regex.match with "hello", "world"
+print result2
+
+set result3 to call regex.match with "12345", "[0-9]+"
+print result3
+
+set result4 to call regex.match with "abc123", "^[a-z]+$"
+print result4
+

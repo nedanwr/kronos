@@ -1024,6 +1024,29 @@ set file to call basename with "/path/to/file.txt"  # Returns "file.txt"
 set file2 to call basename with "dir/subdir"        # Returns "subdir"
 ```
 
+**Regular Expressions:**
+
+The `regex` module provides pattern matching using POSIX extended regular expressions.
+
+- `regex.match(string, pattern)` - Returns `true` if pattern matches entire string, `false` otherwise
+- `regex.search(string, pattern)` - Returns first matched substring or `null` if no match
+- `regex.findall(string, pattern)` - Returns list of all matched substrings (empty list if no matches)
+
+**Examples:**
+```kronos
+# Check if pattern matches entire string
+set matches to call regex.match with "hello", "h.*o"
+print matches  # Prints: true
+
+# Find first match
+set result to call regex.search with "hello world", "world"
+print result  # Prints: world
+
+# Find all matches
+set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
+print all_matches  # Prints: [cat, bat, sat]
+```
+
 **Notes:**
 
 - Built-in functions require exact argument counts
@@ -1034,6 +1057,8 @@ set file2 to call basename with "dir/subdir"        # Returns "subdir"
 - File I/O functions will raise errors if files cannot be opened or read
 - Path operations work with both absolute and relative paths
 - `list_files` excludes `.` and `..` entries
+- Regex functions use POSIX Extended Regular Expression syntax
+- Invalid regex patterns will raise a `RuntimeError` with details
 
 ---
 
