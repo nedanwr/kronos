@@ -1,0 +1,24 @@
+# File overwrite operations
+# Expected output:
+# Original content: Original
+# New content: Overwritten
+# Final content: Overwritten
+
+# Write original content
+call write_file with "overwrite_test.txt", "Original"
+
+# Read original
+set original to call read_file with "overwrite_test.txt"
+print f"Original content: {original}"
+
+# Overwrite with new content
+call write_file with "overwrite_test.txt", "Overwritten"
+
+# Read new content
+set new_content to call read_file with "overwrite_test.txt"
+print f"New content: {new_content}"
+
+# Verify final content
+set final to call read_file with "overwrite_test.txt"
+print f"Final content: {final}"
+

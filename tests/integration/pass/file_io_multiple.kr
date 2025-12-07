@@ -1,0 +1,27 @@
+# Multiple file I/O operations
+# Expected output:
+# File 1 written
+# File 2 written
+# File 1 content: Content 1
+# File 2 content: Content 2
+# Both files exist: true
+
+# Write multiple files
+call write_file with "multi_file1.txt", "Content 1"
+print "File 1 written"
+
+call write_file with "multi_file2.txt", "Content 2"
+print "File 2 written"
+
+# Read them back
+set content1 to call read_file with "multi_file1.txt"
+set content2 to call read_file with "multi_file2.txt"
+print f"File 1 content: {content1}"
+print f"File 2 content: {content2}"
+
+# Check both exist
+set exists1 to call file_exists with "multi_file1.txt"
+set exists2 to call file_exists with "multi_file2.txt"
+set both_exist to exists1 and exists2
+print f"Both files exist: {both_exist}"
+

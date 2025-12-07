@@ -1,0 +1,6 @@
+# Attempt to read lines from non-existent file
+# Expected: Runtime error about file not found
+
+set lines to call read_lines with "nonexistent_file_67890.txt"
+print lines
+

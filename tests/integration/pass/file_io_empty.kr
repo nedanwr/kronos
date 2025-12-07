@@ -1,0 +1,28 @@
+# File I/O with empty files
+# Expected output:
+# Empty file exists: true
+# Empty content length: 0
+# Empty lines count: 0
+# Written empty file
+
+# Create an empty file
+call write_file with "empty_file.txt", ""
+
+# Check if empty file exists
+set exists to call file_exists with "empty_file.txt"
+print f"Empty file exists: {exists}"
+
+# Read empty file
+set content to call read_file with "empty_file.txt"
+set content_len to call len with content
+print f"Empty content length: {content_len}"
+
+# Read empty file as lines
+set lines to call read_lines with "empty_file.txt"
+set line_count to call len with lines
+print f"Empty lines count: {line_count}"
+
+# Write empty string again
+call write_file with "empty_file2.txt", ""
+print "Written empty file"
+

@@ -1,0 +1,42 @@
+# Path operations
+# Expected output:
+# Joined: /path/to/file.txt
+# Dirname: /path/to
+# Basename: file.txt
+# Joined2: dir/subdir
+# Dirname2: dir
+# Basename2: subdir
+# Joined3: /absolute/path
+# Dirname3: /
+# Basename3: path
+
+# Test join_path
+set joined to call join_path with "/path/to", "file.txt"
+print f"Joined: {joined}"
+
+set dir to call dirname with joined
+print f"Dirname: {dir}"
+
+set base to call basename with joined
+print f"Basename: {base}"
+
+# Test relative paths
+set joined2 to call join_path with "dir", "subdir"
+print f"Joined2: {joined2}"
+
+set dir2 to call dirname with joined2
+print f"Dirname2: {dir2}"
+
+set base2 to call basename with joined2
+print f"Basename2: {base2}"
+
+# Test absolute path
+set joined3 to call join_path with "/absolute", "path"
+print f"Joined3: {joined3}"
+
+set dir3 to call dirname with "/absolute/path"
+print f"Dirname3: {dir3}"
+
+set base3 to call basename with "/absolute/path"
+print f"Basename3: {base3}"
+

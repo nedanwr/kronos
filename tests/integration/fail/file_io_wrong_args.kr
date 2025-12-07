@@ -1,0 +1,12 @@
+# File I/O functions with wrong argument counts
+# Expected: Runtime errors about wrong argument counts
+
+# read_file with no arguments
+set content to call read_file
+
+# write_file with one argument
+call write_file with "test.txt"
+
+# file_exists with no arguments
+set exists to call file_exists
+
