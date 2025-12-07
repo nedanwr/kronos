@@ -4,6 +4,7 @@
 kronos
 kronos-lsp
 kronos_unit_tests
+kronos_lsp_tests
 *.dSYM/
 
 # OS files
