@@ -186,14 +186,14 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                       size_t line = 1, col = 0;
                       find_call_position(text, func_name, &line, &col);
 
-                      char escaped_msg[512];
+                      char escaped_msg[LSP_ERROR_MSG_SIZE];
                       snprintf(
                           escaped_msg, sizeof(escaped_msg),
                           "Function '%s.%s' expects %zu argument%s, but got "
                           "%zu",
                           module_name, actual_func_name, func_sym->param_count,
                           func_sym->param_count == 1 ? "" : "s", arg_count);
-                      char escaped_msg_final[512];
+                      char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                       json_escape(escaped_msg, escaped_msg_final,
                                   sizeof(escaped_msg_final));
 
@@ -219,11 +219,11 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                   size_t line = 1, col = 0;
                   find_call_position(text, func_name, &line, &col);
 
-                  char escaped_msg[512];
+                  char escaped_msg[LSP_ERROR_MSG_SIZE];
                   snprintf(escaped_msg, sizeof(escaped_msg),
                            "Function '%s' not found in module '%s'",
                            actual_func_name, module_name);
-                  char escaped_msg_final[512];
+                  char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                   json_escape(escaped_msg, escaped_msg_final,
                               sizeof(escaped_msg_final));
 
@@ -261,12 +261,12 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           size_t line = 1, col = 0;
           find_call_position(text, func_name, &line, &col);
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg),
                    "Function '%s' expects %d argument%s, but got %zu",
                    func_name, expected_args, expected_args == 1 ? "" : "s",
                    arg_count);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -287,11 +287,11 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           size_t line = 1, col = 0;
           find_call_position(text, func_name, &line, &col);
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg),
                    "Function '%s' expects at least 1 argument, but got %zu",
                    func_name, arg_count);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -314,12 +314,12 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Function '%s' expects %zu argument%s, but got %zu",
                      func_name, sym->param_count,
                      sym->param_count == 1 ? "" : "s", arg_count);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -339,10 +339,10 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
           size_t line = 1, col = 0;
           find_call_position(text, func_name, &line, &col);
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg), "Undefined function '%s'",
                    func_name);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -413,11 +413,18 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
   }
 }
 
-void check_expression(ASTNode *node, const char *text, Symbol *symbols,
-                             AST *ast, char **diagnostics, size_t *pos,
-                             size_t *remaining, bool *has_diagnostics,
-                             void *seen_vars_ptr, size_t seen_count,
-                             size_t *capacity) {
+// Internal recursive version with depth tracking
+static void check_expression_recursive(ASTNode *node, const char *text,
+                                       Symbol *symbols, AST *ast,
+                                       char **diagnostics, size_t *pos,
+                                       size_t *remaining, bool *has_diagnostics,
+                                       void *seen_vars_ptr, size_t seen_count,
+                                       size_t *capacity, int depth) {
+  // Prevent stack overflow from deeply nested AST structures
+  if (depth > MAX_AST_DEPTH) {
+    return;
+  }
+
   SeenVar *seen_vars = (SeenVar *)seen_vars_ptr;
   if (!node)
     return;
@@ -443,9 +450,9 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       size_t line = 1, col = 0;
       find_node_position(node, text, "at", &line, &col);
 
-      char escaped_msg[512] =
+      char escaped_msg[LSP_ERROR_MSG_SIZE] =
           "Unsafe memory access: cannot index into null/undefined";
-      char escaped_msg_final[512];
+      char escaped_msg_final[LSP_ERROR_MSG_SIZE];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       size_t needed = strlen(escaped_msg_final) + 200;
@@ -472,8 +479,8 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       size_t line = 1, col = 0;
       find_node_position(node, text, "at", &line, &col);
 
-      char escaped_msg[512] = "List/string/range index must be a number";
-      char escaped_msg_final[512];
+      char escaped_msg[LSP_ERROR_MSG_SIZE] = "List/string/range index must be a number";
+      char escaped_msg_final[LSP_ERROR_MSG_SIZE];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       size_t needed = strlen(escaped_msg_final) + 200;
@@ -516,8 +523,8 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           size_t line = 1, col = 0;
           find_node_position(node, text, "at", &line, &col);
 
-          char escaped_msg[512] = "List index out of bounds";
-          char escaped_msg_final[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE] = "List index out of bounds";
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -536,10 +543,12 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     }
 
     // Recursively check nested expressions
-    check_expression(node->as.index.list_expr, text, symbols, ast, diagnostics,
-                     pos, remaining, has_diagnostics, NULL, 0, capacity);
-    check_expression(node->as.index.index, text, symbols, ast, diagnostics, pos,
-                     remaining, has_diagnostics, NULL, 0, capacity);
+    check_expression_recursive(node->as.index.list_expr, text, symbols, ast,
+                               diagnostics, pos, remaining, has_diagnostics,
+                               NULL, 0, capacity, depth + 1);
+    check_expression_recursive(node->as.index.index, text, symbols, ast,
+                               diagnostics, pos, remaining, has_diagnostics,
+                               NULL, 0, capacity, depth + 1);
     return;
   }
 
@@ -567,7 +576,7 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
                                 : node->as.binop.op == BINOP_DIV ? "divide"
                                                                  : "modulo";
           size_t line = 1, col = 0;
-          char pattern[256];
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
           if (node->as.binop.op == BINOP_SUB)
             snprintf(pattern, sizeof(pattern), "minus");
           else if (node->as.binop.op == BINOP_MUL)
@@ -578,10 +587,10 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
             snprintf(pattern, sizeof(pattern), "mod");
           find_node_position(node, text, pattern, &line, &col);
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg),
                    "Cannot %s - both values must be numbers", op_name);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -606,8 +615,8 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
           size_t line = 1, col = 0;
           find_node_position(node, text, "divided by", &line, &col);
 
-          char escaped_msg[512] = "Cannot divide by zero";
-          char escaped_msg_final[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE] = "Cannot divide by zero";
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -636,10 +645,10 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
             if (operand_type != TYPE_BOOL) {
               size_t line = 1, col = 0;
               find_node_position(node, text, "not", &line, &col);
-              char escaped_msg[512];
+              char escaped_msg[LSP_ERROR_MSG_SIZE];
               snprintf(escaped_msg, sizeof(escaped_msg),
                        "Cannot negate - operand must be boolean");
-              char escaped_msg_final[512];
+              char escaped_msg_final[LSP_ERROR_MSG_SIZE];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
               size_t needed = strlen(escaped_msg_final) + 200;
@@ -658,10 +667,10 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
             if (operand_type != TYPE_NUMBER) {
               size_t line = 1, col = 0;
               find_node_position(node, text, "-", &line, &col);
-              char escaped_msg[512];
+              char escaped_msg[LSP_ERROR_MSG_SIZE];
               snprintf(escaped_msg, sizeof(escaped_msg),
                        "Cannot negate - operand must be a number");
-              char escaped_msg_final[512];
+              char escaped_msg_final[LSP_ERROR_MSG_SIZE];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
               size_t needed = strlen(escaped_msg_final) + 200;
@@ -687,7 +696,7 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       if (left_type != TYPE_NUMBER || right_type != TYPE_NUMBER) {
         if (left_type != TYPE_UNKNOWN && right_type != TYPE_UNKNOWN) {
           size_t line = 1, col = 0;
-          char pattern[256] = "greater than";
+          char pattern[LSP_PATTERN_BUFFER_SIZE] = "greater than";
           if (node->as.binop.op == BINOP_LT)
             snprintf(pattern, sizeof(pattern), "less than");
           else if (node->as.binop.op == BINOP_GTE)
@@ -696,9 +705,9 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
             snprintf(pattern, sizeof(pattern), "less than or equal to");
           find_node_position(node, text, pattern, &line, &col);
 
-          char escaped_msg[512] =
+          char escaped_msg[LSP_ERROR_MSG_SIZE] =
               "Cannot compare - both values must be numbers";
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -720,17 +729,17 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
     // For unary operators (NOT, NEG), right is NULL
     if (node->as.binop.right == NULL) {
       // Unary operator - only check left operand
-      check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count,
-                       capacity);
+      check_expression_recursive(node->as.binop.left, text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
     } else {
       // Binary operator - check both operands
-      check_expression(node->as.binop.left, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count,
-                       capacity);
-      check_expression(node->as.binop.right, text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count,
-                       capacity);
+      check_expression_recursive(node->as.binop.left, text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
+      check_expression_recursive(node->as.binop.right, text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
     }
     return;
   }
@@ -764,14 +773,14 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
       if (strcmp(node->as.var_name, "Pi") != 0 &&
           strcmp(node->as.var_name, "undefined") != 0) {
         size_t line = 1, col = 0;
-        char pattern[256];
+        char pattern[LSP_PATTERN_BUFFER_SIZE];
         snprintf(pattern, sizeof(pattern), "%s", node->as.var_name);
         find_node_position(node, text, pattern, &line, &col);
 
-        char escaped_msg[512];
+        char escaped_msg[LSP_ERROR_MSG_SIZE];
         snprintf(escaped_msg, sizeof(escaped_msg), "Undefined variable '%s'",
                  node->as.var_name);
-        char escaped_msg_final[512];
+        char escaped_msg_final[LSP_ERROR_MSG_SIZE];
         json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
         size_t needed =
@@ -793,9 +802,9 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   // Check lists recursively
   if (node->type == AST_LIST) {
     for (size_t i = 0; i < node->as.list.element_count; i++) {
-      check_expression(node->as.list.elements[i], text, symbols, ast,
-                       diagnostics, pos, remaining, has_diagnostics, seen_vars,
-                       seen_count, capacity);
+      check_expression_recursive(node->as.list.elements[i], text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
     }
     return;
   }
@@ -803,12 +812,23 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
   // Check function calls recursively
   if (node->type == AST_CALL) {
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
-      check_expression(node->as.call.args[i], text, symbols, ast, diagnostics,
-                       pos, remaining, has_diagnostics, seen_vars, seen_count,
-                       capacity);
+      check_expression_recursive(node->as.call.args[i], text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
     }
     return;
   }
+}
+
+// Public wrapper that starts with depth 0
+void check_expression(ASTNode *node, const char *text, Symbol *symbols,
+                      AST *ast, char **diagnostics, size_t *pos,
+                      size_t *remaining, bool *has_diagnostics,
+                      void *seen_vars_ptr, size_t seen_count,
+                      size_t *capacity) {
+  check_expression_recursive(node, text, symbols, ast, diagnostics, pos,
+                             remaining, has_diagnostics, seen_vars_ptr,
+                             seen_count, capacity, 0);
 }
 
 void check_undefined_variables(AST *ast, const char *text,
@@ -860,14 +880,14 @@ void check_undefined_variables(AST *ast, const char *text,
         if (strcmp(node->as.var_name, "Pi") != 0 &&
             strcmp(node->as.var_name, "undefined") != 0) {
           size_t line = 1, col = 0;
-          char pattern[256];
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
           snprintf(pattern, sizeof(pattern), "%s", node->as.var_name);
           find_node_position(node, text, pattern, &line, &col);
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg), "Undefined variable '%s'",
                    node->as.var_name);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -940,15 +960,15 @@ void check_undefined_variables(AST *ast, const char *text,
       // Check if this is Pi (always immutable)
       if (strcmp(node->as.assign.name, "Pi") == 0) {
         size_t line = 1, col = 0;
-        char pattern[256];
+        char pattern[LSP_PATTERN_BUFFER_SIZE];
         snprintf(pattern, sizeof(pattern), "set %s to", node->as.assign.name);
         find_node_position(node, text, pattern, &line, &col);
 
-        char escaped_msg[512];
+        char escaped_msg[LSP_ERROR_MSG_SIZE];
         snprintf(escaped_msg, sizeof(escaped_msg),
                  "Cannot reassign immutable variable '%s'",
                  node->as.assign.name);
-        char escaped_msg_final[512];
+        char escaped_msg_final[LSP_ERROR_MSG_SIZE];
         json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
         size_t needed = strlen(escaped_msg_final) + 200;
@@ -986,17 +1006,17 @@ void check_undefined_variables(AST *ast, const char *text,
                                    &line, &col)) {
             // Fallback: if we can't find the exact occurrence, use a simple
             // search This shouldn't happen, but provides a fallback
-            char pattern[256];
+            char pattern[LSP_PATTERN_BUFFER_SIZE];
             snprintf(pattern, sizeof(pattern), "set %s to",
                      node->as.assign.name);
             find_node_position(node, text, pattern, &line, &col);
           }
 
-          char escaped_msg[512];
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
           snprintf(escaped_msg, sizeof(escaped_msg),
                    "Cannot reassign immutable variable '%s'",
                    node->as.assign.name);
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -1029,7 +1049,7 @@ void check_undefined_variables(AST *ast, const char *text,
               // Fallback: find the assignment and use a default range
               if (!find_nth_occurrence(text, node->as.assign.name, 1, &line,
                                        &col)) {
-                char pattern[256];
+                char pattern[LSP_PATTERN_BUFFER_SIZE];
                 snprintf(pattern, sizeof(pattern), "let %s to",
                          node->as.assign.name);
                 find_node_position(node, text, pattern, &line, &col);
@@ -1097,12 +1117,12 @@ void check_undefined_variables(AST *ast, const char *text,
               }
             }
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Type mismatch for variable '%s': expected 'number', got "
                      "'%s'",
                      node->as.assign.name, null_type);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1192,7 +1212,7 @@ void check_undefined_variables(AST *ast, const char *text,
                 // Fallback: find the assignment and use a default range
                 if (!find_nth_occurrence(text, node->as.assign.name,
                                          target_occurrence, &line, &col)) {
-                  char pattern[256];
+                  char pattern[LSP_PATTERN_BUFFER_SIZE];
                   snprintf(pattern, sizeof(pattern), "let %s to",
                            node->as.assign.name);
                   find_node_position(node, text, pattern, &line, &col);
@@ -1207,12 +1227,12 @@ void check_undefined_variables(AST *ast, const char *text,
                 value_length = strlen(node->as.assign.name);
               }
 
-              char escaped_msg[512];
+              char escaped_msg[LSP_ERROR_MSG_SIZE];
               snprintf(
                   escaped_msg, sizeof(escaped_msg),
                   "Type mismatch for variable '%s': expected '%s', got '%s'",
                   node->as.assign.name, expected_type, actual_type);
-              char escaped_msg_final[512];
+              char escaped_msg_final[LSP_ERROR_MSG_SIZE];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
 
@@ -1428,11 +1448,11 @@ void check_undefined_variables(AST *ast, const char *text,
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Function '%s' requires both arguments to be numbers",
                      func_name);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1462,10 +1482,10 @@ void check_undefined_variables(AST *ast, const char *text,
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Function '%s' requires a number argument", func_name);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1500,10 +1520,10 @@ void check_undefined_variables(AST *ast, const char *text,
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Function '%s' requires a list argument", func_name);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1583,11 +1603,11 @@ void check_undefined_variables(AST *ast, const char *text,
                 size_t line = 1, col = 0;
                 find_call_position(text, func_name, &line, &col);
 
-                char escaped_msg[512];
+                char escaped_msg[LSP_ERROR_MSG_SIZE];
                 snprintf(escaped_msg, sizeof(escaped_msg),
                          "Function 'sort' requires list items to be all "
                          "numbers or all strings");
-                char escaped_msg_final[512];
+                char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                 json_escape(escaped_msg, escaped_msg_final,
                             sizeof(escaped_msg_final));
 
@@ -1616,10 +1636,10 @@ void check_undefined_variables(AST *ast, const char *text,
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "Function '%s' requires a string argument", func_name);
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1651,10 +1671,10 @@ void check_undefined_variables(AST *ast, const char *text,
               arg_length = 20;
             }
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "to_number requires string or number");
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1686,10 +1706,10 @@ void check_undefined_variables(AST *ast, const char *text,
                   arg_length = 20;
                 }
 
-                char escaped_msg[512];
+                char escaped_msg[LSP_ERROR_MSG_SIZE];
                 snprintf(escaped_msg, sizeof(escaped_msg),
                          "cannot convert string to number");
-                char escaped_msg_final[512];
+                char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                 json_escape(escaped_msg, escaped_msg_final,
                             sizeof(escaped_msg_final));
 
@@ -1722,10 +1742,10 @@ void check_undefined_variables(AST *ast, const char *text,
                     arg_length = 20;
                   }
 
-                  char escaped_msg[512];
+                  char escaped_msg[LSP_ERROR_MSG_SIZE];
                   snprintf(escaped_msg, sizeof(escaped_msg),
                            "cannot convert string to number");
-                  char escaped_msg_final[512];
+                  char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                   json_escape(escaped_msg, escaped_msg_final,
                               sizeof(escaped_msg_final));
 
@@ -1761,10 +1781,10 @@ void check_undefined_variables(AST *ast, const char *text,
               arg_length = 20;
             }
 
-            char escaped_msg[512];
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
             snprintf(escaped_msg, sizeof(escaped_msg),
                      "cannot convert type to boolean");
-            char escaped_msg_final[512];
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
 
@@ -1791,9 +1811,9 @@ void check_undefined_variables(AST *ast, const char *text,
           size_t line = 1, col = 0;
           find_call_position(text, func_name, &line, &col);
 
-          char escaped_msg[512] =
+          char escaped_msg[LSP_ERROR_MSG_SIZE] =
               "Function 'sqrt' cannot take negative argument";
-          char escaped_msg_final[512];
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
 
@@ -1888,7 +1908,7 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
     if (sym->type == SYMBOL_VARIABLE && sym->written && !sym->read) {
       // Find the actual position of the variable declaration in source text
       size_t line = 1, col = 0;
-      char pattern[256];
+      char pattern[LSP_PATTERN_BUFFER_SIZE];
       snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
       find_node_position(NULL, text, pattern, &line, &col);
 
@@ -1913,12 +1933,12 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
         find_nth_occurrence(text, sym->name, 1, &line, &col);
       }
 
-      char escaped_msg[512];
+      char escaped_msg[LSP_ERROR_MSG_SIZE];
       snprintf(escaped_msg, sizeof(escaped_msg),
                "Variable '%s' is defined but never read (memory allocation not "
                "utilized)",
                sym->name);
-      char escaped_msg_final[512];
+      char escaped_msg_final[LSP_ERROR_MSG_SIZE];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       // Calculate the column position of the variable name itself
@@ -1992,7 +2012,7 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
 
       if (sym->type == SYMBOL_FUNCTION) {
         // Find function declaration: "function <name> with"
-        char pattern[256];
+        char pattern[LSP_PATTERN_BUFFER_SIZE];
         snprintf(pattern, sizeof(pattern), "function %s with", sym->name);
         find_node_position(NULL, text, pattern, &line, &col);
         // If not found, try without "with" (function might not have parameters)
@@ -2002,7 +2022,7 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
         }
       } else {
         // Find variable declaration: "let <name> to" or "set <name> to"
-        char pattern[256];
+        char pattern[LSP_PATTERN_BUFFER_SIZE];
         snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
         find_node_position(NULL, text, pattern, &line, &col);
         if (line == 1 && col == 0) {
@@ -2073,10 +2093,10 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
 
       const char *symbol_type =
           sym->type == SYMBOL_FUNCTION ? "function" : "variable";
-      char escaped_msg[512];
+      char escaped_msg[LSP_ERROR_MSG_SIZE];
       snprintf(escaped_msg, sizeof(escaped_msg), "Unused %s '%s'", symbol_type,
                sym->name);
-      char escaped_msg_final[512];
+      char escaped_msg_final[LSP_ERROR_MSG_SIZE];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
       size_t needed = strlen(escaped_msg_final) + strlen(sym->name) + 200;
@@ -2099,7 +2119,7 @@ void check_diagnostics(const char *uri, const char *text) {
   TokenArray *tokens = tokenize(text, &tokenize_err);
 
   // Start with a reasonable initial size
-  size_t diagnostics_capacity = 8192;
+  size_t diagnostics_capacity = LSP_INITIAL_BUFFER_SIZE;
   char *diagnostics = malloc(diagnostics_capacity);
   if (!diagnostics) {
     if (tokenize_err)
@@ -2156,7 +2176,7 @@ void check_diagnostics(const char *uri, const char *text) {
                      ? tokenize_err->column - 1
                      : 0;
 
-    char escaped_msg[512];
+    char escaped_msg[LSP_ERROR_MSG_SIZE];
     json_escape(tokenize_err->message, escaped_msg, sizeof(escaped_msg));
 
     written = snprintf(
