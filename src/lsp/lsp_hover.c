@@ -27,8 +27,13 @@ void handle_hover(const char *id, const char *body) {
     return;
   }
 
-  size_t line = (size_t)strtoul(line_str, NULL, 10);
-  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "null");
+    return;
+  }
   free(line_str);
   free(character_str);
 
