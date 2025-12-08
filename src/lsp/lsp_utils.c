@@ -6,6 +6,7 @@
 #include "../frontend/tokenizer.h"
 #include "lsp.h"
 #include <ctype.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +19,64 @@ typedef struct {
   const char *symbol_name;
   size_t count;
 } ReferenceCountContext;
+
+/**
+ * @brief Safely parse an unsigned long from a string
+ *
+ * Validates input and checks for overflow/underflow errors.
+ *
+ * @param str String to parse
+ * @param out_value Output parameter for parsed value
+ * @return true if parsing succeeded, false on error
+ */
+bool safe_strtoul(const char *str, size_t *out_value) {
+  if (!str || !out_value) {
+    return false;
+  }
+
+  // Skip leading whitespace
+  while (*str == ' ' || *str == '\t') {
+    str++;
+  }
+
+  // Empty string or only whitespace
+  if (*str == '\0') {
+    return false;
+  }
+
+  char *endptr;
+  errno = 0;
+  unsigned long val = strtoul(str, &endptr, 10);
+
+  // Check for conversion errors
+  if (errno == ERANGE) {
+    // Value out of range
+    return false;
+  }
+
+  // Check if entire string was consumed (allow trailing whitespace)
+  while (*endptr == ' ' || *endptr == '\t' || *endptr == '\r' ||
+         *endptr == '\n') {
+    endptr++;
+  }
+  if (*endptr != '\0') {
+    // Invalid characters in input
+    return false;
+  }
+
+  // Check if no conversion was performed
+  if (endptr == str) {
+    return false;
+  }
+
+  // Check if value fits in size_t
+  if (val > SIZE_MAX) {
+    return false;
+  }
+
+  *out_value = (size_t)val;
+  return true;
+}
 
 void free_symbols(Symbol *sym) {
   while (sym) {
@@ -1192,7 +1251,14 @@ const char *get_module_description(const char *module_name) {
   return NULL;
 }
 
-void count_references_in_node(ASTNode *node, void *ctx_ptr) {
+// Internal recursive version with depth tracking
+static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
+                                               int depth) {
+  // Prevent stack overflow from deeply nested AST structures
+  if (depth > MAX_AST_DEPTH) {
+    return;
+  }
+
   ReferenceCountContext *ctx = (ReferenceCountContext *)ctx_ptr;
   if (!node)
     return;
@@ -1204,7 +1270,8 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
       ctx->count++; // Definition counts as a reference
     }
     if (node->as.assign.value) {
-      count_references_in_node(node->as.assign.value, ctx);
+      count_references_in_node_recursive(node->as.assign.value, ctx,
+                                         depth + 1);
     }
     break;
 
@@ -1221,7 +1288,8 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
     }
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       if (node->as.call.args[i]) {
-        count_references_in_node(node->as.call.args[i], ctx);
+        count_references_in_node_recursive(node->as.call.args[i], ctx,
+                                           depth + 1);
       }
     }
     break;
@@ -1233,33 +1301,37 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
     }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
       if (node->as.function.block[i]) {
-        count_references_in_node(node->as.function.block[i], ctx);
+        count_references_in_node_recursive(node->as.function.block[i], ctx,
+                                           depth + 1);
       }
     }
     break;
 
   case AST_BINOP:
     if (node->as.binop.left) {
-      count_references_in_node(node->as.binop.left, ctx);
+      count_references_in_node_recursive(node->as.binop.left, ctx, depth + 1);
     }
     if (node->as.binop.right) {
-      count_references_in_node(node->as.binop.right, ctx);
+      count_references_in_node_recursive(node->as.binop.right, ctx, depth + 1);
     }
     break;
 
   case AST_IF:
     if (node->as.if_stmt.condition) {
-      count_references_in_node(node->as.if_stmt.condition, ctx);
+      count_references_in_node_recursive(node->as.if_stmt.condition, ctx,
+                                         depth + 1);
     }
     for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
       if (node->as.if_stmt.block[i]) {
-        count_references_in_node(node->as.if_stmt.block[i], ctx);
+        count_references_in_node_recursive(node->as.if_stmt.block[i], ctx,
+                                           depth + 1);
       }
     }
     if (node->as.if_stmt.else_block) {
       for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
         if (node->as.if_stmt.else_block[i]) {
-          count_references_in_node(node->as.if_stmt.else_block[i], ctx);
+          count_references_in_node_recursive(node->as.if_stmt.else_block[i],
+                                             ctx, depth + 1);
         }
       }
     }
@@ -1271,57 +1343,65 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
       ctx->count++;
     }
     if (node->as.for_stmt.iterable) {
-      count_references_in_node(node->as.for_stmt.iterable, ctx);
+      count_references_in_node_recursive(node->as.for_stmt.iterable, ctx,
+                                         depth + 1);
     }
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
       if (node->as.for_stmt.block[i]) {
-        count_references_in_node(node->as.for_stmt.block[i], ctx);
+        count_references_in_node_recursive(node->as.for_stmt.block[i], ctx,
+                                           depth + 1);
       }
     }
     break;
 
   case AST_WHILE:
     if (node->as.while_stmt.condition) {
-      count_references_in_node(node->as.while_stmt.condition, ctx);
+      count_references_in_node_recursive(node->as.while_stmt.condition, ctx,
+                                         depth + 1);
     }
     for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
       if (node->as.while_stmt.block[i]) {
-        count_references_in_node(node->as.while_stmt.block[i], ctx);
+        count_references_in_node_recursive(node->as.while_stmt.block[i], ctx,
+                                           depth + 1);
       }
     }
     break;
 
   case AST_RETURN:
     if (node->as.return_stmt.value) {
-      count_references_in_node(node->as.return_stmt.value, ctx);
+      count_references_in_node_recursive(node->as.return_stmt.value, ctx,
+                                         depth + 1);
     }
     break;
 
   case AST_INDEX:
     if (node->as.index.list_expr) {
-      count_references_in_node(node->as.index.list_expr, ctx);
+      count_references_in_node_recursive(node->as.index.list_expr, ctx,
+                                         depth + 1);
     }
     if (node->as.index.index) {
-      count_references_in_node(node->as.index.index, ctx);
+      count_references_in_node_recursive(node->as.index.index, ctx, depth + 1);
     }
     break;
 
   case AST_SLICE:
     if (node->as.slice.list_expr) {
-      count_references_in_node(node->as.slice.list_expr, ctx);
+      count_references_in_node_recursive(node->as.slice.list_expr, ctx,
+                                         depth + 1);
     }
     if (node->as.slice.start) {
-      count_references_in_node(node->as.slice.start, ctx);
+      count_references_in_node_recursive(node->as.slice.start, ctx, depth + 1);
     }
     if (node->as.slice.end) {
-      count_references_in_node(node->as.slice.end, ctx);
+      count_references_in_node_recursive(node->as.slice.end, ctx, depth + 1);
     }
     break;
 
   case AST_LIST:
     for (size_t i = 0; i < node->as.list.element_count; i++) {
       if (node->as.list.elements[i]) {
-        count_references_in_node(node->as.list.elements[i], ctx);
+        count_references_in_node_recursive(node->as.list.elements[i], ctx,
+                                           depth + 1);
       }
     }
     break;
@@ -1329,10 +1409,12 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
   case AST_MAP:
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
       if (node->as.map.keys[i]) {
-        count_references_in_node(node->as.map.keys[i], ctx);
+        count_references_in_node_recursive(node->as.map.keys[i], ctx,
+                                           depth + 1);
       }
       if (node->as.map.values[i]) {
-        count_references_in_node(node->as.map.values[i], ctx);
+        count_references_in_node_recursive(node->as.map.values[i], ctx,
+                                           depth + 1);
       }
     }
     break;
@@ -1340,7 +1422,8 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
       if (node->as.fstring.parts[i]) {
-        count_references_in_node(node->as.fstring.parts[i], ctx);
+        count_references_in_node_recursive(node->as.fstring.parts[i], ctx,
+                                           depth + 1);
       }
     }
     break;
@@ -1348,7 +1431,8 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
   case AST_TRY:
     for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
       if (node->as.try_stmt.try_block[i]) {
-        count_references_in_node(node->as.try_stmt.try_block[i], ctx);
+        count_references_in_node_recursive(node->as.try_stmt.try_block[i], ctx,
+                                           depth + 1);
       }
     }
     for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
@@ -1360,15 +1444,16 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
       for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
            j++) {
         if (node->as.try_stmt.catch_blocks[i].catch_block[j]) {
-          count_references_in_node(
-              node->as.try_stmt.catch_blocks[i].catch_block[j], ctx);
+          count_references_in_node_recursive(
+              node->as.try_stmt.catch_blocks[i].catch_block[j], ctx, depth + 1);
         }
       }
     }
     if (node->as.try_stmt.finally_block) {
       for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
         if (node->as.try_stmt.finally_block[i]) {
-          count_references_in_node(node->as.try_stmt.finally_block[i], ctx);
+          count_references_in_node_recursive(
+              node->as.try_stmt.finally_block[i], ctx, depth + 1);
         }
       }
     }
@@ -1377,6 +1462,11 @@ void count_references_in_node(ASTNode *node, void *ctx_ptr) {
   default:
     break;
   }
+}
+
+// Public wrapper that starts with depth 0
+void count_references_in_node(ASTNode *node, void *ctx_ptr) {
+  count_references_in_node_recursive(node, ctx_ptr, 0);
 }
 
 size_t count_symbol_references(const char *symbol_name, AST *ast) {
@@ -1388,7 +1478,7 @@ size_t count_symbol_references(const char *symbol_name, AST *ast) {
   // Count references in all top-level statements
   for (size_t i = 0; i < ast->count; i++) {
     if (ast->statements[i]) {
-      count_references_in_node(ast->statements[i], &ctx);
+      count_references_in_node_recursive(ast->statements[i], &ctx, 0);
     }
   }
 
