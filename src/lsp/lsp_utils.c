@@ -248,7 +248,6 @@ Symbol *load_module_exports(const char *file_path) {
         sym->type_name = NULL;
         sym->is_mutable = false;
         sym->param_count = node->as.function.param_count;
-        sym->used = false;
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -283,7 +282,6 @@ Symbol *load_module_exports(const char *file_path) {
                              : NULL;
         sym->is_mutable = node->as.assign.is_mutable;
         sym->param_count = 0;
-        sym->used = false;
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -425,7 +423,6 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
         }
 
         sym->param_count = 0;
-        sym->used = false;
         sym->written = true; // Initial assignment counts as a write
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -446,7 +443,6 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       sym->is_mutable = false;
       sym->type_name = NULL;
       sym->param_count = node->as.function.param_count;
-      sym->used = false;
       sym->written = false;
       sym->read = false;
       get_node_position(node, &line, &col);
@@ -466,7 +462,6 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
         param->is_mutable = false;
         param->type_name = NULL;
         param->param_count = 0;
-        param->used = false;
         param->written = false; // Parameters are passed in, not written
         param->read = false;
         param->line = line;
@@ -495,7 +490,6 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
             false; // Loop variables are immutable (assigned by loop)
         sym->type_name = NULL; // Type depends on what's being iterated
         sym->param_count = 0;
-        sym->used = false;
         sym->written = false; // Loop variables are assigned by the loop
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -519,7 +513,6 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
           sym->is_mutable = false;           // Catch variables are immutable
           sym->type_name = strdup("string"); // Error messages are strings
           sym->param_count = 0;
-          sym->used = false;
           sym->written =
               false; // Catch variables are assigned by exception handler
           sym->read = false;
@@ -539,7 +532,7 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
   }
 }
 
-void build_symbol_table(DocumentState *doc, AST *ast, const char *source) {
+void build_symbol_table(DocumentState *doc, AST *ast, const char *text) {
   if (!doc || !ast)
     return;
 
@@ -563,8 +556,8 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *source) {
   if (line_starts) {
     line_starts[0] = 0;
     line_count = 1;
-    for (size_t i = 0; source[i] != '\0'; i++) {
-      if (source[i] == '\n') {
+    for (size_t i = 0; text[i] != '\0'; i++) {
+      if (text[i] == '\n') {
         if (line_count >= capacity) {
           capacity *= 2;
           size_t *new_starts = realloc(line_starts, capacity * sizeof(size_t));
@@ -629,7 +622,9 @@ bool get_constant_number(ASTNode *node, double *value) {
 
 void find_node_position(ASTNode *node, const char *text, const char *pattern,
                         size_t *line, size_t *col) {
-  (void)node; // Unused parameter (kept for API consistency)
+  // node parameter kept for API consistency but not currently used
+  // Could be used in future for more accurate position tracking
+  (void)node;
   *line = 1;
   *col = 0;
   if (!text || !pattern)
@@ -1207,7 +1202,7 @@ bool is_loop_variable(Symbol *sym, AST *ast) {
   return false;
 }
 
-Symbol *find_symbol(const char *name) {
+Symbol *find_symbol(const char *const name) {
   if (!g_doc || !name)
     return NULL;
   Symbol *sym = g_doc->symbols;
