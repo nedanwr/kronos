@@ -12,9 +12,12 @@
 extern DocumentState *g_doc;
 
 void handle_completion(const char *id, const char *body) {
-  (void)body; // Unused parameter
+  // TODO: Use body parameter to get position and context for context-aware completions
+  // Currently returns all possible completions regardless of position
+  // The body contains params.position.line/character for filtering suggestions
+  (void)body; // Placeholder for context-aware completion implementation
   // Build completion list with keywords, built-ins, and symbols
-  char completions[16384];
+  char completions[LSP_REFERENCES_BUFFER_SIZE];
   size_t pos = 0;
   size_t remaining = sizeof(completions);
 
@@ -95,9 +98,9 @@ void handle_completion(const char *id, const char *body) {
       }
     }
     first = false;
-    char escaped[256];
+    char escaped[LSP_PATTERN_BUFFER_SIZE];
     json_escape(keywords[i][0], escaped, sizeof(escaped));
-    char escaped_detail[256];
+    char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
     json_escape(keywords[i][1], escaped_detail, sizeof(escaped_detail));
     int written = snprintf(completions + pos, remaining - pos,
                            "{\"label\":\"%s\",\"kind\":14,\"detail\":\"%s\"}",
@@ -161,9 +164,9 @@ void handle_completion(const char *id, const char *body) {
       }
     }
     first = false;
-    char escaped[256];
+    char escaped[LSP_PATTERN_BUFFER_SIZE];
     json_escape(builtins[i][0], escaped, sizeof(escaped));
-    char escaped_detail[256];
+    char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
     json_escape(builtins[i][1], escaped_detail, sizeof(escaped_detail));
     int written = snprintf(completions + pos, remaining - pos,
                            "{\"label\":\"%s\",\"kind\":3,\"detail\":\"%s\"}",
@@ -188,11 +191,11 @@ void handle_completion(const char *id, const char *body) {
       if (sym->type == SYMBOL_FUNCTION)
         kind_str = "12"; // Function
 
-      char escaped[256];
+      char escaped[LSP_PATTERN_BUFFER_SIZE];
       json_escape(sym->name, escaped, sizeof(escaped));
       const char *detail =
           sym->type == SYMBOL_FUNCTION ? "User-defined function" : "Variable";
-      char escaped_detail[256];
+      char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
       json_escape(detail, escaped_detail, sizeof(escaped_detail));
 
       pos += snprintf(completions + pos, remaining - pos,
