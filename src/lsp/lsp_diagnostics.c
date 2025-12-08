@@ -417,7 +417,7 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
 static void check_expression_recursive(ASTNode *node, const char *text,
                                        Symbol *symbols, AST *ast,
                                        char **diagnostics, size_t *pos,
-                                       size_t *remaining, bool *has_diagnostics,
+                             size_t *remaining, bool *has_diagnostics,
                                        void *seen_vars_ptr, size_t seen_count,
                                        size_t *capacity, int depth) {
   // Prevent stack overflow from deeply nested AST structures

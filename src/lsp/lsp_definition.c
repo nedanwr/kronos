@@ -426,9 +426,9 @@ void find_all_references_in_ast(const char *symbol_name, const char *text,
   // Use text-based position tracking when available for more accuracy
   if (text) {
     // Count actual lines in source text for better accuracy
-    size_t line_num = 1;
-    for (size_t i = 0; i < ast->count; i++) {
-      if (ast->statements[i]) {
+  size_t line_num = 1;
+  for (size_t i = 0; i < ast->count; i++) {
+    if (ast->statements[i]) {
         // Try to find the actual line number by searching for the statement
         // pattern in the source text
         size_t found_line = line_num;
@@ -459,7 +459,7 @@ void find_all_references_in_ast(const char *symbol_name, const char *text,
                                              0);
       }
       // Approximate line increment (rough estimate)
-      line_num++;
+    line_num++;
     }
   }
 }

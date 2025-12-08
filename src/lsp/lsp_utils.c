@@ -376,7 +376,7 @@ void free_document_state(DocumentState *doc) {
 }
 
 void process_statements_for_symbols(ASTNode **statements, size_t count,
-                                    Symbol ***tail, Symbol **head) {
+                                           Symbol ***tail, Symbol **head) {
   if (!statements || !tail)
     return;
 
@@ -1038,7 +1038,7 @@ bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity, size_t pos,
 }
 
 bool find_nth_occurrence(const char *text, const char *varname, size_t n,
-                         size_t *line, size_t *col) {
+                                size_t *line, size_t *col) {
   *line = 1;
   *col = 0;
   if (!text || !varname || n == 0)

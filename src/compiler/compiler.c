@@ -268,7 +268,7 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
   for (size_t i = 0; i < c->bytecode->const_count; i++) {
     if (value_equals(c->bytecode->constants[i], value)) {
       // Found existing constant - return its index
-      // Don't release here - let the caller (emit_constant) handle it
+      // The caller will release the duplicate value (it's not added to pool)
       return i;
     }
   }
@@ -374,15 +374,24 @@ static void compile_expression(Compiler *c, ASTNode *node) {
 
       // Call to_string to convert expression result to string
       KronosValue *to_string_name = value_new_string("to_string", 9);
+      if (!to_string_name) {
+        compiler_set_error(c, "Failed to allocate string constant");
+        return;
+      }
       size_t to_string_idx = add_constant(c, to_string_name);
       if (to_string_idx == SIZE_MAX || to_string_idx > UINT16_MAX) {
         value_release(to_string_name);
         return;
       }
-      // Release our reference - constant pool now owns it
+      // Release our reference - constant pool now owns it (or it was a
+      // duplicate)
       value_release(to_string_name);
       emit_byte(c, OP_CALL_FUNC);
+      if (compiler_has_error(c))
+        return;
       emit_uint16(c, (uint16_t)to_string_idx);
+      if (compiler_has_error(c))
+        return;
       emit_byte(c, 1); // 1 argument
       if (compiler_has_error(c))
         return;
@@ -1981,7 +1990,9 @@ void bytecode_free(Bytecode *bytecode) {
 
   // Free constants
   for (size_t i = 0; i < bytecode->const_count; i++) {
-    value_release(bytecode->constants[i]);
+    if (bytecode->constants[i]) {
+      value_release(bytecode->constants[i]);
+    }
   }
   free(bytecode->constants);
 
