@@ -436,7 +436,7 @@ static void check_expression_recursive(ASTNode *node, const char *text,
       Symbol *list_sym = find_symbol(node->as.index.list_expr->as.var_name);
       if (list_sym && list_sym->type == SYMBOL_VARIABLE) {
         list_sym->read = true;
-        list_sym->used = true;
+        list_sym->read = true;
       }
     }
 
@@ -762,7 +762,7 @@ static void check_expression_recursive(ASTNode *node, const char *text,
     if (sym &&
         (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
       // Mark variable as read (used in expression)
-      sym->used = true;
+      sym->read = true;
       sym->read = true;
     } else if (assigned_in_scope) {
       // Variable is assigned in this scope, so it's not undefined
@@ -869,7 +869,7 @@ void check_undefined_variables(AST *ast, const char *text,
       if (sym &&
           (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_PARAMETER)) {
         // Mark variable as read (used in expression)
-        sym->used = true;
+        sym->read = true;
         sym->read = true;
       } else if (assigned_in_scope) {
         // Variable is assigned later in this scope, so it's not undefined
@@ -953,7 +953,7 @@ void check_undefined_variables(AST *ast, const char *text,
       // Mark variable as written to (assignment)
       Symbol *assign_sym = find_symbol(node->as.assign.name);
       if (assign_sym && assign_sym->type == SYMBOL_VARIABLE) {
-        assign_sym->used = true; // Keep for backward compatibility
+        assign_sym->read = true;
         assign_sym->written = true;
       }
 
@@ -1430,7 +1430,7 @@ void check_undefined_variables(AST *ast, const char *text,
         // Mark function as used if it's a user-defined function
         Symbol *func_sym = find_symbol(func_name);
         if (func_sym && func_sym->type == SYMBOL_FUNCTION) {
-          func_sym->used = true;
+          func_sym->read = true;
         }
       }
 
@@ -1504,7 +1504,8 @@ void check_undefined_variables(AST *ast, const char *text,
       } else if (strcmp(actual_func_name, "len") == 0) {
         // len accepts list, string, or range - no type error for any of these
         // No special validation needed here
-        (void)node; // Suppress unused warning
+        // node parameter not used in this branch - len accepts any type
+        (void)node;
       } else if (strcmp(actual_func_name, "reverse") == 0 ||
                  strcmp(actual_func_name, "sort") == 0) {
         // These require list argument (not string)
@@ -2004,9 +2005,8 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
     // Check for completely unused variables and functions (not written or read)
     // Skip variables that are written (they're used, just not read - already
     // reported above)
-    if (!sym->used &&
-        (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_FUNCTION) &&
-        !(sym->type == SYMBOL_VARIABLE && sym->written)) {
+    if (!sym->read && !sym->written &&
+        (sym->type == SYMBOL_VARIABLE || sym->type == SYMBOL_FUNCTION)) {
       // Find the actual position of the symbol in source text
       size_t line = 1, col = 0;
 
