@@ -61,18 +61,39 @@ void handle_did_change(const char *uri, const char *text) {
   check_diagnostics(uri, text);
 }
 
-void handle_code_action(const char *id,
-                              const char *body __attribute__((unused))) {
-  // TODO: Implement code actions/quick fixes using body parameter
-  // The body contains position and context information for suggesting fixes
-  (void)body; // Placeholder for future implementation
-  if (!g_doc || !g_doc->text) {
+void handle_code_action(const char *id, const char *body) {
+  if (!g_doc || !g_doc->text || !body) {
     send_response(id, "[]");
     return;
   }
 
-  // For now, return empty array (code actions can be added later)
-  // This is a placeholder for future implementation
+  // Parse position from body
+  char *line_str = json_get_nested_value(body, "params.range.start.line");
+  char *character_str = json_get_nested_value(body, "params.range.start.character");
+  
+  if (!line_str || !character_str) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "[]");
+    return;
+  }
+
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "[]");
+    return;
+  }
+  free(line_str);
+  free(character_str);
+
+  // Basic implementation: return empty array for now
+  // Future enhancements could include:
+  // - Quick fixes for undefined variables (suggest imports or declarations)
+  // - Type error fixes (suggest type conversions)
+  // - Unused variable removal
+  // - Import organization
   send_response(id, "[]");
 }
 
@@ -492,14 +513,14 @@ void handle_semantic_tokens(const char *id) {
 
     // Mark as unused if not used (or defined but never read for variables)
     if (sym->type == SYMBOL_VARIABLE) {
-      if ((sym->written && !sym->read) || (!sym->used && !sym->written)) {
+      if ((sym->written && !sym->read) || (!sym->read && !sym->written)) {
         token_modifiers |= 1; // unused modifier (bit 0)
       }
       if (!sym->is_mutable) {
         token_modifiers |= 2; // readonly modifier (bit 1)
       }
     } else if (sym->type == SYMBOL_FUNCTION) {
-      if (!sym->used) {
+      if (!sym->read && !sym->written) {
         token_modifiers |= 1; // unused modifier (bit 0)
       }
     }
