@@ -18,8 +18,20 @@ OBJ = $(ALL_SRC:.c=.o)
 LSP_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC)
 LSP_OBJ = $(LSP_SRC:.c=.o)
 
+# LSP server source files (split from lsp_server.c)
+LSP_SERVER_SRC = src/lsp/lsp_main.c \
+                 src/lsp/lsp_messages.c \
+                 src/lsp/lsp_utils.c \
+                 src/lsp/lsp_diagnostics.c \
+                 src/lsp/lsp_handlers.c \
+                 src/lsp/lsp_completion.c \
+                 src/lsp/lsp_hover.c \
+                 src/lsp/lsp_definition.c
+LSP_SERVER_OBJ = $(LSP_SERVER_SRC:.c=.o)
+
 # Dependency files (auto-generated)
 DEP = $(OBJ:.o=.d)
+LSP_DEP = $(LSP_SERVER_OBJ:.o=.d)
 
 # Output binary
 TARGET = kronos
@@ -34,7 +46,7 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-lsp: src/lsp/lsp_server.c $(LSP_OBJ)
+lsp: $(LSP_SERVER_OBJ) $(LSP_OBJ)
 	$(CC) $(CFLAGS) -o kronos-lsp $^ $(LDFLAGS)
 
 clean:
@@ -107,4 +119,5 @@ install: $(TARGET)
 
 # Include auto-generated dependency files (if they exist)
 -include $(DEP)
+-include $(LSP_DEP)
 -include $(TEST_DEP)
