@@ -70,7 +70,7 @@ void handle_code_action(const char *id, const char *body) {
   // Parse position from body
   char *line_str = json_get_nested_value(body, "params.range.start.line");
   char *character_str = json_get_nested_value(body, "params.range.start.character");
-  
+
   if (!line_str || !character_str) {
     free(line_str);
     free(character_str);

@@ -30,12 +30,12 @@ const char *find_value_start(const char *json, const char *key) {
   // Calculate required buffer size: key length + 2 quotes + null terminator
   size_t key_len = strlen(key);
   size_t pattern_size = key_len + 3; // +2 for quotes, +1 for null terminator
-  
+
   // Use stack buffer for small keys (common case), dynamic allocation for large keys
   char stack_pattern[LSP_STACK_PATTERN_SIZE];
   char *pattern = stack_pattern;
   bool allocated = false;
-  
+
   if (pattern_size > LSP_STACK_PATTERN_SIZE) {
     // Allocate dynamically for very long keys
     pattern = malloc(pattern_size);
@@ -43,7 +43,7 @@ const char *find_value_start(const char *json, const char *key) {
       return NULL; // Out of memory
     allocated = true;
   }
-  
+
   int written = snprintf(pattern, pattern_size, "\"%s\"", key);
   if (written <= 0 || (size_t)written >= pattern_size) {
     if (allocated)
@@ -54,7 +54,7 @@ const char *find_value_start(const char *json, const char *key) {
   const char *pos = json;
   size_t pattern_len = (size_t)written;
   const char *result = NULL;
-  
+
   while ((pos = strstr(pos, pattern)) != NULL) {
     pos += pattern_len;
     pos = skip_ws(pos);
@@ -64,10 +64,10 @@ const char *find_value_start(const char *json, const char *key) {
     result = skip_ws(pos);
     break;
   }
-  
+
   if (allocated)
     free(pattern);
-  
+
   return result;
 }
 
