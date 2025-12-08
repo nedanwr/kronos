@@ -27,22 +27,48 @@ const char *find_value_start(const char *json, const char *key) {
   if (!json || !key)
     return NULL;
 
-  char pattern[128];
-  int written = snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-  if (written <= 0 || (size_t)written >= sizeof(pattern))
-    return NULL;
+  // Calculate required buffer size: key length + 2 quotes + null terminator
+  size_t key_len = strlen(key);
+  size_t pattern_size = key_len + 3; // +2 for quotes, +1 for null terminator
+  
+  // Use stack buffer for small keys (common case), dynamic allocation for large keys
+  char stack_pattern[LSP_STACK_PATTERN_SIZE];
+  char *pattern = stack_pattern;
+  bool allocated = false;
+  
+  if (pattern_size > LSP_STACK_PATTERN_SIZE) {
+    // Allocate dynamically for very long keys
+    pattern = malloc(pattern_size);
+    if (!pattern)
+      return NULL; // Out of memory
+    allocated = true;
+  }
+  
+  int written = snprintf(pattern, pattern_size, "\"%s\"", key);
+  if (written <= 0 || (size_t)written >= pattern_size) {
+    if (allocated)
+      free(pattern);
+    return NULL; // snprintf error or truncation (shouldn't happen with correct size)
+  }
 
   const char *pos = json;
   size_t pattern_len = (size_t)written;
+  const char *result = NULL;
+  
   while ((pos = strstr(pos, pattern)) != NULL) {
     pos += pattern_len;
     pos = skip_ws(pos);
     if (*pos != ':')
       continue;
     pos++;
-    return skip_ws(pos);
+    result = skip_ws(pos);
+    break;
   }
-  return NULL;
+  
+  if (allocated)
+    free(pattern);
+  
+  return result;
 }
 
 /**
@@ -173,7 +199,7 @@ char *json_get_nested_value(const char *json, const char *path) {
     return NULL;
 
   const char *current = json;
-  char path_copy[256];
+  char path_copy[LSP_PATTERN_BUFFER_SIZE];
   strncpy(path_copy, path, sizeof(path_copy) - 1);
   path_copy[sizeof(path_copy) - 1] = '\0';
 
@@ -384,8 +410,12 @@ bool read_lsp_message(char **out_body, size_t *out_length) {
     }
 
     if (strncasecmp(header_line, "Content-Length:", 15) == 0) {
-      content_length = (size_t)strtoul(header_line + 15, NULL, 10);
-      have_length = true;
+      if (safe_strtoul(header_line + 15, &content_length)) {
+        have_length = true;
+      } else {
+        // Invalid Content-Length header
+        return false;
+      }
     }
   }
 
@@ -475,7 +505,7 @@ void json_escape(const char *input, char *output, size_t output_size) {
  */
 void send_response(const char *id, const char *result) {
   // Try with fixed-size buffer first (common case)
-  char buffer[8192];
+  char buffer[LSP_INITIAL_BUFFER_SIZE];
   int snprintf_result =
       snprintf(buffer, sizeof(buffer),
                "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id, result);
@@ -526,7 +556,7 @@ void send_notification(const char *method, const char *params) {
     return;
 
   size_t body_len = (size_t)required_size;
-  char stack_buffer[4096];
+  char stack_buffer[LSP_HOVER_BUFFER_SIZE];
   char *buffer = stack_buffer;
   bool allocated = false;
 
