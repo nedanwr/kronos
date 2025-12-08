@@ -16,6 +16,9 @@ Thumbs.db
 *.swo
 *~
 
+# Backup files
+*.backup
+
 # .vscode/ is kept for immediate syntax highlighting when opening project
 # The vscode-extension/ directory is the actual installable extension
 .vscode/
