@@ -10,6 +10,18 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+// Maximum recursion depth for AST traversal to prevent stack overflow
+#define MAX_AST_DEPTH 1000
+
+// Buffer size constants
+#define LSP_STACK_PATTERN_SIZE 128      // Stack buffer for small JSON key patterns
+#define LSP_PATTERN_BUFFER_SIZE 256     // Pattern matching and URI buffers
+#define LSP_ERROR_MSG_SIZE 512          // Error message buffers
+#define LSP_INITIAL_BUFFER_SIZE 8192    // Initial diagnostics and response buffers
+#define LSP_HOVER_BUFFER_SIZE 4096      // Hover text and stack buffers
+#define LSP_REFERENCES_BUFFER_SIZE 16384 // References and rename operation buffers
+#define LSP_LARGE_BUFFER_SIZE 32768     // Large result buffers (formatting, etc.)
+
 /**
  * Symbol types in the symbol table
  */
@@ -79,6 +91,9 @@ typedef enum {
 } ExprType;
 
 // Forward declarations
+// Global document state - NOTE: Currently only supports single document
+// TODO: Implement multi-document support using hash table keyed by URI
+// to comply with LSP specification requirements
 extern DocumentState *g_doc;
 
 // Message handling (lsp_messages.c)
@@ -127,6 +142,7 @@ void count_references_in_node(ASTNode *node, void *ctx);
 size_t count_symbol_references(const char *symbol_name, AST *ast);
 bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity,
                              size_t pos, size_t needed);
+bool safe_strtoul(const char *str, size_t *out_value);
 
 // Diagnostics (lsp_diagnostics.c)
 ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast);
