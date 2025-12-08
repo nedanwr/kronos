@@ -89,12 +89,15 @@ void free_symbols(Symbol *sym) {
 }
 
 void get_node_position(ASTNode *node, size_t *line, size_t *col) {
-  // Estimate position based on node type and structure
-  // This is approximate since AST doesn't store exact positions
+  // LIMITATION: This function uses approximate position estimates because
+  // the AST doesn't store exact source positions. The parser would need to
+  // be modified to track line/column information for each AST node.
+  // Current implementation uses indent as a crude estimate, which is inaccurate.
+  // TODO: Enhance parser to track source positions (line/column) for each node.
   *line = 1;
   *col = 1;
   if (node && node->indent >= 0) {
-    // Use indent as a rough estimate
+    // Use indent as a rough estimate (inaccurate - see limitation above)
     *line = (size_t)(node->indent / 4) + 1;
     *col = (size_t)(node->indent % 4) + 1;
   }
@@ -191,6 +194,31 @@ Symbol *load_module_exports(const char *file_path) {
   }
 
   // Extract top-level symbols (functions and variables)
+  // Re-read source for position tracking (we need it for accurate positions)
+  file = fopen(file_path, "r");
+  char *source_for_pos = NULL;
+  if (file) {
+    if (fseek(file, 0, SEEK_END) == 0) {
+      long size = ftell(file);
+      if (size >= 0 && (uintmax_t)size <= (uintmax_t)(SIZE_MAX - 1)) {
+        if (fseek(file, 0, SEEK_SET) == 0) {
+          size_t len = (size_t)size;
+          source_for_pos = malloc(len + 1);
+          if (source_for_pos) {
+            size_t read_size = fread(source_for_pos, 1, len, file);
+            if (!ferror(file) && (read_size == len || feof(file))) {
+              source_for_pos[read_size] = '\0';
+            } else {
+              free(source_for_pos);
+              source_for_pos = NULL;
+            }
+          }
+        }
+      }
+    }
+    fclose(file);
+  }
+
   Symbol *exports = NULL;
   Symbol **tail = &exports;
 
@@ -205,8 +233,18 @@ Symbol *load_module_exports(const char *file_path) {
       if (sym) {
         sym->name = strdup(node->as.function.name);
         sym->type = SYMBOL_FUNCTION;
-        sym->line = 1; // Approximate
-        sym->column = 1;
+        // Try to find actual position in source
+        if (source_for_pos) {
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
+          snprintf(pattern, sizeof(pattern), "function %s", sym->name);
+          find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+          if (sym->line == 1 && sym->column == 0) {
+            // Fallback to approximate
+            get_node_position(node, &sym->line, &sym->column);
+          }
+        } else {
+          get_node_position(node, &sym->line, &sym->column);
+        }
         sym->type_name = NULL;
         sym->is_mutable = false;
         sym->param_count = node->as.function.param_count;
@@ -224,8 +262,22 @@ Symbol *load_module_exports(const char *file_path) {
       if (sym) {
         sym->name = strdup(node->as.assign.name);
         sym->type = SYMBOL_VARIABLE;
-        sym->line = 1; // Approximate
-        sym->column = 1;
+        // Try to find actual position in source
+        if (source_for_pos) {
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
+          snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
+          find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+          if (sym->line == 1 && sym->column == 0) {
+            snprintf(pattern, sizeof(pattern), "set %s to", sym->name);
+            find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+          }
+          if (sym->line == 1 && sym->column == 0) {
+            // Fallback to approximate
+            get_node_position(node, &sym->line, &sym->column);
+          }
+        } else {
+          get_node_position(node, &sym->line, &sym->column);
+        }
         sym->type_name = node->as.assign.type_name
                              ? strdup(node->as.assign.type_name)
                              : NULL;
@@ -240,6 +292,8 @@ Symbol *load_module_exports(const char *file_path) {
       }
     }
   }
+
+  free(source_for_pos);
 
   ast_free(ast);
   return exports;
@@ -500,6 +554,8 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *source) {
   ImportedModule **import_tail = &doc->imported_modules;
 
   // Calculate line starts for position lookup
+  // Note: If allocation fails, we continue without line_starts - position lookup
+  // will be less accurate but the function can still build the symbol table
   size_t *line_starts = NULL;
   size_t line_count = 0;
   size_t capacity = 64;
@@ -513,6 +569,9 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *source) {
           capacity *= 2;
           size_t *new_starts = realloc(line_starts, capacity * sizeof(size_t));
           if (!new_starts) {
+            // Realloc failed - free existing buffer and continue without it
+            // This is acceptable because line_starts is only used for position
+            // lookup optimization, not critical for symbol table building
             free(line_starts);
             line_starts = NULL;
             break;
@@ -523,6 +582,10 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *source) {
       }
     }
   }
+  // If line_starts allocation failed, we continue - symbol table building
+  // doesn't strictly require it (positions can be calculated on-demand)
+  // This is acceptable error handling: the function can still succeed without
+  // the optimization, just with less accurate position information
 
   // Process top-level statements to extract imports and symbols
   for (size_t i = 0; i < ast->count; i++) {
@@ -1053,8 +1116,7 @@ bool find_nth_occurrence(const char *text, const char *varname, size_t n,
 
     // CRITICAL: Skip if this line is a comment (starts with #)
     if (*first_char == '#') {
-      pos += pattern_len;
-      continue;
+      continue; // Skip comment lines - pos will be set from next match
     }
 
     // Skip if the pattern is inside a string (check for quotes before it on the
@@ -1071,8 +1133,7 @@ bool find_nth_occurrence(const char *text, const char *varname, size_t n,
       }
     }
     if (in_string) {
-      pos += pattern_len;
-      continue;
+      continue; // Skip patterns inside strings - pos will be set from next match
     }
 
     // Make sure the pattern starts at word boundary (after whitespace or start
