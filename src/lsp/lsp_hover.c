@@ -138,49 +138,7 @@ void handle_hover(const char *id, const char *body) {
 
     // Escape for JSON but preserve newlines as \n (not \\n)
     char escaped_hover[4096];
-    size_t out_pos = 0;
-    for (size_t i = 0;
-         hover_text[i] != '\0' && out_pos < sizeof(escaped_hover) - 1; i++) {
-      switch (hover_text[i]) {
-      case '\\':
-        if (out_pos < sizeof(escaped_hover) - 2) {
-          escaped_hover[out_pos++] = '\\';
-          escaped_hover[out_pos++] = '\\';
-        }
-        break;
-      case '"':
-        if (out_pos < sizeof(escaped_hover) - 2) {
-          escaped_hover[out_pos++] = '\\';
-          escaped_hover[out_pos++] = '"';
-        }
-        break;
-      case '\n':
-        // Preserve newlines as \n (not \\n) for markdown rendering
-        if (out_pos < sizeof(escaped_hover) - 2) {
-          escaped_hover[out_pos++] = '\\';
-          escaped_hover[out_pos++] = 'n';
-        }
-        break;
-      case '\r':
-        if (out_pos < sizeof(escaped_hover) - 2) {
-          escaped_hover[out_pos++] = '\\';
-          escaped_hover[out_pos++] = 'r';
-        }
-        break;
-      case '\t':
-        if (out_pos < sizeof(escaped_hover) - 2) {
-          escaped_hover[out_pos++] = '\\';
-          escaped_hover[out_pos++] = 't';
-        }
-        break;
-      default:
-        if (out_pos < sizeof(escaped_hover) - 1) {
-          escaped_hover[out_pos++] = hover_text[i];
-        }
-        break;
-      }
-    }
-    escaped_hover[out_pos] = '\0';
+    json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
 
     char result[4096];
     snprintf(result, sizeof(result),
@@ -201,49 +159,7 @@ void handle_hover(const char *id, const char *body) {
         char *module_info = get_module_hover_info(mod);
         if (module_info) {
           char escaped_hover[4096];
-          size_t out_pos = 0;
-          for (size_t i = 0;
-               module_info[i] != '\0' && out_pos < sizeof(escaped_hover) - 1;
-               i++) {
-            switch (module_info[i]) {
-            case '\\':
-              if (out_pos < sizeof(escaped_hover) - 2) {
-                escaped_hover[out_pos++] = '\\';
-                escaped_hover[out_pos++] = '\\';
-              }
-              break;
-            case '"':
-              if (out_pos < sizeof(escaped_hover) - 2) {
-                escaped_hover[out_pos++] = '\\';
-                escaped_hover[out_pos++] = '"';
-              }
-              break;
-            case '\n':
-              if (out_pos < sizeof(escaped_hover) - 2) {
-                escaped_hover[out_pos++] = '\\';
-                escaped_hover[out_pos++] = 'n';
-              }
-              break;
-            case '\r':
-              if (out_pos < sizeof(escaped_hover) - 2) {
-                escaped_hover[out_pos++] = '\\';
-                escaped_hover[out_pos++] = 'r';
-              }
-              break;
-            case '\t':
-              if (out_pos < sizeof(escaped_hover) - 2) {
-                escaped_hover[out_pos++] = '\\';
-                escaped_hover[out_pos++] = 't';
-              }
-              break;
-            default:
-              if (out_pos < sizeof(escaped_hover) - 1) {
-                escaped_hover[out_pos++] = module_info[i];
-              }
-              break;
-            }
-          }
-          escaped_hover[out_pos] = '\0';
+          json_escape_markdown(module_info, escaped_hover, sizeof(escaped_hover));
 
           char result[4096];
           snprintf(result, sizeof(result),
