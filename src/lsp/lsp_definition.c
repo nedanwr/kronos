@@ -37,8 +37,13 @@ void handle_definition(const char *id, const char *body) {
     return;
   }
 
-  size_t line = (size_t)strtoul(line_str, NULL, 10);
-  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "null");
+    return;
+  }
   free(line_str);
   free(character_str);
 
@@ -68,8 +73,8 @@ void handle_definition(const char *id, const char *body) {
   }
 
   // Return definition location
-  char result[512];
-  char escaped_uri[256];
+  char result[LSP_ERROR_MSG_SIZE];
+  char escaped_uri[LSP_PATTERN_BUFFER_SIZE];
   json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
   snprintf(
       result, sizeof(result),
@@ -85,7 +90,7 @@ void add_reference_location(ReferenceSearchContext *ctx, size_t line,
   if (*ctx->remaining < 200)
     return; // Not enough space
 
-  char escaped_uri[256];
+  char escaped_uri[LSP_PATTERN_BUFFER_SIZE];
   json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
 
   int written = snprintf(
@@ -101,8 +106,15 @@ void add_reference_location(ReferenceSearchContext *ctx, size_t line,
   }
 }
 
-void search_node_for_references(ASTNode *node, size_t *line_num,
-                                       ReferenceSearchContext *ctx) {
+// Internal recursive version with depth tracking
+static void search_node_for_references_recursive(ASTNode *node, size_t *line_num,
+                                                  ReferenceSearchContext *ctx,
+                                                  int depth) {
+  // Prevent stack overflow from deeply nested AST structures
+  if (depth > MAX_AST_DEPTH) {
+    return;
+  }
+
   if (!node)
     return;
 
@@ -114,7 +126,8 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     if (node->as.assign.value) {
-      search_node_for_references(node->as.assign.value, line_num, ctx);
+      search_node_for_references_recursive(node->as.assign.value, line_num, ctx,
+                                           depth + 1);
     }
     break;
 
@@ -131,7 +144,8 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
     }
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       if (node->as.call.args[i]) {
-        search_node_for_references(node->as.call.args[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.call.args[i], line_num,
+                                             ctx, depth + 1);
       }
     }
     break;
@@ -143,17 +157,20 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
     }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
       if (node->as.function.block[i]) {
-        search_node_for_references(node->as.function.block[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.function.block[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     break;
 
   case AST_BINOP:
     if (node->as.binop.left) {
-      search_node_for_references(node->as.binop.left, line_num, ctx);
+      search_node_for_references_recursive(node->as.binop.left, line_num, ctx,
+                                           depth + 1);
     }
     if (node->as.binop.right) {
-      search_node_for_references(node->as.binop.right, line_num, ctx);
+      search_node_for_references_recursive(node->as.binop.right, line_num, ctx,
+                                           depth + 1);
     }
     break;
 
@@ -161,18 +178,20 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
 
   case AST_IF:
     if (node->as.if_stmt.condition) {
-      search_node_for_references(node->as.if_stmt.condition, line_num, ctx);
+      search_node_for_references_recursive(node->as.if_stmt.condition, line_num,
+                                           ctx, depth + 1);
     }
     for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
       if (node->as.if_stmt.block[i]) {
-        search_node_for_references(node->as.if_stmt.block[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.if_stmt.block[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     if (node->as.if_stmt.else_block) {
       for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
         if (node->as.if_stmt.else_block[i]) {
-          search_node_for_references(node->as.if_stmt.else_block[i], line_num,
-                                     ctx);
+          search_node_for_references_recursive(
+              node->as.if_stmt.else_block[i], line_num, ctx, depth + 1);
         }
       }
     }
@@ -184,57 +203,68 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     if (node->as.for_stmt.iterable) {
-      search_node_for_references(node->as.for_stmt.iterable, line_num, ctx);
+      search_node_for_references_recursive(node->as.for_stmt.iterable, line_num,
+                                           ctx, depth + 1);
     }
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
       if (node->as.for_stmt.block[i]) {
-        search_node_for_references(node->as.for_stmt.block[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.for_stmt.block[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     break;
 
   case AST_WHILE:
     if (node->as.while_stmt.condition) {
-      search_node_for_references(node->as.while_stmt.condition, line_num, ctx);
+      search_node_for_references_recursive(node->as.while_stmt.condition,
+                                           line_num, ctx, depth + 1);
     }
     for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
       if (node->as.while_stmt.block[i]) {
-        search_node_for_references(node->as.while_stmt.block[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.while_stmt.block[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     break;
 
   case AST_RETURN:
     if (node->as.return_stmt.value) {
-      search_node_for_references(node->as.return_stmt.value, line_num, ctx);
+      search_node_for_references_recursive(node->as.return_stmt.value, line_num,
+                                           ctx, depth + 1);
     }
     break;
 
   case AST_INDEX:
     if (node->as.index.list_expr) {
-      search_node_for_references(node->as.index.list_expr, line_num, ctx);
+      search_node_for_references_recursive(node->as.index.list_expr, line_num,
+                                           ctx, depth + 1);
     }
     if (node->as.index.index) {
-      search_node_for_references(node->as.index.index, line_num, ctx);
+      search_node_for_references_recursive(node->as.index.index, line_num, ctx,
+                                           depth + 1);
     }
     break;
 
   case AST_SLICE:
     if (node->as.slice.list_expr) {
-      search_node_for_references(node->as.slice.list_expr, line_num, ctx);
+      search_node_for_references_recursive(node->as.slice.list_expr, line_num,
+                                           ctx, depth + 1);
     }
     if (node->as.slice.start) {
-      search_node_for_references(node->as.slice.start, line_num, ctx);
+      search_node_for_references_recursive(node->as.slice.start, line_num, ctx,
+                                           depth + 1);
     }
     if (node->as.slice.end) {
-      search_node_for_references(node->as.slice.end, line_num, ctx);
+      search_node_for_references_recursive(node->as.slice.end, line_num, ctx,
+                                           depth + 1);
     }
     break;
 
   case AST_LIST:
     for (size_t i = 0; i < node->as.list.element_count; i++) {
       if (node->as.list.elements[i]) {
-        search_node_for_references(node->as.list.elements[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.list.elements[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     break;
@@ -242,10 +272,12 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
   case AST_MAP:
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
       if (node->as.map.keys[i]) {
-        search_node_for_references(node->as.map.keys[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.map.keys[i], line_num,
+                                             ctx, depth + 1);
       }
       if (node->as.map.values[i]) {
-        search_node_for_references(node->as.map.values[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.map.values[i], line_num,
+                                             ctx, depth + 1);
       }
     }
     break;
@@ -253,7 +285,8 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
       if (node->as.fstring.parts[i]) {
-        search_node_for_references(node->as.fstring.parts[i], line_num, ctx);
+        search_node_for_references_recursive(node->as.fstring.parts[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     break;
@@ -261,8 +294,8 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
   case AST_TRY:
     for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
       if (node->as.try_stmt.try_block[i]) {
-        search_node_for_references(node->as.try_stmt.try_block[i], line_num,
-                                   ctx);
+        search_node_for_references_recursive(node->as.try_stmt.try_block[i],
+                                             line_num, ctx, depth + 1);
       }
     }
     for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
@@ -274,16 +307,17 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
       for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
            j++) {
         if (node->as.try_stmt.catch_blocks[i].catch_block[j]) {
-          search_node_for_references(
-              node->as.try_stmt.catch_blocks[i].catch_block[j], line_num, ctx);
+          search_node_for_references_recursive(
+              node->as.try_stmt.catch_blocks[i].catch_block[j], line_num, ctx,
+              depth + 1);
         }
       }
     }
     if (node->as.try_stmt.finally_block) {
       for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
         if (node->as.try_stmt.finally_block[i]) {
-          search_node_for_references(node->as.try_stmt.finally_block[i],
-                                     line_num, ctx);
+          search_node_for_references_recursive(
+              node->as.try_stmt.finally_block[i], line_num, ctx, depth + 1);
         }
       }
     }
@@ -294,10 +328,19 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
   }
 }
 
+// Public wrapper that starts with depth 0
+void search_node_for_references(ASTNode *node, size_t *line_num,
+                                ReferenceSearchContext *ctx) {
+  search_node_for_references_recursive(node, line_num, ctx, 0);
+}
+
 void find_all_references_in_ast(const char *symbol_name,
                                        const char *text __attribute__((unused)),
                                        AST *ast, char *result, size_t *pos,
                                        size_t *remaining, bool *first) {
+  // TODO: Use text parameter for more accurate position tracking
+  // Currently uses approximate line counting from AST structure
+  (void)text; // Placeholder for improved position tracking
   if (!symbol_name || !ast || !ast->statements)
     return;
 
@@ -307,7 +350,8 @@ void find_all_references_in_ast(const char *symbol_name,
   size_t line_num = 1;
   for (size_t i = 0; i < ast->count; i++) {
     if (ast->statements[i]) {
-      search_node_for_references(ast->statements[i], &line_num, &ctx);
+      search_node_for_references_recursive(ast->statements[i], &line_num, &ctx,
+                                           0);
     }
     // Approximate line increment (this is rough since AST doesn't store exact
     // positions)
@@ -332,8 +376,13 @@ void handle_references(const char *id, const char *body) {
     return;
   }
 
-  size_t line = (size_t)strtoul(line_str, NULL, 10);
-  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "null");
+    return;
+  }
   free(line_str);
   free(character_str);
 
@@ -360,13 +409,13 @@ void handle_references(const char *id, const char *body) {
   }
 
   // Build references array
-  char result[16384];
+  char result[LSP_REFERENCES_BUFFER_SIZE];
   size_t pos = 0;
   size_t remaining = sizeof(result);
   bool first = true;
 
   // Add definition location
-  char escaped_uri[256];
+  char escaped_uri[LSP_PATTERN_BUFFER_SIZE];
   json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
   int written = snprintf(
       result + pos, remaining,
@@ -387,7 +436,7 @@ void handle_references(const char *id, const char *body) {
   free(word);
 
   // Wrap in array
-  char final_result[16384];
+  char final_result[LSP_REFERENCES_BUFFER_SIZE];
   snprintf(final_result, sizeof(final_result), "[%s]", result);
   send_response(id, final_result);
 }
@@ -409,8 +458,13 @@ void handle_prepare_rename(const char *id, const char *body) {
     return;
   }
 
-  size_t line = (size_t)strtoul(line_str, NULL, 10);
-  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "null");
+    return;
+  }
   free(line_str);
   free(character_str);
 
@@ -437,7 +491,7 @@ void handle_prepare_rename(const char *id, const char *body) {
   }
 
   // Return the range of the symbol name
-  char result[512];
+  char result[LSP_ERROR_MSG_SIZE];
   snprintf(result, sizeof(result),
            "{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
            "\"end\":{\"line\":%zu,\"character\":%zu}},\"placeholder\":\"%s\"}",
@@ -466,8 +520,13 @@ void handle_rename(const char *id, const char *body) {
     return;
   }
 
-  size_t line = (size_t)strtoul(line_str, NULL, 10);
-  size_t character = (size_t)strtoul(character_str, NULL, 10);
+  size_t line, character;
+  if (!safe_strtoul(line_str, &line) || !safe_strtoul(character_str, &character)) {
+    free(line_str);
+    free(character_str);
+    send_response(id, "null");
+    return;
+  }
   free(line_str);
   free(character_str);
 
@@ -497,13 +556,13 @@ void handle_rename(const char *id, const char *body) {
   }
 
   // Build references array (similar to handle_references)
-  char references[16384];
+  char references[LSP_REFERENCES_BUFFER_SIZE];
   size_t ref_pos = 0;
   size_t ref_remaining = sizeof(references);
   bool first_ref = true;
 
   // Add definition location
-  char escaped_uri[256];
+  char escaped_uri[LSP_PATTERN_BUFFER_SIZE];
   json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
   int written = snprintf(
       references + ref_pos, ref_remaining,
@@ -522,12 +581,12 @@ void handle_rename(const char *id, const char *body) {
                              &ref_pos, &ref_remaining, &first_ref);
 
   // Build WorkspaceEdit with TextEdits
-  char result[32768];
+  char result[LSP_LARGE_BUFFER_SIZE];
   size_t pos = 0;
   size_t remaining = sizeof(result);
 
   // Escape new_name for JSON
-  char escaped_new_name[256];
+  char escaped_new_name[LSP_PATTERN_BUFFER_SIZE];
   json_escape(new_name, escaped_new_name, sizeof(escaped_new_name));
 
   // Parse references JSON array and build TextEdits
