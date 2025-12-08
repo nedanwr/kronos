@@ -133,7 +133,7 @@ TEST(lsp_code_actions) {
   ASSERT_PTR_NOT_NULL(response);
   ASSERT_TRUE(lsp_is_valid_json(response));
   // Should return empty array for now (placeholder) - check for array start
-  ASSERT_TRUE(lsp_response_contains(response, "[") || 
+  ASSERT_TRUE(lsp_response_contains(response, "[") ||
              lsp_response_contains(response, "result"));
   free(response);
 }

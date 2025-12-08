@@ -4,7 +4,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.4.0  
+**Current Version:** 0.4.0
 **Status:** ✅ Stable - Core language features complete
 
 ### What's Available Now
@@ -28,7 +28,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.4.0: "Modules & Error Handling"
 
-**Target:** Q4 2025  
+**Target:** Q4 2025
 **Status:** 🚧 In Progress
 
 #### Planned Features
@@ -142,7 +142,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.5.0: "Advanced Language Features"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features
@@ -227,7 +227,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 1.0.0: "Production Release"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features

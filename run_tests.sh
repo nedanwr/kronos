@@ -63,7 +63,7 @@ echo ""
 if [ -f "tests/unit/kronos_unit_tests" ]; then
     ./tests/unit/kronos_unit_tests
     unit_exit_code=$?
-    
+
     if [ $unit_exit_code -eq 0 ]; then
         echo ""
         echo "${GREEN}✓ Unit tests passed${NC}"

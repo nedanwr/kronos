@@ -12,7 +12,7 @@ static char *create_jsonrpc_message(const char *method, const char *params,
   // First, build the JSON body to calculate exact length
   char json_body[4096];
   size_t body_len;
-  
+
   if (params) {
     body_len = (size_t)snprintf(json_body, sizeof(json_body),
             "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\",\"params\":%s}",

@@ -22,7 +22,7 @@ int main(void) {
 
   // Setup LSP test context before running tests
   lsp_test_setup();
-  
+
   // Check if setup succeeded
   if (!g_ctx) {
     fprintf(stderr, "Error: Failed to initialize LSP test context\n");

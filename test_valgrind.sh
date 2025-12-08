@@ -24,12 +24,12 @@ check_with_valgrind() {
     local file=$1
     local name=$2
     local expect_error=${3:-false}
-    
+
     echo "Checking: $name"
-    
+
     # Create a log file for valgrind output
     local logfile="/tmp/valgrind_${name}.log"
-    
+
     # Run with valgrind
     if [ "$expect_error" = "true" ]; then
         # For error tests, program will exit with error, but valgrind should still pass
@@ -50,10 +50,10 @@ check_with_valgrind() {
             --log-file="$logfile" \
             ./kronos "$file" > /dev/null 2>&1
     fi
-    
+
     # Check valgrind exit code
     local valgrind_exit=$?
-    
+
     # Parse valgrind log for errors
     if grep -q "ERROR SUMMARY: 0 errors" "$logfile" && \
        grep -q "LEAK SUMMARY:.*definitely lost: 0" "$logfile" && \
