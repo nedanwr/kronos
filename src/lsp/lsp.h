@@ -45,7 +45,6 @@ typedef struct Symbol {
   char *type_name; /**< Optional type annotation (e.g., "number", "string") */
   bool is_mutable; /**< For variables: true for 'let', false for 'set' */
   size_t param_count;  /**< For functions: number of parameters */
-  bool used;           /**< @deprecated Use read/written instead */
   bool written;        /**< Track if variable has been assigned to */
   bool read;           /**< Track if variable has been read from */
   struct Symbol *next; /**< Next symbol in linked list */
@@ -99,6 +98,7 @@ extern DocumentState *g_doc;
 // Message handling (lsp_messages.c)
 bool read_lsp_message(char **out_body, size_t *out_length);
 void json_escape(const char *input, char *output, size_t output_size);
+void json_escape_markdown(const char *input, char *output, size_t output_size);
 void send_response(const char *id, const char *result);
 void send_notification(const char *method, const char *params);
 const char *skip_ws(const char *s);
@@ -118,8 +118,8 @@ char *get_module_hover_info(ImportedModule *mod);
 void free_document_state(DocumentState *doc);
 void process_statements_for_symbols(ASTNode **statements, size_t count,
                                      Symbol ***tail, Symbol **head);
-void build_symbol_table(DocumentState *doc, AST *ast, const char *source);
-Symbol *find_symbol(const char *name);
+void build_symbol_table(DocumentState *doc, AST *ast, const char *text);
+Symbol *find_symbol(const char *const name);
 char *get_word_at_position(const char *source, size_t line, size_t character);
 bool find_nth_occurrence(const char *text, const char *varname, size_t n,
                          size_t *line, size_t *col);
