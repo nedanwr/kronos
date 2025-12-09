@@ -509,6 +509,25 @@ void vm_free(KronosVM *vm) {
   free(vm);
 }
 
+/**
+ * @brief Clear the VM stack, releasing all values
+ *
+ * This should be called before freeing bytecode to ensure constants
+ * aren't retained on the stack, which would prevent them from being freed.
+ *
+ * @param vm VM instance
+ */
+void vm_clear_stack(KronosVM *vm) {
+  if (!vm)
+    return;
+
+  // Release all values on stack
+  while (vm->stack_top > vm->stack) {
+    vm->stack_top--;
+    value_release(*vm->stack_top);
+  }
+}
+
 // Free a function
 void function_free(Function *func) {
   if (!func)
@@ -835,6 +854,7 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
   }
 
   int exec_result = vm_execute(module_vm, bytecode);
+  vm_clear_stack(module_vm);
   bytecode_free(bytecode);
 
   if (exec_result < 0) {
@@ -2687,9 +2707,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
         if (arg->type == VAL_STRING) {
           // Already a string, just return it
-          value_retain(arg);
           push(vm, arg);
-          value_release(arg);
+          value_release(
+              arg); // Release the pop reference (push already retained)
           break;
         } else if (arg->type == VAL_NUMBER) {
           // Convert number to string
@@ -3289,9 +3309,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
         if (arg->type == VAL_NUMBER) {
           // Already a number, just return it
-          value_retain(arg);
           push(vm, arg);
-          value_release(arg);
+          value_release(
+              arg); // Release the pop reference (push already retained)
           break;
         } else if (arg->type == VAL_STRING) {
           // Convert string to number

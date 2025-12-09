@@ -1514,7 +1514,7 @@ finally:
 
 **Available Error Types:**
 - `RuntimeError` - General runtime errors
-- `ValueError` - Invalid argument values  
+- `ValueError` - Invalid argument values
 - `TypeError` - Type mismatch errors
 - `NameError` - Undefined variable/function errors
 - `SyntaxError` - Syntax/parse errors
@@ -1523,14 +1523,14 @@ finally:
 
 ### Key Safety Features
 
-✅ **Type Safety** - Operations check types before executing  
-✅ **Immutability** - `set` variables cannot be reassigned  
-✅ **Type Annotations** - Optional `as <type>` enforces types  
-✅ **Function Validation** - Argument count and types checked  
-✅ **Undefined Detection** - Variables and functions must exist  
-✅ **Division by Zero** - Caught before execution  
-✅ **Protected Constants** - Pi cannot be modified  
-✅ **Exception Handling** - Try/catch/finally for error management  
+✅ **Type Safety** - Operations check types before executing
+✅ **Immutability** - `set` variables cannot be reassigned
+✅ **Type Annotations** - Optional `as <type>` enforces types
+✅ **Function Validation** - Argument count and types checked
+✅ **Undefined Detection** - Variables and functions must exist
+✅ **Division by Zero** - Caught before execution
+✅ **Protected Constants** - Pi cannot be modified
+✅ **Exception Handling** - Try/catch/finally for error management
 
 See examples in `tests/fail/` directory for all error cases.
 

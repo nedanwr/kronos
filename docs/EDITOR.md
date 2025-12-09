@@ -12,11 +12,11 @@ Restart your editor (VSCode/Cursor/Windsurf). Done! ✅
 
 ## Features
 
-✅ Syntax highlighting  
-✅ Real-time error detection  
-✅ Keyword autocomplete  
-✅ Auto-indentation & bracket matching  
-✅ Code folding  
+✅ Syntax highlighting
+✅ Real-time error detection
+✅ Keyword autocomplete
+✅ Auto-indentation & bracket matching
+✅ Code folding
 
 ## Troubleshooting
 
@@ -32,7 +32,7 @@ make clean && make lsp
 # Restart editor
 ```
 
-**View LSP logs:**  
+**View LSP logs:**
 View → Output → "Kronos Language Server"
 
 ## Other Editors

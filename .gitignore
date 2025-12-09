@@ -4,6 +4,7 @@
 kronos
 kronos-lsp
 kronos_unit_tests
+kronos_lsp_tests
 *.dSYM/
 
 # OS files
@@ -14,6 +15,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Backup files
+*.backup
 
 # .vscode/ is kept for immediate syntax highlighting when opening project
 # The vscode-extension/ directory is the actual installable extension

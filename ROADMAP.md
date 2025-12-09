@@ -4,7 +4,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.4.0  
+**Current Version:** 0.4.0
 **Status:** ✅ Stable - Core language features complete
 
 ### What's Available Now
@@ -28,7 +28,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.4.0: "Modules & Error Handling"
 
-**Target:** Q4 2025  
+**Target:** Q4 2025
 **Status:** 🚧 In Progress
 
 #### Planned Features
@@ -128,21 +128,21 @@ This document outlines the planned features and release schedule for Kronos.
   set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
   ```
 
-- 🔄 **LSP Improvements**
-  - Hover info for file-based modules (show module path and exports)
-  - Module function validation (verify functions exist in imported modules)
-  - Find all references
-  - Rename symbol
-  - Code actions & quick fixes
-  - Document formatting
-  - Workspace symbols
-  - Code lens
+- ✅ **LSP Improvements** (Completed)
+  - ✅ Hover info for file-based modules (show module path and exports)
+  - ✅ Module function validation (verify functions exist in imported modules)
+  - ✅ Find all references
+  - ✅ Rename symbol
+  - ✅ Code actions & quick fixes
+  - ✅ Document formatting
+  - ✅ Workspace symbols
+  - ✅ Code lens
 
 ---
 
 ### Version 0.5.0: "Advanced Language Features"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features
@@ -227,7 +227,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 1.0.0: "Production Release"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features

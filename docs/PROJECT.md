@@ -14,7 +14,7 @@ A comprehensive overview of the Kronos programming language implementation.
 
 ## Status & Statistics
 
-**Version:** 0.3.0 (In Development)  
+**Version:** 0.3.0 (In Development)
 **Status:** Core Features Complete ✅ | Logical Operators Implemented
 
 ```
@@ -28,16 +28,16 @@ Test Coverage:   71 tests (42 pass, 29 fail)
 
 ## Implemented Features
 
-✅ Variables (immutable `set`, mutable `let`, typed `as <type>`)  
-✅ Data types (numbers, strings, booleans, null)  
-✅ Arithmetic & comparison operators  
-✅ Logical operators (`and`, `or`, `not`)  
-✅ Control flow (if, for, while)  
-✅ Functions (definitions, calls, parameters, returns)  
-✅ Built-ins (Pi constant, math functions)  
-✅ Local variable scoping  
-✅ Safety checks & error handling  
-✅ REPL & file execution  
+✅ Variables (immutable `set`, mutable `let`, typed `as <type>`)
+✅ Data types (numbers, strings, booleans, null)
+✅ Arithmetic & comparison operators
+✅ Logical operators (`and`, `or`, `not`)
+✅ Control flow (if, for, while)
+✅ Functions (definitions, calls, parameters, returns)
+✅ Built-ins (Pi constant, math functions)
+✅ Local variable scoping
+✅ Safety checks & error handling
+✅ REPL & file execution
 ✅ Editor support (VSCode/Cursor/Windsurf)
 
 ## Architecture
@@ -533,6 +533,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Core Features Complete (v0.3.0 In Progress)  
-**Last Updated:** November 2025  
+**Project Status:** ✅ Core Features Complete (v0.3.0 In Progress)
+**Last Updated:** November 2025
 **Version:** 0.3.0 (Development)

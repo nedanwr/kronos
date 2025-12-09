@@ -28,19 +28,19 @@ jobs:
       - name: Run tests with Valgrind
         run: |
           echo "=== Running Valgrind Memory Check ==="
-          
+
           # Function to check a file with valgrind
           check_with_valgrind() {
             local file=$1
             local name=$2
             local expect_error=${3:-false}
-            
+
             echo ""
             echo "Checking: $name"
-            
+
             # Create a log file for valgrind output
             local logfile="/tmp/valgrind_${name}.log"
-            
+
             # Run with valgrind
             # Note: We use --error-exitcode=1 so valgrind exits with 1 if it finds issues
             # But we need to check the log file, not the exit code, because:
@@ -53,9 +53,9 @@ jobs:
               --error-exitcode=1 \
               --log-file="$logfile" \
               ./kronos "$file" > /dev/null 2>&1 || true
-            
+
             # Always check the log file, regardless of program exit code
-            
+
             # Parse valgrind log for errors
             if grep -q "All heap blocks were freed -- no leaks are possible" "$logfile" || \
                (grep -q "definitely lost: 0 bytes in 0 blocks" "$logfile" && \
@@ -71,9 +71,9 @@ jobs:
               return 1
             fi
           }
-          
+
           failed_count=0
-          
+
           # Check passing tests
           echo "=== Checking Passing Tests ==="
           for test_file in tests/integration/pass/*.kr; do
@@ -84,7 +84,7 @@ jobs:
               fi
             fi
           done
-          
+
           # Check error tests (program errors are expected, but no memory leaks)
           echo ""
           echo "=== Checking Error Tests ==="
@@ -96,7 +96,7 @@ jobs:
               fi
             fi
           done
-          
+
           # Check example files
           echo ""
           echo "=== Checking Example Files ==="
@@ -108,7 +108,7 @@ jobs:
               fi
             fi
           done
-          
+
           echo ""
           echo "=== Memory Check Summary ==="
           if [ $failed_count -eq 0 ]; then

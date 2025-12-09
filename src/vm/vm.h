@@ -145,6 +145,16 @@ KronosVM *vm_new(void);
 void vm_free(KronosVM *vm);
 
 /**
+ * @brief Clear the VM stack, releasing all values
+ *
+ * This should be called before freeing bytecode to ensure constants
+ * aren't retained on the stack, which would prevent them from being freed.
+ *
+ * @param vm VM instance
+ */
+void vm_clear_stack(KronosVM *vm);
+
+/**
  * @brief Execute compiled bytecode in the VM.
  *
  * Runs the bytecode instruction-by-instruction until completion or error.
