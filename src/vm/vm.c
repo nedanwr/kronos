@@ -30,16 +30,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// Sort comparison type for qsort (used by sort_compare_values)
-// Note: This is a static variable, making sort() not thread-safe.
-// This is acceptable since the VM itself is not thread-safe.
-static enum { SORT_NUMBERS, SORT_STRINGS } sort_value_type;
-
 /**
  * @brief Comparison function for qsort on KronosValue arrays
  *
  * Compares two KronosValue pointers for sorting. The comparison type
- * (numbers or strings) must be set in sort_value_type before calling qsort.
+ * is determined from the values themselves (thread-safe, no global state).
+ * This is safe because sort() validates all items are the same type before
+ * calling qsort.
  *
  * @param a Pointer to first KronosValue*
  * @param b Pointer to second KronosValue*
@@ -49,12 +46,16 @@ static int sort_compare_values(const void *a, const void *b) {
   KronosValue *val_a = *(KronosValue **)a;
   KronosValue *val_b = *(KronosValue **)b;
 
-  if (sort_value_type == SORT_NUMBERS) {
+  // Determine comparison type from values (all items are same type per
+  // validation)
+  if (val_a->type == VAL_NUMBER) {
     double diff = val_a->as.number - val_b->as.number;
     return (diff > 0) - (diff < 0);
-  } else {
+  } else if (val_a->type == VAL_STRING) {
     return strcmp(val_a->as.string.data, val_b->as.string.data);
   }
+  // Should not reach here if validation is correct
+  return 0;
 }
 
 /**
@@ -1219,10 +1220,11 @@ static char *value_to_string_repr(KronosValue *val) {
     double intpart;
     double frac = modf(val->as.number, &intpart);
     size_t len;
-    // Use scientific notation for large numbers to prevent buffer overflow (buffer is 64 bytes)
-    
+    // Use scientific notation for large numbers to prevent buffer overflow
+    // (buffer is 64 bytes)
+
     if (frac == 0.0 && fabs(val->as.number) < 1.0e15) {
-  
+
       len = (size_t)snprintf(str_buf, 64, "%.0f", val->as.number);
     } else {
       len = (size_t)snprintf(str_buf, 64, "%g", val->as.number);
@@ -2046,35 +2048,36 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       // Check for built-in functions first
       const char *func_name = name_val->as.string.data;
 
-      
       // Built-in: read_file(path)       // Built-in: read_file(path)
-       if (strcmp(func_name, "read_file") == 0) {
-         if (arg_count != 1) return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Expected 1 argument");
-         KronosValue *path_val = pop(vm);
-         if (!path_val) return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-         if (path_val->type != VAL_STRING) {
-           value_release(path_val);
-           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Path must be a string");
-         }
-         FILE *file = fopen(path_val->as.string.data, "rb");
-         if (!file) {
-           value_release(path_val);
-           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Could not open file");
-         }
-         fseek(file, 0L, SEEK_END);
-         long fsize = ftell(file);
+      if (strcmp(func_name, "read_file") == 0) {
+        if (arg_count != 1)
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Expected 1 argument");
+        KronosValue *path_val = pop(vm);
+        if (!path_val)
+          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+        if (path_val->type != VAL_STRING) {
+          value_release(path_val);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Path must be a string");
+        }
+        FILE *file = fopen(path_val->as.string.data, "rb");
+        if (!file) {
+          value_release(path_val);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Could not open file");
+        }
+        fseek(file, 0L, SEEK_END);
+        long fsize = ftell(file);
         if (fsize < 0) {
           fclose(file);
           value_release(path_val);
           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to get file size");
         }
-         rewind(file);
+        rewind(file);
         if (fsize > SIZE_MAX - 1) {
           fclose(file);
           value_release(path_val);
           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "File too large");
         }
-         char *buff = malloc(fsize + 1);
+        char *buff = malloc(fsize + 1);
         if (!buff) {
           fclose(file);
           value_release(path_val);
@@ -2088,14 +2091,14 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to read file");
         }
         buff[bytes_read] = '\0';
-         fclose(file);
+        fclose(file);
         KronosValue *res = value_new_string(buff, bytes_read);
-         free(buff);
-         push(vm, res);
-         value_release(res);
-         value_release(path_val);
-         break;
-       }
+        free(buff);
+        push(vm, res);
+        value_release(res);
+        value_release(path_val);
+        break;
+      }
 
       // Check for module.function syntax (e.g., math.sqrt)
       const char *dot = strchr(func_name, '.');
@@ -2778,7 +2781,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           // Check if it's a whole number
           double intpart;
           double frac = modf(arg->as.number, &intpart);
-        
+
           if (frac == 0.0 && fabs(arg->as.number) < 1.0e15) {
             str_len = (size_t)snprintf(str_buf, 64, "%.0f", arg->as.number);
           } else {
@@ -3562,9 +3565,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
             }
           }
 
-          // Set comparison type and sort
-          sort_value_type =
-              (first_type == VAL_NUMBER) ? SORT_NUMBERS : SORT_STRINGS;
+          // Sort using thread-safe comparison (no global state needed)
+          // All items are validated to be the same type, so comparison
+          // function can determine type from the values themselves
           qsort(result->as.list.items, result->as.list.count,
                 sizeof(KronosValue *), sort_compare_values);
         }
