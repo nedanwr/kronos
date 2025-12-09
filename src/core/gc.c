@@ -107,10 +107,12 @@ void gc_cleanup(void) {
   if (!objects)
     return;
 
+  // Finalize all objects without releasing children to avoid use-after-free.
+  // Children will be finalized separately when we encounter them in the array.
   for (size_t i = 0; i < count; i++) {
     KronosValue *obj = objects[i];
     if (obj)
-      value_release(obj);
+      value_finalize(obj);
   }
   free(objects);
 }
