@@ -1,0 +1,10 @@
+set text to call read_file with "huge.txt"
+print "1. As Text (String):"
+print text
+
+print "2. As Number (Calculated):"
+set num to call to_number with text
+print num
+
+print "3. Let's try math (num + 1):"
+print num plus 1
