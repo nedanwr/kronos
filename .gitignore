@@ -38,3 +38,7 @@ vscode-extension/package-lock.json
 
 # Test output
 test_output.txt
+# File I/O test artifacts
+*.txt
+!docs/**/*.txt
+!vscode-extension/node_modules/**/*.txt
