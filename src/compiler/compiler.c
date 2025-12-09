@@ -104,8 +104,13 @@ static bool add_pending_jump(Compiler *c, size_t jump_pos, bool is_break) {
 static void patch_pending_jumps(Compiler *c) {
   if (!c->loop_stack)
     return;
-  BreakContinueJump *jump = c->loop_stack->pending_jumps;
-  while (jump) {
+  // Process each node: update head before processing to avoid UAF on early return
+  while (c->loop_stack->pending_jumps) {
+    // Store next, advance head, then handle current
+    BreakContinueJump *jump = c->loop_stack->pending_jumps;
+    BreakContinueJump *next = jump->next;
+    c->loop_stack->pending_jumps = next; // Update head before processing
+    
     size_t target_pos =
         jump->is_break ? c->loop_stack->loop_end : c->loop_stack->loop_continue;
     size_t offset = target_pos - (jump->jump_pos + 1);
@@ -114,6 +119,7 @@ static void patch_pending_jumps(Compiler *c) {
       // Forward jump
       if (offset > 255) {
         compiler_set_error(c, "break jump offset too large");
+        free(jump); // Free current node before early return
         return;
       }
       c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
@@ -126,16 +132,14 @@ static void patch_pending_jumps(Compiler *c) {
         // Forward jump (shouldn't happen, but handle it)
         if (offset > 255) {
           compiler_set_error(c, "continue jump offset too large");
+          free(jump); // Free current node before early return
           return;
         }
         c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
       }
     }
-    BreakContinueJump *next = jump->next;
-    free(jump);
-    jump = next;
+    free(jump); // Free current node after successful patching
   }
-  c->loop_stack->pending_jumps = NULL;
 }
 
 // Pop loop info from stack (frees pending jumps)
