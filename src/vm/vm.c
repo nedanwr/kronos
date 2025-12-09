@@ -4357,6 +4357,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         regex_t regex;
         int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
         if (ret != 0) {
+          // regcomp() failed - regex structure is in undefined state
+          // regerror() is safe to call with the error code even after failed regcomp()
+          // Do NOT call regfree() on a failed regcomp() - it's unsafe
           char errbuf[256];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -4410,6 +4413,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         regex_t regex;
         int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
         if (ret != 0) {
+          // regcomp() failed - regex structure is in undefined state
+          // regerror() is safe to call with the error code even after failed regcomp()
+          // Do NOT call regfree() on a failed regcomp() - it's unsafe
           char errbuf[256];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -4481,6 +4487,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         regex_t regex;
         int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
         if (ret != 0) {
+          // regcomp() failed - regex structure is in undefined state
+          // regerror() is safe to call with the error code even after failed regcomp()
+          // Do NOT call regfree() on a failed regcomp() - it's unsafe
           char errbuf[256];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
