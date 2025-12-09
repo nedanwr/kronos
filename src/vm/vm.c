@@ -3169,7 +3169,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
 
         // Check for overflow before malloc (max_result_len + 1)
-        if (max_result_len == SIZE_MAX || max_result_len + 1 < max_result_len) {
+        // Check if max_result_len + 1 would overflow by checking if max_result_len > SIZE_MAX - 1
+        // This avoids the undefined behavior of SIZE_MAX + 1
+        if (max_result_len > SIZE_MAX - 1) {
           value_release(str);
           value_release(old_str);
           value_release(new_str);
