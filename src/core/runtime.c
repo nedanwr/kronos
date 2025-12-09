@@ -395,6 +395,54 @@ static void release_stack_push(KronosValue ***stack, size_t *count,
 }
 
 /**
+ * @brief Finalize an object without releasing children
+ *
+ * Used during gc_cleanup to avoid use-after-free issues. This function
+ * frees the object's own memory (strings, bytecode, containers) but does
+ * NOT recursively release child values, since they will be freed separately
+ * by gc_cleanup.
+ *
+ * @param val Value to finalize (safe to pass NULL)
+ */
+void value_finalize(KronosValue *val) {
+  if (!val)
+    return;
+
+  gc_untrack(val);
+
+  // Free any owned memory, but don't release children
+  switch (val->type) {
+  case VAL_STRING:
+    free(val->as.string.data);
+    break;
+  case VAL_FUNCTION:
+    free(val->as.function.bytecode);
+    break;
+  case VAL_LIST:
+    // Free the items array, but don't release the child values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.list.items);
+    break;
+  case VAL_MAP: {
+    // Free the entries array, but don't release keys/values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.map.entries);
+    break;
+  }
+  case VAL_CHANNEL:
+    // Channels are currently managed externally.
+    break;
+  case VAL_RANGE:
+    // Ranges don't own other values, just store numbers
+    break;
+  default:
+    break;
+  }
+
+  free(val);
+}
+
+/**
  * @brief Decrement the reference count of a value
  *
  * Call this when removing a reference to a value. When the refcount

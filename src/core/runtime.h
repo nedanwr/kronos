@@ -88,6 +88,7 @@ KronosValue *value_new_map(size_t initial_capacity);
 // Both helpers treat NULL inputs as no-ops for convenience.
 void value_retain(KronosValue *val);  // increments refcount if val != NULL
 void value_release(KronosValue *val); // decrements refcount, frees at 0
+void value_finalize(KronosValue *val); // finalizes object without releasing children (for gc_cleanup)
 
 // Value operations
 void value_fprint(FILE *out, KronosValue *val);
