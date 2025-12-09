@@ -144,6 +144,8 @@ int kronos_run_string(KronosVM *vm, const char *source) {
 
   // Step 4: Execute - Run bytecode on the virtual machine
   int result = vm_execute(vm, bytecode);
+  // Clear stack before freeing bytecode to ensure constants aren't retained
+  vm_clear_stack(vm);
   bytecode_free(bytecode);
 
   if (result < 0 && vm->last_error_code == KRONOS_OK) {
