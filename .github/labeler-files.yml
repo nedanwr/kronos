@@ -1,0 +1,58 @@
+# Auto-labeling configuration for PRs based on changed files
+# Format for actions/labeler@v6
+
+# Documentation changes
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", "docs/**", ".github/**/*.md"]
+
+# Test changes
+test:
+  - changed-files:
+      - any-glob-to-any-file: ["tests/**", "**/*test*.c", "**/*test*.kr"]
+
+# Source code changes
+code:
+  - changed-files:
+      - any-glob-to-any-file: ["src/**", "main.c", "include/**"]
+
+# Core runtime changes
+runtime:
+  - changed-files:
+      - any-glob-to-any-file: ["src/core/**"]
+
+# Frontend changes (tokenizer/parser)
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: ["src/frontend/**"]
+
+# Compiler changes
+compiler:
+  - changed-files:
+      - any-glob-to-any-file: ["src/compiler/**"]
+
+# VM changes
+vm:
+  - changed-files:
+      - any-glob-to-any-file: ["src/vm/**"]
+
+# LSP changes
+lsp:
+  - changed-files:
+      - any-glob-to-any-file: ["src/lsp/**", "vscode-extension/**"]
+
+# Example changes
+examples:
+  - changed-files:
+      - any-glob-to-any-file: ["examples/**"]
+
+# Build system changes
+build:
+  - changed-files:
+      - any-glob-to-any-file: ["Makefile", "*.sh", ".github/workflows/**"]
+
+# CI/CD changes
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          [".github/workflows/**", ".github/ISSUE_TEMPLATE/**"]
