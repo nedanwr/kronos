@@ -14,6 +14,9 @@
 #define LOCALS_MAX 64
 #define MODULES_MAX 64
 #define EXCEPTION_HANDLERS_MAX 64
+// Maximum import depth to prevent C stack exhaustion from recursive module loading
+// This is more conservative than MODULES_MAX to account for C stack usage
+#define IMPORT_DEPTH_MAX 32
 
 // Function definition
 typedef struct {

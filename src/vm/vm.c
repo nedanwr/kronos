@@ -854,6 +854,22 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
                      compile_err ? ": " : "", compile_err ? compile_err : "");
   }
 
+  // Check import depth before recursive vm_execute() call to prevent C stack exhaustion
+  // loading_count represents the current depth of the import chain
+  if (root_vm->loading_count > IMPORT_DEPTH_MAX) {
+    vm_free(module_vm);
+    free(resolved_path);
+    // Remove from root VM's loading stack
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    bytecode_free(bytecode);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Import depth exceeded maximum (%d). Deep import chains can "
+                     "exhaust the C stack.",
+                     IMPORT_DEPTH_MAX);
+  }
+
   int exec_result = vm_execute(module_vm, bytecode);
   vm_clear_stack(module_vm);
   bytecode_free(bytecode);
@@ -3126,10 +3142,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           if (push(vm, str) != 0) {
             value_release(str);
             value_release(old_str);
+            value_release(new_str);
             return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
           }
-
-          push(vm, str);
           value_release(str);
           value_release(old_str);
           value_release(new_str);
