@@ -2,6 +2,8 @@
 #include "../../src/frontend/tokenizer.h"
 #include "../../src/frontend/parser.h"
 #include "../../src/compiler/compiler.h"
+#include <stdio.h>
+#include <string.h>
 
 static AST *parse_string(const char *source) {
     TokenizeError *tok_err = NULL;
@@ -146,6 +148,80 @@ TEST(compile_list_literal) {
     ASSERT_TRUE(has_list_new);
 
     bytecode_free(bytecode);
+    ast_free(ast);
+}
+
+TEST(compile_loop_large_offset_break) {
+    // Regression test for UAF bug in patch_pending_jumps.
+    // Create a loop with a large body that triggers offset >255,
+    // then break/continue to hit pop_loop safely.
+    // The test verifies that patch_pending_jumps handles early returns
+    // correctly without leaving dangling pointers.
+    
+    // Build a loop with many statements to create a large body
+    // Each statement generates several bytes, so ~100 statements should
+    // create enough bytecode to trigger offset >255
+    const char *loop_start = "while true:\n";
+    const char *loop_end = "    break\n";
+    
+    // Build large loop body with many assignments
+    char large_loop[8192] = {0};
+    strcat(large_loop, loop_start);
+    // Add many statements to create large bytecode
+    for (int i = 0; i < 150; i++) {
+        char stmt[64];
+        snprintf(stmt, sizeof(stmt), "    set x%d to %d\n", i, i);
+        strcat(large_loop, stmt);
+    }
+    strcat(large_loop, loop_end);
+    
+    AST *ast = parse_string(large_loop);
+    ASSERT_PTR_NOT_NULL(ast);
+    
+    const char *err = NULL;
+    Bytecode *bytecode = compile(ast, &err);
+    // Should either compile successfully (if offset fits) or error with "break jump offset too large"
+    // Either way, should not crash with UAF
+    if (err) {
+        // Expected: offset too large error
+        ASSERT_TRUE(strstr(err, "offset too large") != NULL || 
+                   strstr(err, "break jump") != NULL);
+    }
+    
+    if (bytecode) {
+        bytecode_free(bytecode);
+    }
+    ast_free(ast);
+}
+
+TEST(compile_loop_large_offset_continue) {
+    // Similar test for continue statement
+    const char *loop_start = "while true:\n";
+    const char *loop_end = "    continue\n";
+    
+    char large_loop[8192] = {0};
+    strcat(large_loop, loop_start);
+    for (int i = 0; i < 150; i++) {
+        char stmt[64];
+        snprintf(stmt, sizeof(stmt), "    set x%d to %d\n", i, i);
+        strcat(large_loop, stmt);
+    }
+    strcat(large_loop, loop_end);
+    
+    AST *ast = parse_string(large_loop);
+    ASSERT_PTR_NOT_NULL(ast);
+    
+    const char *err = NULL;
+    Bytecode *bytecode = compile(ast, &err);
+    // Should either compile successfully or error safely without UAF
+    if (err) {
+        ASSERT_TRUE(strstr(err, "offset too large") != NULL || 
+                   strstr(err, "continue jump") != NULL);
+    }
+    
+    if (bytecode) {
+        bytecode_free(bytecode);
+    }
     ast_free(ast);
 }
 
