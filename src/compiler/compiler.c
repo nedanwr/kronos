@@ -12,6 +12,7 @@
  */
 
 #include "compiler.h"
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -72,6 +73,12 @@ static void compiler_set_error(Compiler *c, const char *message) {
   }
 }
 
+// Forward declarations for jump offset helpers
+static size_t emit_jump_with_offset(Compiler *c, uint8_t opcode);
+static void patch_jump_offset(Compiler *c, size_t offset_pos, int16_t offset);
+static void patch_jump_offset_unsigned(Compiler *c, size_t offset_pos,
+                                       uint16_t offset);
+
 // Push loop info onto stack
 static bool push_loop(Compiler *c, size_t loop_start) {
   LoopInfo *info = malloc(sizeof(LoopInfo));
@@ -122,29 +129,31 @@ static void patch_pending_jumps(Compiler *c) {
 
     size_t target_pos =
         jump->is_break ? c->loop_stack->loop_end : c->loop_stack->loop_continue;
-    size_t offset = target_pos - (jump->jump_pos + 1);
+    // jump_pos points to the first byte of the 16-bit offset (after OP_JUMP)
+    size_t offset = target_pos - (jump->jump_pos + 2);
 
     if (jump->is_break) {
       // Forward jump
-      if (offset > 255) {
+      if (offset > INT16_MAX) {
         compiler_set_error(c, "break jump offset too large");
         free(jump); // Free current node before early return
         return;
       }
-      c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
+      patch_jump_offset(c, jump->jump_pos, (int16_t)offset);
     } else {
-      // Backward jump for continue
-      if (target_pos < jump->jump_pos + 1) {
-        int8_t signed_offset = (int8_t)(target_pos - (jump->jump_pos + 1));
-        c->bytecode->code[jump->jump_pos] = (uint8_t)signed_offset;
+      // Backward jump for continue (or forward, but shouldn't happen)
+      if (target_pos < jump->jump_pos + 2) {
+        // Backward jump - calculate signed offset
+        int16_t signed_offset = (int16_t)(target_pos - (jump->jump_pos + 2));
+        patch_jump_offset(c, jump->jump_pos, signed_offset);
       } else {
         // Forward jump (shouldn't happen, but handle it)
-        if (offset > 255) {
+        if (offset > INT16_MAX) {
           compiler_set_error(c, "continue jump offset too large");
           free(jump); // Free current node before early return
           return;
         }
-        c->bytecode->code[jump->jump_pos] = (uint8_t)offset;
+        patch_jump_offset(c, jump->jump_pos, (int16_t)offset);
       }
     }
     free(jump); // Free current node after successful patching
@@ -231,6 +240,46 @@ static void emit_bytes(Compiler *c, uint8_t byte1, uint8_t byte2) {
 static void emit_uint16(Compiler *c, uint16_t value) {
   emit_byte(c, (uint8_t)((value >> 8) & 0xFF));
   emit_byte(c, (uint8_t)(value & 0xFF));
+}
+
+/**
+ * @brief Emit a jump instruction with placeholder for 16-bit signed offset
+ *
+ * @param c Compiler state
+ * @param opcode OP_JUMP or OP_JUMP_IF_FALSE
+ * @return Position of the offset bytes (for later patching)
+ */
+static size_t emit_jump_with_offset(Compiler *c, uint8_t opcode) {
+  emit_byte(c, opcode);
+  size_t offset_pos = c->bytecode->count;
+  emit_byte(c, 0); // Placeholder high byte
+  emit_byte(c, 0); // Placeholder low byte
+  return offset_pos;
+}
+
+/**
+ * @brief Patch a 16-bit signed jump offset at the given position
+ *
+ * @param c Compiler state
+ * @param offset_pos Position where offset bytes start
+ * @param offset Signed 16-bit offset to write
+ */
+static void patch_jump_offset(Compiler *c, size_t offset_pos, int16_t offset) {
+  c->bytecode->code[offset_pos] = (uint8_t)((offset >> 8) & 0xFF);
+  c->bytecode->code[offset_pos + 1] = (uint8_t)(offset & 0xFF);
+}
+
+/**
+ * @brief Patch a 16-bit unsigned jump offset at the given position
+ *
+ * @param c Compiler state
+ * @param offset_pos Position where offset bytes start
+ * @param offset Unsigned 16-bit offset to write
+ */
+static void patch_jump_offset_unsigned(Compiler *c, size_t offset_pos,
+                                       uint16_t offset) {
+  c->bytecode->code[offset_pos] = (uint8_t)((offset >> 8) & 0xFF);
+  c->bytecode->code[offset_pos + 1] = (uint8_t)(offset & 0xFF);
 }
 
 /**
@@ -1198,9 +1247,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
 
     // Emit jump if false (placeholder for jump offset)
-    emit_byte(c, OP_JUMP_IF_FALSE);
-    size_t jump_offset_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder
+    size_t jump_offset_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
     if (compiler_has_error(c))
       return;
 
@@ -1244,9 +1291,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
 
     if (has_else_or_else_if) {
       // Emit skip jump at end of if block (will be patched at the end)
-      emit_byte(c, OP_JUMP);
-      size_t if_skip_jump_pos = c->bytecode->count;
-      emit_byte(c, 0); // Placeholder
+      size_t if_skip_jump_pos = emit_jump_with_offset(c, OP_JUMP);
       if (compiler_has_error(c)) {
         free(jump_positions);
         return;
@@ -1269,9 +1314,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
       // Emit jump to skip else-if block (will be patched immediately when we
       // know where next block starts)
-      emit_byte(c, OP_JUMP);
-      size_t else_if_jump_pos = c->bytecode->count;
-      emit_byte(c, 0); // Placeholder
+      size_t else_if_jump_pos = emit_jump_with_offset(c, OP_JUMP);
       if (compiler_has_error(c)) {
         free(jump_positions);
         free(skip_jumps);
@@ -1282,7 +1325,14 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       size_t else_if_start = c->bytecode->count;
       for (size_t j = 0; j < jump_count; j++) {
         size_t pos = jump_positions[j];
-        c->bytecode->code[pos] = (uint8_t)(else_if_start - pos - 1);
+        int16_t offset = (int16_t)(else_if_start - (pos + 2));
+        if (offset < INT16_MIN || offset > INT16_MAX) {
+          compiler_set_error(c, "Jump offset too large in if statement");
+          free(jump_positions);
+          free(skip_jumps);
+          return;
+        }
+        patch_jump_offset(c, pos, offset);
       }
       // Clear jump positions - we'll add new ones for this else-if
       jump_count = 0;
@@ -1296,9 +1346,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
 
       // Emit jump if false
-      emit_byte(c, OP_JUMP_IF_FALSE);
-      size_t else_if_jump_if_false_pos = c->bytecode->count;
-      emit_byte(c, 0); // Placeholder
+      size_t else_if_jump_if_false_pos =
+          emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
       if (compiler_has_error(c)) {
         free(jump_positions);
         free(skip_jumps);
@@ -1357,7 +1406,14 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       size_t else_start = c->bytecode->count;
       for (size_t j = 0; j < jump_count; j++) {
         size_t pos = jump_positions[j];
-        c->bytecode->code[pos] = (uint8_t)(else_start - pos - 1);
+        int16_t offset = (int16_t)(else_start - (pos + 2));
+        if (offset < INT16_MIN || offset > INT16_MAX) {
+          compiler_set_error(c, "Jump offset too large in if statement");
+          free(jump_positions);
+          free(skip_jumps);
+          return;
+        }
+        patch_jump_offset(c, pos, offset);
       }
       jump_count = 0;
 
@@ -1376,14 +1432,28 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     size_t end_pos = c->bytecode->count;
     for (size_t j = 0; j < skip_count; j++) {
       size_t pos = skip_jumps[j];
-      c->bytecode->code[pos] = (uint8_t)(end_pos - pos - 1);
+      int16_t offset = (int16_t)(end_pos - (pos + 2));
+      if (offset < INT16_MIN || offset > INT16_MAX) {
+        compiler_set_error(c, "Jump offset too large in if statement");
+        free(jump_positions);
+        free(skip_jumps);
+        return;
+      }
+      patch_jump_offset(c, pos, offset);
     }
 
     // If no else block, also patch jump-if-false jumps to end
     if (node->as.if_stmt.else_block_size == 0) {
       for (size_t j = 0; j < jump_count; j++) {
         size_t pos = jump_positions[j];
-        c->bytecode->code[pos] = (uint8_t)(end_pos - pos - 1);
+        int16_t offset = (int16_t)(end_pos - (pos + 2));
+        if (offset < INT16_MIN || offset > INT16_MAX) {
+          compiler_set_error(c, "Jump offset too large in if statement");
+          free(jump_positions);
+          free(skip_jumps);
+          return;
+        }
+        patch_jump_offset(c, pos, offset);
       }
     }
 
@@ -1453,9 +1523,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
 
       // Jump if false (exit loop)
-      emit_byte(c, OP_JUMP_IF_FALSE);
-      size_t exit_jump_pos = c->bytecode->count;
-      emit_byte(c, 0); // Placeholder
+      size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
       if (compiler_has_error(c))
         return;
 
@@ -1514,17 +1582,28 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
 
       // Jump back to loop start
-      size_t offset = c->bytecode->count - loop_start + 2;
-      emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
+      size_t jump_back_pos = emit_jump_with_offset(c, OP_JUMP);
       if (compiler_has_error(c)) {
         pop_loop(c);
         return;
       }
+      int16_t back_offset = (int16_t)(loop_start - (jump_back_pos + 2));
+      if (back_offset < INT16_MIN || back_offset > INT16_MAX) {
+        compiler_set_error(c, "Loop jump offset too large");
+        pop_loop(c);
+        return;
+      }
+      patch_jump_offset(c, jump_back_pos, back_offset);
 
       // Patch exit jump and update loop end
       size_t exit_target = c->bytecode->count;
-      c->bytecode->code[exit_jump_pos] =
-          (uint8_t)(exit_target - exit_jump_pos - 1);
+      int16_t exit_offset = (int16_t)(exit_target - (exit_jump_pos + 2));
+      if (exit_offset < 0 || exit_offset > INT16_MAX) {
+        compiler_set_error(c, "Loop exit jump offset too large");
+        pop_loop(c);
+        return;
+      }
+      patch_jump_offset_unsigned(c, exit_jump_pos, (uint16_t)exit_offset);
       if (c->loop_stack) {
         c->loop_stack->loop_end = exit_target;
         // Patch all pending break/continue jumps
@@ -1611,9 +1690,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       // Stack after OP_LIST_NEXT: [list, index+1, item, has_more]
       // Check has_more flag (it's on top of stack)
       // Note: OP_JUMP_IF_FALSE pops the condition, so we don't need OP_POP
-      emit_byte(c, OP_JUMP_IF_FALSE);
-      size_t exit_jump_pos = c->bytecode->count;
-      emit_byte(c, 0); // Placeholder
+      size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
       if (compiler_has_error(c))
         return;
 
@@ -1667,17 +1744,28 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       }
 
       // Jump back to loop start
-      size_t offset = c->bytecode->count - loop_start + 2;
-      emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
+      size_t jump_back_pos = emit_jump_with_offset(c, OP_JUMP);
       if (compiler_has_error(c)) {
         pop_loop(c);
         return;
       }
+      int16_t back_offset = (int16_t)(loop_start - (jump_back_pos + 2));
+      if (back_offset < INT16_MIN || back_offset > INT16_MAX) {
+        compiler_set_error(c, "Loop jump offset too large");
+        pop_loop(c);
+        return;
+      }
+      patch_jump_offset(c, jump_back_pos, back_offset);
 
       // Patch exit jump and update loop end
       size_t exit_target = c->bytecode->count;
-      c->bytecode->code[exit_jump_pos] =
-          (uint8_t)(exit_target - exit_jump_pos - 1);
+      int16_t exit_offset = (int16_t)(exit_target - (exit_jump_pos + 2));
+      if (exit_offset < 0 || exit_offset > INT16_MAX) {
+        compiler_set_error(c, "Loop exit jump offset too large");
+        pop_loop(c);
+        return;
+      }
+      patch_jump_offset_unsigned(c, exit_jump_pos, (uint16_t)exit_offset);
       if (c->loop_stack) {
         c->loop_stack->loop_end = exit_target;
         // Patch all pending break/continue jumps
@@ -1728,9 +1816,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
 
     // Jump if false (exit loop)
-    emit_byte(c, OP_JUMP_IF_FALSE);
-    size_t exit_jump_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder
+    size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
     if (compiler_has_error(c))
       return;
 
@@ -1749,17 +1835,28 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     }
 
     // Jump back to loop start
-    size_t offset = c->bytecode->count - loop_start + 2;
-    emit_bytes(c, OP_JUMP, (uint8_t)(-offset));
+    size_t jump_back_pos = emit_jump_with_offset(c, OP_JUMP);
     if (compiler_has_error(c)) {
       pop_loop(c);
       return;
     }
+    int16_t back_offset = (int16_t)(loop_start - (jump_back_pos + 2));
+    if (back_offset < INT16_MIN || back_offset > INT16_MAX) {
+      compiler_set_error(c, "Loop jump offset too large");
+      pop_loop(c);
+      return;
+    }
+    patch_jump_offset(c, jump_back_pos, back_offset);
 
     // Patch exit jump and update loop end
     size_t exit_target = c->bytecode->count;
-    c->bytecode->code[exit_jump_pos] =
-        (uint8_t)(exit_target - exit_jump_pos - 1);
+    int16_t exit_offset = (int16_t)(exit_target - (exit_jump_pos + 2));
+    if (exit_offset < 0 || exit_offset > INT16_MAX) {
+      compiler_set_error(c, "Loop exit jump offset too large");
+      pop_loop(c);
+      return;
+    }
+    patch_jump_offset_unsigned(c, exit_jump_pos, (uint16_t)exit_offset);
     if (c->loop_stack) {
       c->loop_stack->loop_end = exit_target;
       // Patch all pending break/continue jumps
@@ -1826,9 +1923,7 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       return;
 
     // Emit jump over function body
-    emit_byte(c, OP_JUMP);
-    size_t skip_body_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder
+    size_t skip_body_pos = emit_jump_with_offset(c, OP_JUMP);
     if (compiler_has_error(c))
       return;
 
@@ -1852,7 +1947,12 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     if (compiler_has_error(c))
       return;
     size_t func_end = c->bytecode->count;
-    c->bytecode->code[skip_body_pos] = (uint8_t)(func_end - skip_body_pos - 1);
+    int16_t skip_offset = (int16_t)(func_end - (skip_body_pos + 2));
+    if (skip_offset < 0 || skip_offset > INT16_MAX) {
+      compiler_set_error(c, "Function body jump offset too large");
+      return;
+    }
+    patch_jump_offset_unsigned(c, skip_body_pos, (uint16_t)skip_offset);
     break;
   }
 
@@ -1962,12 +2062,10 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   case AST_BREAK: {
     // Break out of loop - jump to loop end (will be patched after loop
     // compilation)
-    emit_byte(c, OP_JUMP);
-    size_t jump_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder - will be patched later
+    size_t jump_pos = emit_jump_with_offset(c, OP_JUMP);
     if (compiler_has_error(c))
       return;
-    // Add to pending jumps list
+    // Add to pending jumps list (jump_pos points to first byte of offset)
     if (!add_pending_jump(c, jump_pos, true)) {
       return;
     }
@@ -1977,12 +2075,10 @@ static void compile_statement(Compiler *c, ASTNode *node) {
   case AST_CONTINUE: {
     // Continue to next loop iteration - jump to loop start (will be patched
     // after loop compilation)
-    emit_byte(c, OP_JUMP);
-    size_t jump_pos = c->bytecode->count;
-    emit_byte(c, 0); // Placeholder - will be patched later
+    size_t jump_pos = emit_jump_with_offset(c, OP_JUMP);
     if (compiler_has_error(c))
       return;
-    // Add to pending jumps list
+    // Add to pending jumps list (jump_pos points to first byte of offset)
     if (!add_pending_jump(c, jump_pos, false)) {
       return;
     }
@@ -2240,14 +2336,30 @@ void bytecode_print(Bytecode *bytecode) {
       printf("NOT\n");
       offset++;
       break;
-    case OP_JUMP:
-      printf("JUMP %d\n", (int8_t)bytecode->code[offset + 1]);
-      offset += 2;
+    case OP_JUMP: {
+      if (offset + 2 >= bytecode->count) {
+        printf("JUMP <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      int16_t jump_offset = (int16_t)((bytecode->code[offset + 1] << 8) |
+                                      bytecode->code[offset + 2]);
+      printf("JUMP %d\n", jump_offset);
+      offset += 3;
       break;
-    case OP_JUMP_IF_FALSE:
-      printf("JUMP_IF_FALSE %d\n", bytecode->code[offset + 1]);
-      offset += 2;
+    }
+    case OP_JUMP_IF_FALSE: {
+      if (offset + 2 >= bytecode->count) {
+        printf("JUMP_IF_FALSE <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t jump_offset = (uint16_t)((bytecode->code[offset + 1] << 8) |
+                                        bytecode->code[offset + 2]);
+      printf("JUMP_IF_FALSE %u\n", jump_offset);
+      offset += 3;
       break;
+    }
     case OP_DEFINE_FUNC: {
       uint16_t name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                      bytecode->code[offset + 2]);
