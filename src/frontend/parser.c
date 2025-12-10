@@ -19,14 +19,46 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Maximum recursion depth to prevent stack exhaustion
+#define MAX_RECURSION_DEPTH 512
+
 /**
  * Parser state structure
- * Tracks current position in the token stream
+ * Tracks current position in the token stream and recursion depth
  */
 typedef struct {
-  TokenArray *tokens; /**< Array of tokens to parse */
-  size_t pos;         /**< Current position in token array */
+  TokenArray *tokens;     /**< Array of tokens to parse */
+  size_t pos;             /**< Current position in token array */
+  size_t recursion_depth; /**< Current recursion depth for stack overflow
+                             protection */
 } Parser;
+
+/**
+ * @brief Check and increment recursion depth
+ *
+ * @param p Parser state
+ * @return true if depth is acceptable, false if max depth exceeded
+ */
+static bool check_recursion_depth(Parser *p) {
+  if (p->recursion_depth >= MAX_RECURSION_DEPTH) {
+    fprintf(stderr, "Maximum recursion depth (%d) exceeded\n",
+            MAX_RECURSION_DEPTH);
+    return false;
+  }
+  p->recursion_depth++;
+  return true;
+}
+
+/**
+ * @brief Decrement recursion depth
+ *
+ * @param p Parser state
+ */
+static void decrement_recursion_depth(Parser *p) {
+  if (p->recursion_depth > 0) {
+    p->recursion_depth--;
+  }
+}
 
 /**
  * @brief Look ahead at a token without consuming it
@@ -876,7 +908,7 @@ static ASTNode *parse_fstring(Parser *p) {
       }
 
       // Create a temporary parser for the expression
-      Parser expr_parser = {expr_tokens, 0};
+      Parser expr_parser = {expr_tokens, 0, 0};
 
       // Skip INDENT token if present (tokenizer adds it for each line)
       if (expr_parser.pos < expr_tokens->count &&
@@ -1050,6 +1082,11 @@ static ASTNode *parse_primary(Parser *p) {
  * @return AST node for the expression, or NULL on error
  */
 static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
+  // Check recursion depth
+  if (!check_recursion_depth(p)) {
+    return NULL;
+  }
+
   // Handle unary operators (NOT and negation)
   ASTNode *left = NULL;
   Token *tok = peek(p, 0);
@@ -1057,11 +1094,14 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     consume_any(p); // consume NOT
     ASTNode *operand =
         parse_expression_prec(p, 10); // High precedence to bind tightly
-    if (!operand)
+    if (!operand) {
+      decrement_recursion_depth(p);
       return NULL;
+    }
     ASTNode *node = ast_node_new_checked(AST_BINOP);
     if (!node) {
       ast_node_free(operand);
+      decrement_recursion_depth(p);
       return NULL;
     }
     node->as.binop.left = operand; // For unary, we'll use left operand
@@ -1083,11 +1123,14 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       // Parse the operand recursively to handle nested unary operators
       ASTNode *operand =
           parse_expression_prec(p, 10); // High precedence to bind tightly
-      if (!operand)
+      if (!operand) {
+        decrement_recursion_depth(p);
         return NULL;
+      }
       ASTNode *node = ast_node_new_checked(AST_BINOP);
       if (!node) {
         ast_node_free(operand);
+        decrement_recursion_depth(p);
         return NULL;
       }
       node->as.binop.left = operand;
@@ -1097,14 +1140,18 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     } else {
       // Binary subtraction - parse primary and continue
       left = parse_primary(p);
-      if (!left)
+      if (!left) {
+        decrement_recursion_depth(p);
         return NULL;
+      }
     }
   } else {
     // Parse primary expression (values, list literals, postfix operations)
     left = parse_primary(p);
-    if (!left)
+    if (!left) {
+      decrement_recursion_depth(p);
       return NULL;
+    }
   }
 
   // While there's an operator with precedence >= min_prec
@@ -1195,6 +1242,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     ASTNode *right = parse_expression_prec(p, prec + 1);
     if (!right) {
       ast_node_free(left);
+      decrement_recursion_depth(p);
       return NULL;
     }
 
@@ -1203,6 +1251,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     if (!node) {
       ast_node_free(left);
       ast_node_free(right);
+      decrement_recursion_depth(p);
       return NULL;
     }
     node->as.binop.left = left;
@@ -1211,6 +1260,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     left = node;
   }
 
+  decrement_recursion_depth(p);
   return left;
 }
 
@@ -1710,6 +1760,11 @@ static ASTNode *parse_print(Parser *p, int indent) {
  * @return Array of AST nodes, or NULL on error
  */
 static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
+  // Check recursion depth
+  if (!check_recursion_depth(p)) {
+    return NULL;
+  }
+
   if (block_size)
     *block_size = 0;
 
@@ -1718,6 +1773,7 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
   ASTNode **block = malloc(sizeof(ASTNode *) * capacity);
   if (!block) {
     fprintf(stderr, "Parser failed to allocate block statements\n");
+    decrement_recursion_depth(p);
     return NULL;
   }
 
@@ -1776,6 +1832,7 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       free(block);
       if (block_size)
         *block_size = 0;
+      decrement_recursion_depth(p);
       return NULL;
     }
 
@@ -1790,6 +1847,7 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
         free(block);
         if (block_size)
           *block_size = 0;
+        decrement_recursion_depth(p);
         return NULL;
       }
       block = new_block;
@@ -1799,6 +1857,7 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
 
   if (block_size)
     *block_size = count;
+  decrement_recursion_depth(p);
   return block;
 }
 
@@ -2633,7 +2692,7 @@ static ASTNode *parse_statement(Parser *p) {
  * @return AST containing all statements, or NULL on critical error
  */
 AST *parse(TokenArray *tokens) {
-  Parser p = {tokens, 0};
+  Parser p = {tokens, 0, 0};
 
   AST *ast = malloc(sizeof(AST));
   if (!ast)
