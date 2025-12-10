@@ -13,6 +13,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "parser.h"
+#include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,7 +141,32 @@ static ASTNode *parse_value(Parser *p) {
     ASTNode *node = ast_node_new_checked(AST_NUMBER);
     if (!node)
       return NULL;
-    node->as.number = atof(tok->text);
+
+    // Use strtod() with proper error checking instead of atof()
+    errno = 0; // Clear errno before conversion
+    char *endptr;
+    double value = strtod(tok->text, &endptr);
+
+    // Check for conversion errors
+    if (errno == ERANGE) {
+      // Overflow or underflow occurred
+      if (value == HUGE_VAL || value == -HUGE_VAL) {
+        fprintf(stderr, "Number overflow: %s\n", tok->text);
+        free(node);
+        return NULL;
+      }
+      // Underflow (value is 0.0 or very small) - acceptable, continue
+    }
+
+    // Check if the entire string was consumed
+    // endptr should point to the null terminator if conversion succeeded
+    if (endptr == tok->text || *endptr != '\0') {
+      fprintf(stderr, "Invalid number format: %s\n", tok->text);
+      free(node);
+      return NULL;
+    }
+
+    node->as.number = value;
     return node;
   }
 
