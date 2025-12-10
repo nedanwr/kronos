@@ -13,6 +13,7 @@
 #include "runtime.h"
 #include "gc.h"
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,9 @@
 
 /** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
+
+/** Mutex for thread-safe intern table operations */
+static pthread_mutex_t intern_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * @brief Hash function for strings (FNV-1a algorithm)
@@ -51,7 +55,9 @@ static uint32_t hash_string(const char *str, size_t len) {
  * interning table and garbage collector.
  */
 void runtime_init(void) {
+  pthread_mutex_lock(&intern_mutex);
   memset(intern_table, 0, sizeof(intern_table));
+  pthread_mutex_unlock(&intern_mutex);
   gc_init();
 }
 
@@ -65,12 +71,14 @@ void runtime_init(void) {
  */
 void runtime_cleanup(void) {
   // Free interned strings
+  pthread_mutex_lock(&intern_mutex);
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     if (intern_table[i] != NULL) {
       value_release(intern_table[i]); // Release intern table's reference
       intern_table[i] = NULL;
     }
   }
+  pthread_mutex_unlock(&intern_mutex);
   gc_cleanup();
 }
 
@@ -981,6 +989,8 @@ KronosValue *string_intern(const char *str, size_t len) {
   uint32_t hash = hash_string(str, len);
   size_t index = hash % INTERN_TABLE_SIZE;
 
+  pthread_mutex_lock(&intern_mutex);
+
   // Linear probing
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     size_t probe = (index + i) % INTERN_TABLE_SIZE;
@@ -993,6 +1003,7 @@ KronosValue *string_intern(const char *str, size_t len) {
         intern_table[probe] = val;
         value_retain(val); // Extra ref for intern table
       }
+      pthread_mutex_unlock(&intern_mutex);
       return val;
     }
 
@@ -1000,11 +1011,13 @@ KronosValue *string_intern(const char *str, size_t len) {
         entry->as.string.length == len &&
         memcmp(entry->as.string.data, str, len) == 0) {
       // Found existing interned string
+      pthread_mutex_unlock(&intern_mutex);
       return entry;
     }
   }
 
   // Table full, fallback to non-interned string
+  pthread_mutex_unlock(&intern_mutex);
   return value_new_string(str, len);
 }
 
