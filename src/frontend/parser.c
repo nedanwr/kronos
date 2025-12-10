@@ -114,8 +114,8 @@ static ASTNode *ast_node_new(ASTNodeType type) {
 static ASTNode *ast_node_new_checked(ASTNodeType type) {
   ASTNode *node = ast_node_new(type);
   if (!node) {
-    fprintf(stderr, "Fatal: failed to allocate AST node (type=%d)\n", type);
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "Failed to allocate AST node (type=%d)\n", type);
+    return NULL;
   }
   return node;
 }
@@ -137,6 +137,8 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_NUMBER) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_NUMBER);
+    if (!node)
+      return NULL;
     node->as.number = atof(tok->text);
     return node;
   }
@@ -144,6 +146,8 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_TRUE) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_BOOL);
+    if (!node)
+      return NULL;
     node->as.boolean = true;
     return node;
   }
@@ -151,6 +155,8 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_FALSE) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_BOOL);
+    if (!node)
+      return NULL;
     node->as.boolean = false;
     return node;
   }
@@ -158,6 +164,8 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_NULL || tok->type == TOK_UNDEFINED) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_NULL);
+    if (!node)
+      return NULL;
     return node;
   }
 
@@ -165,6 +173,8 @@ static ASTNode *parse_value(Parser *p) {
     consume_any(p);
     // Tokenizer already strips quotes, so tok->text contains only the content
     ASTNode *node = ast_node_new_checked(AST_STRING);
+    if (!node)
+      return NULL;
     size_t len = tok->length;
     node->as.string.value = malloc(len + 1);
     if (!node->as.string.value) {
@@ -185,6 +195,8 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_NAME) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_VAR);
+    if (!node)
+      return NULL;
     char *var_name = strdup(tok->text);
     if (!var_name) {
       fprintf(stderr, "Memory allocation failed for variable name\n");
@@ -348,6 +360,10 @@ static ASTNode *parse_list_literal(Parser *p) {
                 next->type != TOK_LIST && next->type != TOK_NOT)) {
     // Empty list
     ASTNode *node = ast_node_new_checked(AST_LIST);
+    if (!node) {
+      free(elements);
+      return NULL;
+    }
     node->as.list.elements = elements;
     node->as.list.element_count = 0;
     return node;
@@ -395,6 +411,14 @@ static ASTNode *parse_list_literal(Parser *p) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_LIST);
+  if (!node) {
+    // Cleanup
+    for (size_t i = 0; i < element_count; i++) {
+      ast_node_free(elements[i]);
+    }
+    free(elements);
+    return NULL;
+  }
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
   return node;
@@ -445,6 +469,13 @@ static ASTNode *parse_range_literal(Parser *p) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_RANGE);
+  if (!node) {
+    ast_node_free(start);
+    ast_node_free(end);
+    if (step)
+      ast_node_free(step);
+    return NULL;
+  }
   node->as.range.start = start;
   node->as.range.end = end;
   node->as.range.step = step; // NULL means step=1
@@ -487,6 +518,11 @@ static ASTNode *parse_map_literal(Parser *p) {
                 next->type != TOK_LIST && next->type != TOK_NOT)) {
     // Empty map
     ASTNode *node = ast_node_new_checked(AST_MAP);
+    if (!node) {
+      free(keys);
+      free(values);
+      return NULL;
+    }
     node->as.map.keys = keys;
     node->as.map.values = values;
     node->as.map.entry_count = 0;
@@ -501,7 +537,18 @@ static ASTNode *parse_map_literal(Parser *p) {
     // Convert identifier to string literal
     consume_any(p); // consume identifier
     key = ast_node_new_checked(AST_STRING);
+    if (!key) {
+      free(keys);
+      free(values);
+      return NULL;
+    }
     key->as.string.value = strdup(key_tok->text);
+    if (!key->as.string.value) {
+      free(key);
+      free(keys);
+      free(values);
+      return NULL;
+    }
     key->as.string.length = key_tok->length;
   } else {
     // Parse as expression (for number, string, bool, null keys)
@@ -566,7 +613,28 @@ static ASTNode *parse_map_literal(Parser *p) {
       // Convert identifier to string literal
       consume_any(p); // consume identifier
       key = ast_node_new_checked(AST_STRING);
+      if (!key) {
+        // Cleanup
+        for (size_t i = 0; i < entry_count; i++) {
+          ast_node_free(keys[i]);
+          ast_node_free(values[i]);
+        }
+        free(keys);
+        free(values);
+        return NULL;
+      }
       key->as.string.value = strdup(key_tok->text);
+      if (!key->as.string.value) {
+        free(key);
+        // Cleanup
+        for (size_t i = 0; i < entry_count; i++) {
+          ast_node_free(keys[i]);
+          ast_node_free(values[i]);
+        }
+        free(keys);
+        free(values);
+        return NULL;
+      }
       key->as.string.length = key_tok->length;
     } else {
       // Parse as expression (for number, string, bool, null keys)
@@ -615,6 +683,16 @@ static ASTNode *parse_map_literal(Parser *p) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_MAP);
+  if (!node) {
+    // Cleanup
+    for (size_t i = 0; i < entry_count; i++) {
+      ast_node_free(keys[i]);
+      ast_node_free(values[i]);
+    }
+    free(keys);
+    free(values);
+    return NULL;
+  }
   node->as.map.keys = keys;
   node->as.map.values = values;
   node->as.map.entry_count = entry_count;
@@ -670,6 +748,14 @@ static ASTNode *parse_fstring(Parser *p) {
     if (brace_start > start) {
       size_t str_len = brace_start - start;
       ASTNode *str_node = ast_node_new_checked(AST_STRING);
+      if (!str_node) {
+        // Cleanup
+        for (size_t j = 0; j < part_count; j++) {
+          ast_node_free(parts[j]);
+        }
+        free(parts);
+        return NULL;
+      }
       str_node->as.string.value = malloc(str_len + 1);
       if (!str_node->as.string.value) {
         // Cleanup
@@ -805,6 +891,10 @@ static ASTNode *parse_fstring(Parser *p) {
   // If no parts, add empty string
   if (part_count == 0) {
     ASTNode *empty_str = ast_node_new_checked(AST_STRING);
+    if (!empty_str) {
+      free(parts);
+      return NULL;
+    }
     empty_str->as.string.value = malloc(1);
     if (!empty_str->as.string.value) {
       free(parts);
@@ -817,6 +907,14 @@ static ASTNode *parse_fstring(Parser *p) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_FSTRING);
+  if (!node) {
+    // Cleanup
+    for (size_t j = 0; j < part_count; j++) {
+      ast_node_free(parts[j]);
+    }
+    free(parts);
+    return NULL;
+  }
   node->as.fstring.parts = parts;
   node->as.fstring.part_count = part_count;
   return node;
@@ -853,6 +951,11 @@ static ASTNode *parse_primary(Parser *p) {
       }
 
       ASTNode *index_node = ast_node_new_checked(AST_INDEX);
+      if (!index_node) {
+        ast_node_free(expr);
+        ast_node_free(index);
+        return NULL;
+      }
       index_node->as.index.list_expr = expr;
       index_node->as.index.index = index;
       expr = index_node;
@@ -887,6 +990,13 @@ static ASTNode *parse_primary(Parser *p) {
       }
 
       ASTNode *slice_node = ast_node_new_checked(AST_SLICE);
+      if (!slice_node) {
+        ast_node_free(expr);
+        ast_node_free(start);
+        if (end)
+          ast_node_free(end);
+        return NULL;
+      }
       slice_node->as.slice.list_expr = expr;
       slice_node->as.slice.start = start;
       slice_node->as.slice.end = end;
@@ -923,6 +1033,10 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     if (!operand)
       return NULL;
     ASTNode *node = ast_node_new_checked(AST_BINOP);
+    if (!node) {
+      ast_node_free(operand);
+      return NULL;
+    }
     node->as.binop.left = operand; // For unary, we'll use left operand
     node->as.binop.op = BINOP_NOT;
     node->as.binop.right = NULL; // NULL indicates unary operation
@@ -945,6 +1059,10 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       if (!operand)
         return NULL;
       ASTNode *node = ast_node_new_checked(AST_BINOP);
+      if (!node) {
+        ast_node_free(operand);
+        return NULL;
+      }
       node->as.binop.left = operand;
       node->as.binop.op = BINOP_NEG; // Use a new unary operator
       node->as.binop.right = NULL;   // NULL indicates unary operation
@@ -1055,6 +1173,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
 
     // Build AST node
     ASTNode *node = ast_node_new_checked(AST_BINOP);
+    if (!node) {
+      ast_node_free(left);
+      ast_node_free(right);
+      return NULL;
+    }
     node->as.binop.left = left;
     node->as.binop.op = op;
     node->as.binop.right = right;
@@ -1147,9 +1270,20 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
     }
 
     ASTNode *node = ast_node_new_checked(AST_ASSIGN_INDEX);
+    if (!node) {
+      ast_node_free(index);
+      ast_node_free(value);
+      return NULL;
+    }
     node->indent = indent;
     // Create a variable AST node for the target
     ASTNode *target = ast_node_new_checked(AST_VAR);
+    if (!target) {
+      ast_node_free(index);
+      ast_node_free(value);
+      free(node);
+      return NULL;
+    }
     target->as.var_name = strdup(name->text);
     if (!target->as.var_name) {
       ast_node_free(index);
@@ -1199,6 +1333,11 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_ASSIGN);
+  if (!node) {
+    ast_node_free(value);
+    free(type_name);
+    return NULL;
+  }
   node->indent = indent;
   node->as.assign.name = strdup(name->text);
   if (!node->as.assign.name) {
@@ -1235,9 +1374,18 @@ static ASTNode *parse_delete(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_DELETE);
+  if (!node) {
+    ast_node_free(key);
+    return NULL;
+  }
   node->indent = indent;
   // Create a variable AST node for the target
   ASTNode *target = ast_node_new_checked(AST_VAR);
+  if (!target) {
+    ast_node_free(key);
+    free(node);
+    return NULL;
+  }
   target->as.var_name = strdup(name->text);
   if (!target->as.var_name) {
     ast_node_free(key);
@@ -1301,6 +1449,11 @@ static ASTNode *parse_raise(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_RAISE);
+  if (!node) {
+    free(error_type);
+    ast_node_free(message);
+    return NULL;
+  }
   node->indent = indent;
   node->as.raise_stmt.error_type = error_type;
   node->as.raise_stmt.message = message;
@@ -1328,6 +1481,14 @@ static ASTNode *parse_try(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_TRY);
+  if (!node) {
+    // Cleanup try_block
+    for (size_t i = 0; i < try_block_size; i++) {
+      ast_node_free(try_block[i]);
+    }
+    free(try_block);
+    return NULL;
+  }
   node->indent = indent;
   node->as.try_stmt.try_block = try_block;
   node->as.try_stmt.try_block_size = try_block_size;
@@ -1500,6 +1661,10 @@ static ASTNode *parse_print(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_PRINT);
+  if (!node) {
+    ast_node_free(value);
+    return NULL;
+  }
   node->indent = indent;
   node->as.print.value = value;
 
@@ -1636,6 +1801,15 @@ static ASTNode *parse_if(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_IF);
+  if (!node) {
+    ast_node_free(condition);
+    // Cleanup block
+    for (size_t i = 0; i < block_size; i++) {
+      ast_node_free(block[i]);
+    }
+    free(block);
+    return NULL;
+  }
   node->indent = indent;
   node->as.if_stmt.condition = condition;
   node->as.if_stmt.block = block;
@@ -1849,6 +2023,21 @@ static ASTNode *parse_for(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_FOR);
+  if (!node) {
+    ast_node_free(iterable);
+    if (end)
+      ast_node_free(end);
+    if (step)
+      ast_node_free(step);
+    // Free block and its statements
+    if (block) {
+      for (size_t i = 0; i < block_size; i++) {
+        ast_node_free(block[i]);
+      }
+      free(block);
+    }
+    return NULL;
+  }
   node->indent = indent;
   node->as.for_stmt.var = strdup(var->text);
   if (!node->as.for_stmt.var) {
@@ -1903,6 +2092,15 @@ static ASTNode *parse_while(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_WHILE);
+  if (!node) {
+    ast_node_free(condition);
+    // Cleanup block
+    for (size_t i = 0; i < block_size; i++) {
+      ast_node_free(block[i]);
+    }
+    free(block);
+    return NULL;
+  }
   node->indent = indent;
   node->as.while_stmt.condition = condition;
   node->as.while_stmt.block = block;
@@ -2002,6 +2200,20 @@ static ASTNode *parse_function(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_FUNCTION);
+  if (!node) {
+    // Free params
+    for (size_t i = 0; i < param_count; i++)
+      free(params[i]);
+    free(params);
+    // Free block and its statements
+    if (block) {
+      for (size_t i = 0; i < block_size; i++) {
+        ast_node_free(block[i]);
+      }
+      free(block);
+    }
+    return NULL;
+  }
   node->indent = indent;
   node->as.function.name = strdup(name->text);
   if (!node->as.function.name) {
@@ -2095,6 +2307,13 @@ static ASTNode *parse_call(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_CALL);
+  if (!node) {
+    // Free args
+    for (size_t i = 0; i < arg_count; i++)
+      ast_node_free(args[i]);
+    free(args);
+    return NULL;
+  }
   node->indent = indent;
   node->as.call.name = strdup(name->text);
   if (!node->as.call.name) {
@@ -2125,6 +2344,10 @@ static ASTNode *parse_return(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_RETURN);
+  if (!node) {
+    ast_node_free(value);
+    return NULL;
+  }
   node->indent = indent;
   node->as.return_stmt.value = value;
 
@@ -2268,6 +2491,17 @@ static ASTNode *parse_import(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_IMPORT);
+  if (!node) {
+    free(module_name);
+    free(file_path);
+    if (imported_names) {
+      for (size_t i = 0; i < imported_count; i++) {
+        free(imported_names[i]);
+      }
+      free(imported_names);
+    }
+    return NULL;
+  }
   node->indent = indent;
   node->as.import.module_name = module_name;
   node->as.import.file_path = file_path;
@@ -2287,6 +2521,8 @@ static ASTNode *parse_break(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_BREAK);
+  if (!node)
+    return NULL;
   node->indent = indent;
 
   return node;
@@ -2301,6 +2537,8 @@ static ASTNode *parse_continue(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_CONTINUE);
+  if (!node)
+    return NULL;
   node->indent = indent;
 
   return node;
