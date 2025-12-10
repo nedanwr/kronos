@@ -1521,21 +1521,29 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
 
       // Determine step value (default to 1 if not specified)
-      // For now, we'll compile the step expression and use it
       // If step is NULL, we'll use 1
       bool has_step = (node->as.for_stmt.step != NULL);
 
       // For comparison, we need to check direction based on step
       // If step > 0: check var <= end
       // If step < 0: check var >= end
-      // For now, we'll assume step is positive (default) and handle negative at
-      // runtime Actually, we can't know the sign at compile time if step is an
-      // expression So we'll always use <= and handle negative steps at runtime
-      // Or we can check if step is a constant and optimize
+      // If step is a constant number, we can optimize at compile time
+      // Otherwise, we'll use <= and let runtime handle it (though this may not
+      // work correctly for negative steps - would need runtime step sign check)
+      bool use_gte = false; // Default to LTE for positive steps
+      if (has_step && node->as.for_stmt.step->type == AST_NUMBER) {
+        // Step is a constant - check if it's negative
+        if (node->as.for_stmt.step->as.number < 0.0) {
+          use_gte = true; // Use >= for negative steps
+        }
+      }
 
-      // For simplicity, always use <= for now
-      // TODO: Optimize for negative steps when step is a constant
-      emit_byte(c, OP_LTE);
+      // Emit comparison based on step direction
+      if (use_gte) {
+        emit_byte(c, OP_GTE);
+      } else {
+        emit_byte(c, OP_LTE);
+      }
       if (compiler_has_error(c))
         return;
 
