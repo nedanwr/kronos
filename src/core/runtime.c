@@ -1137,7 +1137,9 @@ KronosValue *string_intern(const char *str, size_t len) {
       KronosValue *val = value_new_string(str, len);
       if (val) {
         intern_table[probe] = val;
-        value_retain(val); // Extra ref for intern table
+        value_retain(val); // Extra ref for intern table (refcount now 2)
+        // Release one ref before returning so caller gets refcount 1
+        value_release(val);
       }
       pthread_mutex_unlock(&intern_mutex);
       return val;
@@ -1147,6 +1149,8 @@ KronosValue *string_intern(const char *str, size_t len) {
         entry->as.string.length == len &&
         memcmp(entry->as.string.data, str, len) == 0) {
       // Found existing interned string
+      // Retain before returning so caller gets refcount 1 (consistent with new strings)
+      value_retain(entry);
       pthread_mutex_unlock(&intern_mutex);
       return entry;
     }
