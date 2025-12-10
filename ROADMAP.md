@@ -394,6 +394,11 @@ This document outlines the planned features and release schedule for Kronos.
     - Automatic growth when load factor exceeds threshold
     - Rehashing logic for table expansion
     - Improved memory efficiency for programs with many unique strings
+  - **Relative Epsilon Comparison** - Improved floating-point comparison accuracy
+    - Replace fixed epsilon with magnitude-scaled relative epsilon
+    - More accurate comparisons for very large numbers (e.g., 1e20)
+    - More accurate comparisons for very small numbers
+    - Better handling of floating-point precision across different numeric ranges
 
 - **Advanced Type System**
   - Optional static typing
