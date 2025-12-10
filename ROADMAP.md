@@ -388,6 +388,12 @@ This document outlines the planned features and release schedule for Kronos.
   - JIT compilation
   - Hot path optimization
   - Profile-guided optimization
+  - **Dynamic String Intern Table** - Configurable and growable intern table
+    - Replace fixed-size hash table with dynamically allocated table
+    - Support for configuration via environment variable or API
+    - Automatic growth when load factor exceeds threshold
+    - Rehashing logic for table expansion
+    - Improved memory efficiency for programs with many unique strings
 
 - **Advanced Type System**
   - Optional static typing
