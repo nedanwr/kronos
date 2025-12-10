@@ -1641,6 +1641,22 @@ static uint16_t read_uint16(KronosVM *vm) {
   return (high << 8) | low;
 }
 
+static int16_t read_int16(KronosVM *vm) {
+  uint16_t high = read_byte(vm);
+  // Check for error after first read_byte
+  if (vm->last_error_message) {
+    return 0; // Return 0 on error (caller should check error state)
+  }
+  uint16_t low = read_byte(vm);
+  // Check for error after second read_byte
+  if (vm->last_error_message) {
+    return 0; // Return 0 on error (caller should check error state)
+  }
+  uint16_t unsigned_val = (high << 8) | low;
+  // Sign extend from 16-bit to int16_t
+  return (int16_t)unsigned_val;
+}
+
 // Read constant from pool
 static KronosValue *read_constant(KronosVM *vm) {
   uint16_t idx = read_uint16(vm);
@@ -2285,7 +2301,11 @@ static int handle_op_not(KronosVM *vm) {
 }
 
 static int handle_op_jump(KronosVM *vm) {
-  int8_t offset = (int8_t)read_byte(vm);
+  int16_t offset = read_int16(vm);
+  // Check for error from read_int16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   uint8_t *new_ip = vm->ip + offset;
   // Bounds check: ensure jump target is within valid bytecode range
   if (new_ip < vm->bytecode->code ||
@@ -2300,7 +2320,11 @@ static int handle_op_jump(KronosVM *vm) {
 }
 
 static int handle_op_jump_if_false(KronosVM *vm) {
-  uint8_t offset = read_byte(vm);
+  uint16_t offset = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   KronosValue *condition = peek(vm, 0);
   if (!condition) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
