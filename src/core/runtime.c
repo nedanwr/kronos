@@ -391,21 +391,36 @@ void value_retain(KronosValue *val) {
   }
 }
 
-static void release_stack_push(KronosValue ***stack, size_t *count,
+/**
+ * @brief Push a value onto the release stack
+ *
+ * Grows the stack if needed. If realloc fails, logs a warning and returns
+ * false. The caller should handle the failure appropriately (e.g., by
+ * releasing the value directly, which will recurse but avoids memory leak).
+ *
+ * @param stack Pointer to stack array
+ * @param count Pointer to current count
+ * @param capacity Pointer to current capacity
+ * @param val Value to push
+ * @return true on success, false if realloc failed
+ */
+static bool release_stack_push(KronosValue ***stack, size_t *count,
                                size_t *capacity, KronosValue *val) {
   if (*count == *capacity) {
     size_t new_capacity = (*capacity == 0) ? 8 : (*capacity * 2);
     KronosValue **new_stack =
         realloc(*stack, new_capacity * sizeof(KronosValue *));
     if (!new_stack) {
-      fprintf(stderr, "Failed to grow release stack\n");
-      abort();
+      fprintf(stderr, "Warning: Failed to grow release stack (memory "
+                      "exhaustion). Falling back to recursive release.\n");
+      return false;
     }
     *stack = new_stack;
     *capacity = new_capacity;
   }
 
   (*stack)[(*count)++] = val;
+  return true;
 }
 
 /**
@@ -506,8 +521,12 @@ void value_release(KronosValue *val) {
     case VAL_LIST:
       for (size_t i = 0; i < current->as.list.count; i++) {
         KronosValue *child = current->as.list.items[i];
-        if (child)
-          release_stack_push(&stack, &stack_count, &stack_capacity, child);
+        if (child) {
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity, child)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release(child);
+          }
+        }
       }
       free(current->as.list.items);
       break;
@@ -519,11 +538,18 @@ void value_release(KronosValue *val) {
       } *entries = (void *)current->as.map.entries;
       for (size_t i = 0; i < current->as.map.capacity; i++) {
         if (entries[i].key && !entries[i].is_tombstone) {
-          release_stack_push(&stack, &stack_count, &stack_capacity,
-                             entries[i].key);
-          if (entries[i].value)
-            release_stack_push(&stack, &stack_count, &stack_capacity,
-                               entries[i].value);
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  entries[i].key)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release(entries[i].key);
+          }
+          if (entries[i].value) {
+            if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                    entries[i].value)) {
+              // Stack push failed - release directly (recursive fallback)
+              value_release(entries[i].value);
+            }
+          }
         }
       }
       free(entries);
