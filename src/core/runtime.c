@@ -312,8 +312,13 @@ KronosValue *value_new_range(double start, double end, double step) {
   val->refcount = 1;
   val->as.range.start = start;
   val->as.range.end = end;
-  // Default step to 1.0 if 0.0 is provided
-  val->as.range.step = (step == 0.0) ? 1.0 : step;
+  // Step of 0.0 is invalid (would cause infinite loop). Default to 1.0 with warning.
+  if (step == 0.0) {
+    fprintf(stderr, "Warning: Range step of 0.0 is invalid, defaulting to 1.0\n");
+    val->as.range.step = 1.0;
+  } else {
+    val->as.range.step = step;
+  }
 
   gc_track(val);
   return val;
