@@ -85,10 +85,15 @@ static void parser_set_error(Parser *p, const char *message) {
     ParseError *err = malloc(sizeof(ParseError));
     if (err) {
       err->message = strdup(message);
-      err->line = 0;   // TODO: Track line numbers from tokens
-      err->column = 0; // TODO: Track column numbers from tokens
-      *p->error_out = err;
-      return;
+      if (!err->message) {
+        // strdup failed - free the error structure and fall through to stderr
+        free(err);
+      } else {
+        err->line = 0;   // TODO: Track line numbers from tokens
+        err->column = 0; // TODO: Track column numbers from tokens
+        *p->error_out = err;
+        return;
+      }
     }
   }
 
