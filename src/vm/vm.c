@@ -1032,6 +1032,35 @@ static KronosValue *pop(KronosVM *vm) {
     }                                                                          \
   } while (0)
 
+/**
+ * @brief Helper macro to push a value with cleanup on error
+ *
+ * Pushes a value onto the stack. If push fails, executes cleanup code and
+ * returns an error. Used when pushing a value that needs to be released if
+ * the push fails, or when other values need cleanup.
+ *
+ * Usage:
+ *   KronosValue *result = value_new_number(42);
+ *   PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result));
+ *   // result is now on the stack (retained by push)
+ *
+ * Or with multiple cleanup statements:
+ *   PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+ *                                value_release(a); value_release(b));
+ *
+ * @param vm VM instance
+ * @param value Value to push onto the stack
+ * @param cleanup Code to execute before returning on error (e.g.,
+ * value_release(...))
+ */
+#define PUSH_OR_RETURN_WITH_CLEANUP(vm, value, cleanup)                        \
+  do {                                                                         \
+    if (push(vm, value) != 0) {                                                \
+      cleanup;                                                                 \
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);                       \
+    }                                                                          \
+  } while (0)
+
 static KronosValue *peek(KronosVM *vm, int distance) {
   // Bounds checking: ensure distance is valid
   // Guard: distance must be >= 0 and < stack size
@@ -1443,9 +1472,7 @@ static int handle_op_load_const(KronosVM *vm) {
   if (!constant) {
     return vm_propagate_error(vm, KRONOS_ERR_INTERNAL);
   }
-  if (push(vm, constant) != 0) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, constant, (void)0);
   return 0;
 }
 
@@ -1462,9 +1489,7 @@ static int handle_op_load_var(KronosVM *vm) {
   if (!value) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
-  if (push(vm, value) != 0) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, value, (void)0);
   return 0;
 }
 
@@ -1536,12 +1561,8 @@ static int handle_op_add(KronosVM *vm) {
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     // Numeric addition
     KronosValue *result = value_new_number(a->as.number + b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result); // Push retains it
   } else {
     // String concatenation (handles string+string, number+string,
@@ -1588,12 +1609,8 @@ static int handle_op_add(KronosVM *vm) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
     }
 
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   }
 
@@ -1612,12 +1629,8 @@ static int handle_op_sub(KronosVM *vm) {
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number - b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1642,12 +1655,8 @@ static int handle_op_mul(KronosVM *vm) {
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number * b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1678,12 +1687,8 @@ static int handle_op_div(KronosVM *vm) {
       return err;
     }
     KronosValue *result = value_new_number(a->as.number / b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1715,12 +1720,8 @@ static int handle_op_mod(KronosVM *vm) {
     }
     // Use fmod for floating-point modulo
     KronosValue *result = value_new_number(fmod(a->as.number, b->as.number));
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1742,11 +1743,8 @@ static int handle_op_neg(KronosVM *vm) {
 
   if (val->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(-val->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(val);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(val););
     value_release(result);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1768,12 +1766,8 @@ static int handle_op_eq(KronosVM *vm) {
   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   bool result = value_equals(a, b);
   KronosValue *res = value_new_bool(result);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(a);
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                              value_release(b););
   value_release(res);
   value_release(a);
   value_release(b);
@@ -1789,12 +1783,8 @@ static int handle_op_neq(KronosVM *vm) {
   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   bool result = !value_equals(a, b);
   KronosValue *res = value_new_bool(result);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(a);
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                              value_release(b););
   value_release(res);
   value_release(a);
   value_release(b);
@@ -1812,12 +1802,8 @@ static int handle_op_gt(KronosVM *vm) {
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number > b->as.number;
     KronosValue *res = value_new_bool(result);
-    if (push(vm, res) != 0) {
-      value_release(res);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                                value_release(b););
     value_release(res);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1843,12 +1829,8 @@ static int handle_op_lt(KronosVM *vm) {
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number < b->as.number;
     KronosValue *res = value_new_bool(result);
-    if (push(vm, res) != 0) {
-      value_release(res);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                                value_release(b););
     value_release(res);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1874,12 +1856,8 @@ static int handle_op_gte(KronosVM *vm) {
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number >= b->as.number;
     KronosValue *res = value_new_bool(result);
-    if (push(vm, res) != 0) {
-      value_release(res);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                                value_release(b););
     value_release(res);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1905,12 +1883,8 @@ static int handle_op_lte(KronosVM *vm) {
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number <= b->as.number;
     KronosValue *res = value_new_bool(result);
-    if (push(vm, res) != 0) {
-      value_release(res);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                                value_release(b););
     value_release(res);
   } else {
     int err = vm_error(vm, KRONOS_ERR_RUNTIME,
@@ -1938,12 +1912,8 @@ static int handle_op_and(KronosVM *vm) {
   bool b_truthy = value_is_truthy(b);
   bool result = a_truthy && b_truthy;
   KronosValue *res = value_new_bool(result);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(a);
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                              value_release(b););
   value_release(res);
   value_release(a);
   value_release(b);
@@ -1963,12 +1933,8 @@ static int handle_op_or(KronosVM *vm) {
   bool b_truthy = value_is_truthy(b);
   bool result = a_truthy || b_truthy;
   KronosValue *res = value_new_bool(result);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(a);
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a);
+                              value_release(b););
   value_release(res);
   value_release(a);
   value_release(b);
@@ -1984,11 +1950,7 @@ static int handle_op_not(KronosVM *vm) {
   bool a_truthy = value_is_truthy(a);
   bool result = !a_truthy;
   KronosValue *res = value_new_bool(result);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(a);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res); value_release(a););
   value_release(res);
   value_release(a);
   return 0;
@@ -2062,10 +2024,7 @@ static int handle_op_list_new(KronosVM *vm) {
   if (!list) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
   }
-  if (push(vm, list) != 0) {
-    value_release(list);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list););
   value_release(list);
   return 0;
 }
@@ -2124,11 +2083,8 @@ static int builtin_read_file(KronosVM *vm, uint8_t arg_count) {
   fclose(file);
   KronosValue *res = value_new_string(buff, bytes_read);
   free(buff);
-  if (push(vm, res) != 0) {
-    value_release(res);
-    value_release(path_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, res, value_release(res);
+                              value_release(path_val););
   value_release(res);
   value_release(path_val);
   return 0;
@@ -2148,12 +2104,8 @@ static int builtin_add(KronosVM *vm, uint8_t arg_count) {
   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number + b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -2181,12 +2133,8 @@ static int builtin_subtract(KronosVM *vm, uint8_t arg_count) {
   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number - b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err =
@@ -2215,12 +2163,8 @@ static int builtin_multiply(KronosVM *vm, uint8_t arg_count) {
   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number * b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err =
@@ -2254,12 +2198,8 @@ static int builtin_divide(KronosVM *vm, uint8_t arg_count) {
       return vm_error(vm, KRONOS_ERR_RUNTIME, "Division by zero");
     }
     KronosValue *result = value_new_number(a->as.number / b->as.number);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(a);
-      value_release(b);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(a); value_release(b););
     value_release(result);
   } else {
     int err =
@@ -2284,19 +2224,13 @@ static int builtin_len(KronosVM *vm, uint8_t arg_count) {
   POP_OR_RETURN(vm, arg);
   if (arg->type == VAL_LIST) {
     KronosValue *result = value_new_number((double)arg->as.list.count);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(arg););
     value_release(result);
   } else if (arg->type == VAL_STRING) {
     KronosValue *result = value_new_number((double)arg->as.string.length);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(arg););
     value_release(result);
   } else if (arg->type == VAL_RANGE) {
     // Calculate range length: number of values in range
@@ -2319,11 +2253,8 @@ static int builtin_len(KronosVM *vm, uint8_t arg_count) {
     }
 
     KronosValue *result = value_new_number(count);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(arg););
     value_release(result);
   } else {
     int err =
@@ -2368,11 +2299,8 @@ static int builtin_uppercase(KronosVM *vm, uint8_t arg_count) {
     value_release(arg);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -2410,11 +2338,8 @@ static int builtin_lowercase(KronosVM *vm, uint8_t arg_count) {
     value_release(arg);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -2463,11 +2388,8 @@ static int builtin_trim(KronosVM *vm, uint8_t arg_count) {
     value_release(arg);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -2634,12 +2556,8 @@ static int builtin_split(KronosVM *vm, uint8_t arg_count) {
     }
   }
 
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(str);
-    value_release(delim);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(str); value_release(delim););
   value_release(result);
   value_release(str);
   value_release(delim);
@@ -2709,12 +2627,8 @@ static int builtin_join(KronosVM *vm, uint8_t arg_count) {
     value_release(delim);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(list);
-    value_release(delim);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(list); value_release(delim););
   value_release(result);
   value_release(list);
   value_release(delim);
@@ -2736,10 +2650,7 @@ static int builtin_to_string(KronosVM *vm, uint8_t arg_count) {
 
   if (arg->type == VAL_STRING) {
     // Already a string, just return it
-    if (push(vm, arg) != 0) {
-      value_release(arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, arg, value_release(arg););
     value_release(arg); // Release the pop reference (push already retained)
     return 0;
   } else if (arg->type == VAL_NUMBER) {
@@ -2795,11 +2706,8 @@ static int builtin_to_string(KronosVM *vm, uint8_t arg_count) {
     value_release(arg);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -2828,12 +2736,8 @@ static int builtin_contains(KronosVM *vm, uint8_t arg_count) {
   // Use strstr to check if substring exists
   bool found = (strstr(str->as.string.data, substring->as.string.data) != NULL);
   KronosValue *result = value_new_bool(found);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(str);
-    value_release(substring);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(str); value_release(substring););
   value_release(result);
   value_release(str);
   value_release(substring);
@@ -2866,12 +2770,8 @@ static int builtin_starts_with(KronosVM *vm, uint8_t arg_count) {
                      prefix->as.string.length) == 0);
   }
   KronosValue *result = value_new_bool(starts);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(str);
-    value_release(prefix);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(str); value_release(prefix););
   value_release(result);
   value_release(str);
   value_release(prefix);
@@ -2905,12 +2805,8 @@ static int builtin_ends_with(KronosVM *vm, uint8_t arg_count) {
                    suffix->as.string.length) == 0);
   }
   KronosValue *result = value_new_bool(ends);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(str);
-    value_release(suffix);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(str); value_release(suffix););
   value_release(result);
   value_release(str);
   value_release(suffix);
@@ -2945,12 +2841,9 @@ static int builtin_replace(KronosVM *vm, uint8_t arg_count) {
   // Handle empty old string (return original string)
   if (old_str->as.string.length == 0) {
     value_retain(str);
-    if (push(vm, str) != 0) {
-      value_release(str);
-      value_release(old_str);
-      value_release(new_str);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, str, value_release(str);
+                                value_release(old_str);
+                                value_release(new_str););
     value_release(str);
     value_release(old_str);
     value_release(new_str);
@@ -3034,13 +2927,9 @@ static int builtin_replace(KronosVM *vm, uint8_t arg_count) {
     value_release(new_str);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(str);
-    value_release(old_str);
-    value_release(new_str);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(str); value_release(old_str);
+                              value_release(new_str););
   value_release(result);
   value_release(str);
   value_release(old_str);
@@ -3069,11 +2958,8 @@ static int builtin_sqrt(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
   KronosValue *result = value_new_number(sqrt(arg->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3099,12 +2985,8 @@ static int builtin_power(KronosVM *vm, uint8_t arg_count) {
   }
   KronosValue *result =
       value_new_number(pow(base->as.number, exponent->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(base);
-    value_release(exponent);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(base); value_release(exponent););
   value_release(result);
   value_release(base);
   value_release(exponent);
@@ -3126,11 +3008,8 @@ static int builtin_abs(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
   KronosValue *result = value_new_number(fabs(arg->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3151,11 +3030,8 @@ static int builtin_round(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
   KronosValue *result = value_new_number(round(arg->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3176,11 +3052,8 @@ static int builtin_floor(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
   KronosValue *result = value_new_number(floor(arg->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3201,11 +3074,8 @@ static int builtin_ceil(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
   KronosValue *result = value_new_number(ceil(arg->as.number));
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3219,10 +3089,7 @@ static int builtin_rand(KronosVM *vm, uint8_t arg_count) {
   // Generate random number between 0.0 and 1.0
   double random_val = (double)rand() / (double)RAND_MAX;
   KronosValue *result = value_new_number(random_val);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3280,10 +3147,7 @@ static int builtin_min(KronosVM *vm, uint8_t arg_count) {
   free(args);
 
   KronosValue *result = value_new_number(min_val);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3341,10 +3205,7 @@ static int builtin_max(KronosVM *vm, uint8_t arg_count) {
   free(args);
 
   KronosValue *result = value_new_number(max_val);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3361,10 +3222,7 @@ static int builtin_to_number(KronosVM *vm, uint8_t arg_count) {
 
   if (arg->type == VAL_NUMBER) {
     // Already a number, just return it
-    if (push(vm, arg) != 0) {
-      value_release(arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, arg, value_release(arg););
     value_release(arg); // Release the pop reference (push already retained)
     return 0;
   } else if (arg->type == VAL_STRING) {
@@ -3381,10 +3239,7 @@ static int builtin_to_number(KronosVM *vm, uint8_t arg_count) {
     }
     value_release(arg);
     KronosValue *result = value_new_number(num);
-    if (push(vm, result) != 0) {
-      value_release(result);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
     value_release(result);
     return 0;
   } else {
@@ -3423,10 +3278,7 @@ static int builtin_to_bool(KronosVM *vm, uint8_t arg_count) {
 
   value_release(arg);
   KronosValue *result = value_new_bool(bool_val);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3471,11 +3323,8 @@ static int builtin_reverse(KronosVM *vm, uint8_t arg_count) {
     }
     result->as.list.items[result->as.list.count++] = arg->as.list.items[i];
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3551,11 +3400,8 @@ static int builtin_sort(KronosVM *vm, uint8_t arg_count) {
     qsort(result->as.list.items, result->as.list.count, sizeof(KronosValue *),
           sort_compare_values);
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
   value_release(result);
   value_release(arg);
   return 0;
@@ -3606,12 +3452,9 @@ static int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
 
   // Return nil (success)
   KronosValue *result = value_new_nil();
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(path_arg);
-    value_release(content_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(path_arg);
+                              value_release(content_arg););
   value_release(result);
   value_release(path_arg);
   value_release(content_arg);
@@ -3695,10 +3538,7 @@ static int builtin_read_lines(KronosVM *vm, uint8_t arg_count) {
   fclose(file);
   value_release(path_arg);
 
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3724,10 +3564,7 @@ static int builtin_file_exists(KronosVM *vm, uint8_t arg_count) {
   value_release(path_arg);
 
   KronosValue *result = value_new_bool(exists);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3803,10 +3640,7 @@ static int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
   closedir(dir);
   value_release(path_arg);
 
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3868,10 +3702,7 @@ static int builtin_join_path(KronosVM *vm, uint8_t arg_count) {
   if (!result) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3911,10 +3742,7 @@ static int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
     if (!result) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
     }
-    if (push(vm, result) != 0) {
-      value_release(result);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
     value_release(result);
     return 0;
   }
@@ -3926,10 +3754,7 @@ static int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
     if (!result) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
     }
-    if (push(vm, result) != 0) {
-      value_release(result);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
     value_release(result);
     return 0;
   }
@@ -3940,10 +3765,7 @@ static int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
   if (!result) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -3979,10 +3801,7 @@ static int builtin_basename(KronosVM *vm, uint8_t arg_count) {
   // If no separator found, return entire path
   if (last_sep == path_len) {
     value_retain(path_arg);
-    if (push(vm, path_arg) != 0) {
-      value_release(path_arg);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, path_arg, value_release(path_arg););
     value_release(path_arg);
     return 0;
   }
@@ -3995,10 +3814,7 @@ static int builtin_basename(KronosVM *vm, uint8_t arg_count) {
   if (!result) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
   return 0;
 }
@@ -4042,12 +3858,9 @@ static int builtin_regex_match(KronosVM *vm, uint8_t arg_count) {
   regfree(&regex);
 
   KronosValue *result = value_new_bool(match);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(pattern_arg);
-    value_release(string_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(pattern_arg);
+                              value_release(string_arg););
   value_release(result);
   value_release(pattern_arg);
   value_release(string_arg);
@@ -4109,12 +3922,9 @@ static int builtin_regex_search(KronosVM *vm, uint8_t arg_count) {
     value_release(string_arg);
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create result value");
   }
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(pattern_arg);
-    value_release(string_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(pattern_arg);
+                              value_release(string_arg););
   value_release(result);
   value_release(pattern_arg);
   value_release(string_arg);
@@ -4222,12 +4032,9 @@ static int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
   }
 
   regfree(&regex);
-  if (push(vm, result) != 0) {
-    value_release(result);
-    value_release(pattern_arg);
-    value_release(string_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(pattern_arg);
+                              value_release(string_arg););
   value_release(result);
   value_release(pattern_arg);
   value_release(string_arg);
@@ -4536,13 +4343,9 @@ static int handle_op_range_new(KronosVM *vm) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create range");
   }
 
-  if (push(vm, range) != 0) {
-    value_release(range);
-    value_release(start_val);
-    value_release(end_val);
-    value_release(step_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, range, value_release(range);
+                              value_release(start_val); value_release(end_val);
+                              value_release(step_val););
   value_release(range);
   value_release(start_val);
   value_release(end_val);
@@ -4582,11 +4385,8 @@ static int handle_op_list_append(KronosVM *vm) {
   // Append value
   value_retain(value);
   list->as.list.items[list->as.list.count++] = value;
-  if (push(vm, list) != 0) {
-    value_release(list);
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list);
+                              value_release(value););
   value_release(list);
   value_release(value);
   return 0;
@@ -4608,10 +4408,7 @@ static int handle_op_map_new(KronosVM *vm) {
   if (!map) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create map");
   }
-  if (push(vm, map) != 0) {
-    value_release(map);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, map, value_release(map););
   value_release(map);
   return 0;
 }
@@ -4643,10 +4440,7 @@ static int handle_op_map_set(KronosVM *vm) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set map entry");
   }
 
-  if (push(vm, map) != 0) {
-    value_release(map);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, map, value_release(map););
   value_release(map);
   return 0;
 }
@@ -4668,12 +4462,9 @@ static int handle_op_list_get(KronosVM *vm) {
       return vm_error(vm, KRONOS_ERR_RUNTIME, "Map key not found");
     }
     value_retain(value);
-    if (push(vm, value) != 0) {
-      value_release(value);
-      value_release(index_val);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, value, value_release(value);
+                                value_release(index_val);
+                                value_release(container););
     value_release(value);
     value_release(index_val);
     value_release(container);
@@ -4703,12 +4494,9 @@ static int handle_op_list_get(KronosVM *vm) {
 
     KronosValue *item = container->as.list.items[(size_t)idx];
     value_retain(item);
-    if (push(vm, item) != 0) {
-      value_release(item);
-      value_release(index_val);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, item, value_release(item);
+                                value_release(index_val);
+                                value_release(container););
     value_release(item);
   } else if (container->type == VAL_RANGE) {
     // Calculate value at index: start + (index * step)
@@ -4756,12 +4544,9 @@ static int handle_op_list_get(KronosVM *vm) {
       value_release(container);
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create number");
     }
-    if (push(vm, result) != 0) {
-      value_release(result);
-      value_release(index_val);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                                value_release(index_val);
+                                value_release(container););
     value_release(result);
   } else if (container->type == VAL_STRING) {
     // String indexing
@@ -4784,12 +4569,9 @@ static int handle_op_list_get(KronosVM *vm) {
       value_release(container);
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
     }
-    if (push(vm, char_str) != 0) {
-      value_release(char_str);
-      value_release(index_val);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, char_str, value_release(char_str);
+                                value_release(index_val);
+                                value_release(container););
     value_release(char_str);
   } else {
     // Note: Maps are handled earlier in this function with an early return
@@ -4851,12 +4633,8 @@ static int handle_op_list_set(KronosVM *vm) {
   list->as.list.items[(size_t)idx] = value;
 
   // Push list back
-  if (push(vm, list) != 0) {
-    value_release(list);
-    value_release(index_val);
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list);
+                              value_release(index_val); value_release(value););
   value_release(list);
   value_release(index_val);
   value_release(value);
@@ -4887,10 +4665,7 @@ static int handle_op_delete(KronosVM *vm) {
   }
 
   // Push map back
-  if (push(vm, map) != 0) {
-    value_release(map);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, map, value_release(map););
   value_release(map);
   return 0;
 }
@@ -4902,19 +4677,13 @@ static int handle_op_list_len(KronosVM *vm) {
 
   if (container->type == VAL_LIST) {
     KronosValue *len = value_new_number((double)container->as.list.count);
-    if (push(vm, len) != 0) {
-      value_release(len);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, len, value_release(len);
+                                value_release(container););
     value_release(len);
   } else if (container->type == VAL_STRING) {
     KronosValue *len = value_new_number((double)container->as.string.length);
-    if (push(vm, len) != 0) {
-      value_release(len);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, len, value_release(len);
+                                value_release(container););
     value_release(len);
   } else if (container->type == VAL_RANGE) {
     // Calculate range length: number of values in range
@@ -4937,11 +4706,8 @@ static int handle_op_list_len(KronosVM *vm) {
     }
 
     KronosValue *len = value_new_number(count);
-    if (push(vm, len) != 0) {
-      value_release(len);
-      value_release(container);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, len, value_release(len);
+                                value_release(container););
     value_release(len);
   } else {
     value_release(container);
@@ -5018,13 +4784,9 @@ static int handle_op_list_slice(KronosVM *vm) {
       slice->as.list.items[slice->as.list.count++] = item;
     }
 
-    if (push(vm, slice) != 0) {
-      value_release(slice);
-      value_release(container);
-      value_release(start_val);
-      value_release(end_val);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(
+        vm, slice, value_release(slice); value_release(container);
+        value_release(start_val); value_release(end_val););
     value_release(slice);
   } else if (container->type == VAL_STRING) {
     size_t len = container->as.string.length;
@@ -5077,13 +4839,9 @@ static int handle_op_list_slice(KronosVM *vm) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
     }
 
-    if (push(vm, slice) != 0) {
-      value_release(slice);
-      value_release(container);
-      value_release(start_val);
-      value_release(end_val);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(
+        vm, slice, value_release(slice); value_release(container);
+        value_release(start_val); value_release(end_val););
     value_release(slice);
   } else if (container->type == VAL_RANGE) {
     // Range slicing: create a new range with adjusted start/end
@@ -5129,13 +4887,9 @@ static int handle_op_list_slice(KronosVM *vm) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create range");
     }
 
-    if (push(vm, slice) != 0) {
-      value_release(slice);
-      value_release(container);
-      value_release(start_val);
-      value_release(end_val);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(
+        vm, slice, value_release(slice); value_release(container);
+        value_release(start_val); value_release(end_val););
     value_release(slice);
   } else {
     value_release(container);
@@ -5159,30 +4913,18 @@ static int handle_op_list_iter(KronosVM *vm) {
   if (iterable->type == VAL_LIST) {
     // Create iterator (just push the list and current index)
     // Push list back to stack, then push index 0
-    if (push(vm, iterable) != 0) {
-      value_release(iterable);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable););
     KronosValue *index = value_new_number(0);
-    if (push(vm, index) != 0) {
-      value_release(index);
-      value_release(iterable);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, index, value_release(index);
+                                value_release(iterable););
     value_release(index);
     value_release(iterable); // Release our pop reference
   } else if (iterable->type == VAL_RANGE) {
     // For ranges, push the range and current value (start)
-    if (push(vm, iterable) != 0) {
-      value_release(iterable);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable););
     KronosValue *current = value_new_number(iterable->as.range.start);
-    if (push(vm, current) != 0) {
-      value_release(current);
-      value_release(iterable);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, current, value_release(current);
+                                value_release(iterable););
     value_release(current);
     value_release(iterable); // Release our pop reference
   } else {
@@ -5230,66 +4972,46 @@ static int handle_op_list_next(KronosVM *vm) {
 
       // Push list first (bottom of stack)
       value_retain(iterable);
-      if (push(vm, iterable) != 0) {
-        value_release(iterable);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
+                                  value_release(state_val););
       value_release(iterable);
 
       // Update and push index
       KronosValue *next_index = value_new_number((double)(idx + 1));
-      if (push(vm, next_index) != 0) {
-        value_release(next_index);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, next_index, value_release(next_index);
+                                  value_release(state_val););
       value_release(next_index);
 
       // Push current item
       KronosValue *item = iterable->as.list.items[idx];
       value_retain(item);
-      if (push(vm, item) != 0) {
-        value_release(item);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, item, value_release(item);
+                                  value_release(state_val););
       value_release(item);
 
       // Push has_more flag
       KronosValue *has_more_val = value_new_bool(true);
-      if (push(vm, has_more_val) != 0) {
-        value_release(has_more_val);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
+                                  value_release(state_val););
       value_release(has_more_val);
     } else {
       // No more items - push list and index back for cleanup, then has_more =
       // false Stack should be: [list, index, has_more=false] for cleanup code
       // Push list first (bottom of stack)
       value_retain(iterable);
-      if (push(vm, iterable) != 0) {
-        value_release(iterable);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
+                                  value_release(state_val););
       value_release(iterable);
 
       // Push index back
       value_retain(state_val);
-      if (push(vm, state_val) != 0) {
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, state_val, value_release(state_val););
       value_release(state_val);
 
       // Push has_more = false
       KronosValue *has_more_val = value_new_bool(false);
-      if (push(vm, has_more_val) != 0) {
-        value_release(has_more_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
+                                  value_release(has_more_val););
       value_release(has_more_val);
     }
   } else if (iterable->type == VAL_RANGE) {
@@ -5318,66 +5040,46 @@ static int handle_op_list_next(KronosVM *vm) {
     if (has_more) {
       // Push in order: [range, next_value, current_value, has_more]
       value_retain(iterable);
-      if (push(vm, iterable) != 0) {
-        value_release(iterable);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
+                                  value_release(state_val););
       value_release(iterable);
 
       // Calculate and push next value
       double next = current + step;
       KronosValue *next_val = value_new_number(next);
-      if (push(vm, next_val) != 0) {
-        value_release(next_val);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, next_val, value_release(next_val);
+                                  value_release(state_val););
       value_release(next_val);
 
       // Push current value (the item)
       KronosValue *current_val = value_new_number(current);
-      if (push(vm, current_val) != 0) {
-        value_release(current_val);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, current_val, value_release(current_val);
+                                  value_release(state_val););
       value_release(current_val);
 
       // Push has_more flag
       KronosValue *has_more_val = value_new_bool(true);
-      if (push(vm, has_more_val) != 0) {
-        value_release(has_more_val);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
+                                  value_release(state_val););
       value_release(has_more_val);
     } else {
       // No more items - push range and state back for cleanup, then has_more =
       // false Stack should be: [range, state, has_more=false] for cleanup code
       // Push range first (bottom of stack)
       value_retain(iterable);
-      if (push(vm, iterable) != 0) {
-        value_release(iterable);
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
+                                  value_release(state_val););
       value_release(iterable);
 
       // Push state back
       value_retain(state_val);
-      if (push(vm, state_val) != 0) {
-        value_release(state_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, state_val, value_release(state_val););
       value_release(state_val);
 
       // Push has_more = false
       KronosValue *has_more_val = value_new_bool(false);
-      if (push(vm, has_more_val) != 0) {
-        value_release(has_more_val);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
+                                  value_release(has_more_val););
       value_release(has_more_val);
     }
   } else {
@@ -5511,18 +5213,12 @@ static int handle_op_catch(KronosVM *vm) {
           vm->last_error_message ? vm->last_error_message : "Unknown error";
       KronosValue *error_val = value_new_string(error_msg, strlen(error_msg));
       if (error_val) {
-        if (push(vm, error_val) != 0) {
-          value_release(error_val);
-          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-        }
+        PUSH_OR_RETURN_WITH_CLEANUP(vm, error_val, value_release(error_val););
         value_release(error_val);
       } else {
         // Fallback - push empty string
         KronosValue *empty = value_new_string("", 0);
-        if (push(vm, empty) != 0) {
-          value_release(empty);
-          return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-        }
+        PUSH_OR_RETURN_WITH_CLEANUP(vm, empty, value_release(empty););
         value_release(empty);
       }
 
@@ -5866,10 +5562,8 @@ static int handle_op_return_val(KronosVM *vm) {
       // Push return value back onto stack (it was popped above)
       // push() retains the value (increments refcount), so we release our
       // local reference after pushing
-      if (push(vm, return_value) != 0) {
-        value_release(return_value);
-        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, return_value,
+                                  value_release(return_value););
       value_release(return_value); // Release our reference, stack now owns it
       // Don't clean up locals here - caller will handle cleanup
       // Don't decrement call_stack_size here - caller will handle cleanup
@@ -5899,19 +5593,13 @@ static int handle_op_return_val(KronosVM *vm) {
     // Push return value onto stack
     // push() retains the value (increments refcount), so we release our
     // local reference after pushing
-    if (push(vm, return_value) != 0) {
-      value_release(return_value);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, return_value, value_release(return_value););
     value_release(return_value); // Release our reference, stack now owns it
   } else {
     // Top-level return (shouldn't happen in normal code)
     // push() retains the value (increments refcount), so we release our
     // local reference after pushing
-    if (push(vm, return_value) != 0) {
-      value_release(return_value);
-      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, return_value, value_release(return_value););
     value_release(return_value); // Release our reference, stack now owns it
   }
 
