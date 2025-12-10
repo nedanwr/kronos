@@ -1222,13 +1222,25 @@ static uint8_t read_byte(KronosVM *vm) {
 // Read 16-bit value (big-endian)
 static uint16_t read_uint16(KronosVM *vm) {
   uint16_t high = read_byte(vm);
+  // Check for error after first read_byte
+  if (vm->last_error_message) {
+    return 0; // Return 0 on error (caller should check error state)
+  }
   uint16_t low = read_byte(vm);
+  // Check for error after second read_byte
+  if (vm->last_error_message) {
+    return 0; // Return 0 on error (caller should check error state)
+  }
   return (high << 8) | low;
 }
 
 // Read constant from pool
 static KronosValue *read_constant(KronosVM *vm) {
   uint16_t idx = read_uint16(vm);
+  // Check for error from read_uint16 (which calls read_byte twice)
+  if (vm->last_error_message) {
+    return NULL; // Error already set by read_byte
+  }
   // Validate index is within bounds of constants array
   if (idx >= vm->bytecode->const_count) {
     vm_set_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -1990,7 +2002,15 @@ static int handle_op_pop(KronosVM *vm) {
 
 static int handle_op_list_new(KronosVM *vm) {
   // Read element count from bytecode
-  uint16_t count = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+  uint8_t high = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint8_t low = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint16_t count = (uint16_t)(high << 8 | low);
   KronosValue *list = value_new_list(count);
   if (!list) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
@@ -4639,7 +4659,15 @@ static int handle_op_list_append(KronosVM *vm) {
 
 static int handle_op_map_new(KronosVM *vm) {
   // Read entry count from bytecode (unused, but kept for consistency)
-  uint16_t count = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+  uint8_t high = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint8_t low = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint16_t count = (uint16_t)(high << 8 | low);
   (void)count; // Unused, maps grow dynamically
   KronosValue *map = value_new_map(0);
   if (!map) {
@@ -5332,12 +5360,29 @@ static int handle_op_list_next(KronosVM *vm) {
       }
       value_release(has_more_val);
     } else {
-      // No more items - push has_more = false
+      // No more items - push list and index back for cleanup, then has_more =
+      // false Stack should be: [list, index, has_more=false] for cleanup code
+      // Push list first (bottom of stack)
+      value_retain(iterable);
+      if (push(vm, iterable) != 0) {
+        value_release(iterable);
+        value_release(state_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(iterable);
+
+      // Push index back
+      value_retain(state_val);
+      if (push(vm, state_val) != 0) {
+        value_release(state_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(state_val);
+
+      // Push has_more = false
       KronosValue *has_more_val = value_new_bool(false);
       if (push(vm, has_more_val) != 0) {
         value_release(has_more_val);
-        value_release(state_val);
-        value_release(iterable);
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       value_release(has_more_val);
@@ -5403,12 +5448,29 @@ static int handle_op_list_next(KronosVM *vm) {
       }
       value_release(has_more_val);
     } else {
-      // No more items - push has_more = false
+      // No more items - push range and state back for cleanup, then has_more =
+      // false Stack should be: [range, state, has_more=false] for cleanup code
+      // Push range first (bottom of stack)
+      value_retain(iterable);
+      if (push(vm, iterable) != 0) {
+        value_release(iterable);
+        value_release(state_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(iterable);
+
+      // Push state back
+      value_retain(state_val);
+      if (push(vm, state_val) != 0) {
+        value_release(state_val);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      value_release(state_val);
+
+      // Push has_more = false
       KronosValue *has_more_val = value_new_bool(false);
       if (push(vm, has_more_val) != 0) {
         value_release(has_more_val);
-        value_release(state_val);
-        value_release(iterable);
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
       value_release(has_more_val);
@@ -5419,14 +5481,22 @@ static int handle_op_list_next(KronosVM *vm) {
     return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterable type");
   }
 
-  value_release(state_val);
-  value_release(iterable);
+  // Note: state_val and iterable are already released above
+  // (either pushed back to stack with retain, or released in error paths)
   return 0;
 }
 
 static int handle_op_try_enter(KronosVM *vm) {
   // Read exception handler offset
-  uint16_t handler_offset = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+  uint8_t high = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint8_t low = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint16_t handler_offset = (uint16_t)(high << 8 | low);
 
   if (vm->exception_handler_count >= EXCEPTION_HANDLERS_MAX) {
     return vm_error(vm, KRONOS_ERR_RUNTIME, "Too many nested try blocks");
@@ -5458,7 +5528,15 @@ static int handle_op_try_enter(KronosVM *vm) {
 
 static int handle_op_try_exit(KronosVM *vm) {
   // Normal completion of try block - read finally jump offset
-  uint16_t finally_offset = (uint16_t)(read_byte(vm) << 8 | read_byte(vm));
+  uint8_t high = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint8_t low = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint16_t finally_offset = (uint16_t)(high << 8 | low);
 
   if (vm->exception_handler_count == 0) {
     return vm_error(vm, KRONOS_ERR_INTERNAL,
@@ -5479,8 +5557,16 @@ static int handle_op_try_exit(KronosVM *vm) {
 static int handle_op_catch(KronosVM *vm) {
   // Read error type constant (0xFFFF means catch all)
   uint16_t error_type_idx = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   // Read catch variable name constant (0xFFFF means no variable)
   uint16_t catch_var_idx = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   (void)catch_var_idx; // Will be used by OP_STORE_VAR following this
                        // instruction
 
@@ -5563,6 +5649,10 @@ static int handle_op_finally(KronosVM *vm) {
 static int handle_op_throw(KronosVM *vm) {
   // Read error type constant (0xFFFF means generic Error)
   uint16_t error_type_idx = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
 
   // Pop error message from stack
   KronosValue *message_val = pop(vm);
@@ -5598,7 +5688,15 @@ static int handle_op_import(KronosVM *vm) {
   // Read constant indices for module name and file path (in order of
   // emission)
   uint16_t module_name_idx = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   uint16_t file_path_idx = read_uint16(vm);
+  // Check for error from read_uint16
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
 
   // Validate indices
   if (!vm->bytecode || file_path_idx >= vm->bytecode->const_count ||
@@ -5752,13 +5850,29 @@ static int handle_op_define_func(KronosVM *vm) {
   // pointer Format:
   // [OP_DEFINE_FUNC][name_idx:2][param_count:1][params:2*N][body_start:2][OP_JUMP][skip_offset:1]
   read_byte(vm); // body_start high byte
+  if (vm->last_error_message) {
+    // Cleanup already done above
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
   read_byte(vm); // body_start low byte
+  if (vm->last_error_message) {
+    // Cleanup already done above
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
 
   // Consume OP_JUMP instruction byte (part of bytecode format)
   read_byte(vm);
+  if (vm->last_error_message) {
+    // Cleanup already done above
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
 
   // Read jump offset to skip function body
   uint8_t skip_offset = read_byte(vm);
+  if (vm->last_error_message) {
+    // Cleanup already done above
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
 
   // Calculate body end (before the jump we just read)
   uint8_t *body_end_ptr = vm->ip + skip_offset;
@@ -6047,6 +6161,12 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     int result = dispatch_table[instruction](vm);
     if (result != 0) {
       return result;
+    }
+
+    // Check if handler set an error but returned 0 (shouldn't happen, but
+    // safety check)
+    if (vm->last_error_message) {
+      return vm_propagate_error(vm, vm->last_error_code);
     }
 
     // OP_HALT returns 0 to indicate successful halt - exit the loop
