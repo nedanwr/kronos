@@ -377,11 +377,17 @@ KronosValue *value_new_map(size_t initial_capacity) {
  */
 void value_retain(KronosValue *val) {
   if (val) {
-    if (val->refcount == UINT32_MAX) {
-      fprintf(stderr, "KronosValue refcount overflow\n");
-      abort();
+    // Use saturating arithmetic: if already at max, leave it there
+    // This prevents overflow while avoiding abrupt termination
+    if (val->refcount < UINT32_MAX) {
+      val->refcount++;
+    } else {
+      // Refcount already at maximum - value is effectively permanently retained
+      // Log warning but continue execution (better than abort())
+      fprintf(stderr, "Warning: KronosValue refcount at maximum (%u), "
+                      "saturating to prevent overflow\n",
+              UINT32_MAX);
     }
-    val->refcount++;
   }
 }
 
