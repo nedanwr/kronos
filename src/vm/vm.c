@@ -871,15 +871,19 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
   }
 
   int exec_result = vm_execute(module_vm, bytecode);
-  vm_clear_stack(module_vm);
-  bytecode_free(bytecode);
-
+  
   if (exec_result < 0) {
-    // Copy error from module_vm to main vm
+    // Execution failed - clean up resources
+    // Clear stack first to release any values that might reference bytecode constants
+    vm_clear_stack(module_vm);
+    // Free bytecode (frees constants that might be referenced)
+    bytecode_free(bytecode);
+    // Copy error from module_vm to main vm before freeing
     if (module_vm->last_error_message) {
       vm_set_error(vm, module_vm->last_error_code,
                    module_vm->last_error_message);
     }
+    // Free module VM (frees all VM resources including current_file_path)
     vm_free(module_vm);
     free(resolved_path);
     // Remove from root VM's loading stack
@@ -888,6 +892,10 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
     root_vm->loading_modules[root_vm->loading_count] = NULL;
     return exec_result;
   }
+  
+  // Execution succeeded - clean up execution resources
+  vm_clear_stack(module_vm);
+  bytecode_free(bytecode);
 
   // Remove from root VM's loading stack (module successfully loaded)
   root_vm->loading_count--;
@@ -1307,6 +1315,12 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     handling_exception = false; // Reset for next iteration
 
     uint8_t instruction = read_byte(vm);
+    
+    // Check for error state after read_byte (it may return OP_HALT on error)
+    // If read_byte() encountered an error, it sets vm->last_error_message
+    if (vm->last_error_message) {
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+    }
 
     switch (instruction) {
     case OP_LOAD_CONST: {
@@ -4701,13 +4715,13 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         if (frame->return_ip == NULL && frame->return_bytecode == NULL) {
           // This is a module function call - return from vm_execute entirely
           // Push return value back onto stack (it was popped above)
+          // push() retains the value (increments refcount), so we release our
+          // local reference after pushing
           if (push(vm, return_value) != 0) {
             value_release(return_value);
             return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
           }
-
-          push(vm, return_value);
-          value_release(return_value);
+          value_release(return_value); // Release our reference, stack now owns it
           // Don't clean up locals here - caller will handle cleanup
           // Don't decrement call_stack_size here - caller will handle cleanup
           // Don't set current_frame to NULL here - caller needs it for cleanup
@@ -4734,22 +4748,22 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
 
         // Push return value onto stack
+        // push() retains the value (increments refcount), so we release our
+        // local reference after pushing
         if (push(vm, return_value) != 0) {
           value_release(return_value);
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
-
-        push(vm, return_value);
-        value_release(return_value);
+        value_release(return_value); // Release our reference, stack now owns it
       } else {
         // Top-level return (shouldn't happen in normal code)
+        // push() retains the value (increments refcount), so we release our
+        // local reference after pushing
         if (push(vm, return_value) != 0) {
           value_release(return_value);
           return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
         }
-
-        push(vm, return_value);
-        value_release(return_value);
+        value_release(return_value); // Release our reference, stack now owns it
       }
 
       break;
@@ -4775,8 +4789,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         value_release(list);
         return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
       }
-
-      push(vm, list);
       value_release(list);
       break;
     }
@@ -5208,12 +5220,22 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         return vm_error(vm, KRONOS_ERR_RUNTIME, "Too many nested try blocks");
       }
 
+      // Validate handler offset is within bytecode bounds
+      uint8_t *handler_ip = vm->ip + handler_offset;
+      if (handler_ip < vm->bytecode->code ||
+          handler_ip >= vm->bytecode->code + vm->bytecode->count) {
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Exception handler offset out of bounds (offset: %u, "
+                         "bytecode size: %zu)",
+                         handler_offset, vm->bytecode->count);
+      }
+
       // Push exception handler onto stack
       size_t idx = vm->exception_handler_count++;
       vm->exception_handlers[idx].try_start_ip = vm->ip;
-      vm->exception_handlers[idx].handler_ip = vm->ip + handler_offset;
+      vm->exception_handlers[idx].handler_ip = handler_ip;
       vm->exception_handlers[idx].catch_start_ip =
-          vm->ip + handler_offset; // Catch blocks start at handler
+          handler_ip; // Catch blocks start at handler
       vm->exception_handlers[idx].catch_count =
           0; // Will be incremented by OP_CATCH
       vm->exception_handlers[idx].has_finally =
