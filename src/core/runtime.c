@@ -1138,8 +1138,12 @@ bool map_delete(KronosValue *map, KronosValue *key) {
   if (entries[index].is_tombstone)
     return false;
 
+  // Release references to key and value
   value_release(entries[index].key);
   value_release(entries[index].value);
+  
+  // Mark as tombstone (key/value set to NULL for safety and to allow reuse)
+  // The NULL check in map_set distinguishes new slots from reused tombstones
   entries[index].key = NULL;
   entries[index].value = NULL;
   entries[index].is_tombstone = true;
