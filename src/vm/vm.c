@@ -201,7 +201,7 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
 
   // Check call stack depth
   if (module_vm->call_stack_size >= CALL_STACK_MAX) {
-    for (int i = 0; i < arg_count; i++) {
+    for (size_t i = 0; i < arg_count; i++) {
       value_release(args[i]);
     }
     return vm_error(caller_vm, KRONOS_ERR_RUNTIME,
@@ -3387,12 +3387,12 @@ static int builtin_min(KronosVM *vm, uint8_t arg_count) {
   }
 
   // Validate all are numbers
-  for (int i = 0; i < arg_count; i++) {
+  for (size_t i = 0; i < arg_count; i++) {
     if (args[i]->type != VAL_NUMBER) {
       int err =
           vm_errorf(vm, KRONOS_ERR_RUNTIME,
                     "Function 'min' requires all arguments to be numbers");
-      for (int j = 0; j < arg_count; j++) {
+      for (size_t j = 0; j < arg_count; j++) {
         value_release(args[j]);
       }
       free(args);
@@ -3402,14 +3402,14 @@ static int builtin_min(KronosVM *vm, uint8_t arg_count) {
 
   // Find minimum
   double min_val = args[0]->as.number;
-  for (int i = 1; i < arg_count; i++) {
+  for (size_t i = 1; i < arg_count; i++) {
     if (args[i]->as.number < min_val) {
       min_val = args[i]->as.number;
     }
   }
 
   // Release all arguments
-  for (int i = 0; i < arg_count; i++) {
+  for (size_t i = 0; i < arg_count; i++) {
     value_release(args[i]);
   }
   free(args);
@@ -3445,12 +3445,12 @@ static int builtin_max(KronosVM *vm, uint8_t arg_count) {
   }
 
   // Validate all are numbers
-  for (int i = 0; i < arg_count; i++) {
+  for (size_t i = 0; i < arg_count; i++) {
     if (args[i]->type != VAL_NUMBER) {
       int err =
           vm_errorf(vm, KRONOS_ERR_RUNTIME,
                     "Function 'max' requires all arguments to be numbers");
-      for (int j = 0; j < arg_count; j++) {
+      for (size_t j = 0; j < arg_count; j++) {
         value_release(args[j]);
       }
       free(args);
@@ -3460,14 +3460,14 @@ static int builtin_max(KronosVM *vm, uint8_t arg_count) {
 
   // Find maximum
   double max_val = args[0]->as.number;
-  for (int i = 1; i < arg_count; i++) {
+  for (size_t i = 1; i < arg_count; i++) {
     if (args[i]->as.number > max_val) {
       max_val = args[i]->as.number;
     }
   }
 
   // Release all arguments
-  for (int i = 0; i < arg_count; i++) {
+  for (size_t i = 0; i < arg_count; i++) {
     value_release(args[i]);
   }
   free(args);
@@ -4536,7 +4536,7 @@ static int handle_op_call_func(KronosVM *vm) {
     args[i] = pop(vm);
     if (!args[i]) {
       // Free already-popped arguments
-      for (int j = i + 1; j < arg_count; j++) {
+      for (size_t j = i + 1; j < arg_count; j++) {
         value_release(args[j]);
       }
       free(args);
