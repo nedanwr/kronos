@@ -24,6 +24,9 @@
 /** Size of the string interning hash table */
 #define INTERN_TABLE_SIZE 1024
 
+/** Maximum depth for printing nested structures to prevent stack overflow */
+#define VALUE_PRINT_MAX_DEPTH 64
+
 /** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 
@@ -572,19 +575,13 @@ void value_release(KronosValue *val) {
 }
 
 /**
- * @brief Print a value to a file stream
+ * @brief Print a value to a file stream (internal recursive version with depth limit)
  *
- * Formats the value in a human-readable way:
- * - Numbers: printed as integers if whole, otherwise as floats
- * - Strings: printed as-is
- * - Booleans: "true" or "false"
- * - Nil: "null"
- * - Lists: [item1, item2, ...]
- *
- * @param out File stream to print to (defaults to stdout if NULL)
- * @param val Value to print (prints "null" if NULL)
+ * @param out File stream to print to
+ * @param val Value to print
+ * @param depth Current recursion depth (to prevent stack overflow)
  */
-void value_fprint(FILE *out, KronosValue *val) {
+static void value_fprint_recursive(FILE *out, KronosValue *val, int depth) {
   if (!out)
     out = stdout;
 
@@ -617,11 +614,15 @@ void value_fprint(FILE *out, KronosValue *val) {
     fprintf(out, "<function>");
     break;
   case VAL_LIST:
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "[<max depth exceeded>]");
+      break;
+    }
     fprintf(out, "[");
     for (size_t i = 0; i < val->as.list.count; i++) {
       if (i > 0)
         fprintf(out, ", ");
-      value_fprint(out, val->as.list.items[i]);
+      value_fprint_recursive(out, val->as.list.items[i], depth + 1);
     }
     fprintf(out, "]");
     break;
@@ -656,6 +657,10 @@ void value_fprint(FILE *out, KronosValue *val) {
     break;
   }
   case VAL_MAP: {
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "{<max depth exceeded>}");
+      break;
+    }
     struct {
       KronosValue *key;
       KronosValue *value;
@@ -668,9 +673,9 @@ void value_fprint(FILE *out, KronosValue *val) {
         if (!first)
           fprintf(out, ", ");
         first = false;
-        value_fprint(out, entries[i].key);
+        value_fprint_recursive(out, entries[i].key, depth + 1);
         fprintf(out, ": ");
-        value_fprint(out, entries[i].value);
+        value_fprint_recursive(out, entries[i].value, depth + 1);
       }
     }
     fprintf(out, "}");
@@ -680,6 +685,28 @@ void value_fprint(FILE *out, KronosValue *val) {
     fprintf(out, "<unknown>");
     break;
   }
+}
+
+/**
+ * @brief Print a value to a file stream
+ *
+ * Formats the value in a human-readable way:
+ * - Numbers: printed as integers if whole, otherwise as floats
+ * - Strings: printed as-is
+ * - Booleans: "true" or "false"
+ * - Nil: "null"
+ * - Lists: [item1, item2, ...]
+ * - Maps: {key1: value1, key2: value2, ...}
+ *
+ * Uses depth limiting to prevent stack overflow from deeply nested structures.
+ *
+ * @param out File stream to print to (defaults to stdout if NULL)
+ * @param val Value to print (prints "null" if NULL)
+ */
+void value_fprint(FILE *out, KronosValue *val) {
+  if (!out)
+    out = stdout;
+  value_fprint_recursive(out, val, 0);
 }
 
 /**
