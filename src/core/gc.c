@@ -146,10 +146,34 @@ void gc_init(void) {
 
   pthread_mutex_lock(&gc_mutex);
   // Free any previously allocated memory if gc_init is called multiple times
-  if (gc_state.objects) {
+  if (gc_state.objects && gc_state.count > 0) {
+    // Save objects and count before clearing state
+    KronosValue **objects = gc_state.objects;
+    size_t count = gc_state.count;
+    gc_state.objects = NULL;
+    gc_state.count = 0;
+    gc_state.capacity = 0;
+    gc_state.allocated_bytes = 0;
+    pthread_mutex_unlock(&gc_mutex);
+
+    // Finalize all tracked objects (similar to gc_cleanup)
+    // Only finalize objects with refcount == 1 (only GC tracking reference)
+    for (size_t i = 0; i < count; i++) {
+      KronosValue *obj = objects[i];
+      if (obj && obj->refcount == 1) {
+        value_finalize(obj);
+      }
+    }
+    free(objects);
+
+    // Re-acquire mutex for initialization
+    pthread_mutex_lock(&gc_mutex);
+  } else if (gc_state.objects) {
+    // Array exists but is empty, just free it
     free(gc_state.objects);
     gc_state.objects = NULL;
   }
+
   memset(&gc_state, 0, sizeof(GCState));
   gc_ensure_capacity_locked(INITIAL_TRACKED_CAPACITY);
   pthread_mutex_unlock(&gc_mutex);
