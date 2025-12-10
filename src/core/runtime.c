@@ -85,13 +85,24 @@ void runtime_init(void) {
 void runtime_cleanup(void) {
   // Free interned strings
   pthread_mutex_lock(&intern_mutex);
+  size_t active_refs = 0;
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     if (intern_table[i] != NULL) {
+      // Check if there are active references beyond the intern table's reference
+      if (intern_table[i]->refcount > 1) {
+        active_refs++;
+      }
       value_release(intern_table[i]); // Release intern table's reference
       intern_table[i] = NULL;
     }
   }
   pthread_mutex_unlock(&intern_mutex);
+  
+  if (active_refs > 0) {
+    fprintf(stderr, "Warning: runtime_cleanup() called with %zu interned strings still referenced externally. "
+                    "These may be freed prematurely.\n", active_refs);
+  }
+  
   gc_cleanup();
 }
 
