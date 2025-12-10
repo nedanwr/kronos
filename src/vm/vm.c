@@ -493,6 +493,11 @@ KronosVM *vm_new(void) {
   vm->error_callback = NULL;
   vm->exception_handler_count = 0;
 
+  // Initialize function hash table to all NULL
+  for (size_t i = 0; i < FUNCTIONS_MAX; i++) {
+    vm->function_hash[i] = NULL;
+  }
+
   // Initialize Pi constant - immutable
   // Note: double precision provides ~15-17 decimal digits of precision
   // Use M_PI from math.h if available, otherwise use hardcoded value
@@ -640,6 +645,23 @@ void function_free(Function *func) {
   free(func);
 }
 
+/**
+ * @brief Hash function for function names
+ *
+ * Simple djb2 hash algorithm for string hashing.
+ *
+ * @param str String to hash
+ * @return Hash value (modulo FUNCTIONS_MAX)
+ */
+static size_t hash_function_name(const char *str) {
+  unsigned long hash = 5381;
+  int c;
+  while ((c = *str++)) {
+    hash = ((hash << 5) + hash) + c; // hash * 33 + c
+  }
+  return hash % FUNCTIONS_MAX;
+}
+
 // Define a function
 int vm_define_function(KronosVM *vm, Function *func) {
   if (!vm || !func) {
@@ -653,17 +675,64 @@ int vm_define_function(KronosVM *vm, Function *func) {
                      FUNCTIONS_MAX);
   }
 
+  // Add to array (for iteration/debugging)
   vm->functions[vm->function_count++] = func;
+
+  // Add to hash table for O(1) lookup
+  if (func->name) {
+    size_t index = hash_function_name(func->name);
+
+    // Linear probing to find empty slot
+    for (size_t i = 0; i < FUNCTIONS_MAX; i++) {
+      size_t idx = (index + i) % FUNCTIONS_MAX;
+      if (!vm->function_hash[idx]) {
+        // Found empty slot
+        vm->function_hash[idx] = func;
+        return 0;
+      }
+      // Check if function already exists (shouldn't happen, but be safe)
+      if (vm->function_hash[idx]->name &&
+          strcmp(vm->function_hash[idx]->name, func->name) == 0) {
+        // Function already exists - this is an error
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Function '%s' is already defined", func->name);
+      }
+    }
+
+    // Hash table full (shouldn't happen if FUNCTIONS_MAX is respected)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function hash table is full (internal error)");
+  }
+
   return 0;
 }
 
-// Get a function by name
+// Get a function by name using hash table for O(1) lookup
 Function *vm_get_function(KronosVM *vm, const char *name) {
-  for (size_t i = 0; i < vm->function_count; i++) {
-    if (strcmp(vm->functions[i]->name, name) == 0) {
-      return vm->functions[i];
+  if (!vm || !name) {
+    return NULL;
+  }
+
+  // Compute hash index
+  size_t index = hash_function_name(name);
+
+  // Linear probing to handle collisions
+  for (size_t i = 0; i < FUNCTIONS_MAX; i++) {
+    size_t idx = (index + i) % FUNCTIONS_MAX;
+    Function *func = vm->function_hash[idx];
+
+    // Empty slot means function not found
+    if (!func) {
+      return NULL;
+    }
+
+    // Check if this is the function we're looking for
+    if (func->name && strcmp(func->name, name) == 0) {
+      return func;
     }
   }
+
+  // Hash table full (shouldn't happen if FUNCTIONS_MAX is respected)
   return NULL;
 }
 

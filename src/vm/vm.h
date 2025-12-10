@@ -78,6 +78,11 @@ typedef struct KronosVM {
   Function *functions[FUNCTIONS_MAX];
   size_t function_count;
 
+  // Function hash table for O(1) lookup
+  // Simple hash table: array of Function pointers, NULL if empty
+  // Collisions are handled by linear probing (next available slot)
+  Function *function_hash[FUNCTIONS_MAX];
+
   // Modules (file-based modules)
   Module *modules[MODULES_MAX];
   size_t module_count;
