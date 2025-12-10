@@ -60,6 +60,7 @@ typedef struct {
   LoopInfo *loop_stack;       /**< Stack of active loops for break/continue */
   size_t to_string_const_idx; /**< Cache for "to_string" constant (SIZE_MAX if
                                  not created) */
+  size_t loop_counter;        /**< Counter for unique iterator variable names */
 } Compiler;
 
 static inline bool compiler_has_error(const Compiler *c) {
@@ -99,6 +100,8 @@ static bool push_loop(Compiler *c, size_t loop_start) {
   info->pending_jumps = NULL;
   info->next = c->loop_stack;
   c->loop_stack = info;
+  // Increment loop counter for unique iterator variable names
+  c->loop_counter++;
   return true;
 }
 
@@ -434,6 +437,74 @@ static void emit_constant(Compiler *c, KronosValue *value) {
 }
 
 /**
+ * @brief Add a constant to the pool and emit its index as uint16
+ *
+ * Helper function to reduce duplication. Handles the common pattern of:
+ * - Creating a value
+ * - Adding it to constant pool
+ * - Checking for errors
+ * - Emitting the index as uint16
+ * - Releasing the value reference
+ *
+ * @param c Compiler state
+ * @param value Value to add (ownership transferred, will be released)
+ * @return true on success, false on error (error set in compiler)
+ */
+static bool emit_constant_index(Compiler *c, KronosValue *value) {
+  if (!c) {
+    if (value)
+      value_release(value);
+    return false;
+  }
+
+  // Check for errors BEFORE doing any work
+  if (compiler_has_error(c)) {
+    if (value)
+      value_release(value);
+    return false;
+  }
+
+  // Validate value is not NULL
+  if (!value) {
+    compiler_set_error(c, "Cannot add NULL constant to pool");
+    return false;
+  }
+
+  size_t idx = add_constant(c, value);
+
+  // Check for errors immediately after add_constant
+  if (compiler_has_error(c)) {
+    value_release(value);
+    return false;
+  }
+
+  if (idx == SIZE_MAX) {
+    compiler_set_error(c, "Failed to add constant to pool");
+    value_release(value);
+    return false;
+  }
+
+  if (idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    value_release(value);
+    return false;
+  }
+
+  // Emit constant index
+  emit_uint16(c, (uint16_t)idx);
+
+  // Check for errors after emitting
+  if (compiler_has_error(c)) {
+    value_release(value);
+    return false;
+  }
+
+  // Success - release our reference (pool still owns it)
+  value_release(value);
+  return true;
+}
+
+/**
  * @brief Get or create the "to_string" constant
  *
  * Caches the constant index to avoid recreating it multiple times.
@@ -611,20 +682,10 @@ static void compile_expression(Compiler *c, ASTNode *node) {
   case AST_VAR: {
     KronosValue *name =
         value_new_string(node->as.var_name, strlen(node->as.var_name));
-    size_t idx = add_constant(c, name);
-    if (idx == SIZE_MAX) {
-      value_release(name);
-      return;
-    }
-    if (idx > UINT16_MAX) {
-      compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(name);
-      return;
-    }
-    // Release our reference - constant pool owns it (or it was a duplicate)
-    value_release(name);
     emit_byte(c, OP_LOAD_VAR);
-    emit_uint16(c, (uint16_t)idx);
+    if (!emit_constant_index(c, name)) {
+      return;
+    }
     break;
   }
 
@@ -861,21 +922,10 @@ static void compile_expression(Compiler *c, ASTNode *node) {
     // Emit call instruction
     KronosValue *func_name =
         value_new_string(node->as.call.name, strlen(node->as.call.name));
-    size_t name_idx = add_constant(c, func_name);
-    if (name_idx == SIZE_MAX) {
-      value_release(func_name);
-      return;
-    }
-    if (name_idx > UINT16_MAX) {
-      compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(func_name);
-      return;
-    }
-    // Release our reference - constant pool now owns it
-    value_release(func_name);
-
     emit_byte(c, OP_CALL_FUNC);
-    emit_uint16(c, (uint16_t)name_idx);
+    if (!emit_constant_index(c, func_name)) {
+      return;
+    }
     // Validate argument count limit (uint8_t max is 255)
     if (node->as.call.arg_count > 255) {
       compiler_set_error(c, "Function call argument count exceeds limit (255)");
@@ -914,20 +964,10 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Store in variable
     KronosValue *name =
         value_new_string(node->as.assign.name, strlen(node->as.assign.name));
-    size_t idx = add_constant(c, name);
-    if (idx == SIZE_MAX) {
-      value_release(name);
-      return;
-    }
-    if (idx > UINT16_MAX) {
-      compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(name);
-      return;
-    }
-    // Release our reference - constant pool now owns it
-    value_release(name);
     emit_byte(c, OP_STORE_VAR);
-    emit_uint16(c, (uint16_t)idx);
+    if (!emit_constant_index(c, name)) {
+      return;
+    }
     if (compiler_has_error(c))
       return;
 
@@ -941,19 +981,9 @@ static void compile_statement(Compiler *c, ASTNode *node) {
       emit_byte(c, 1);
       KronosValue *type_val = value_new_string(
           node->as.assign.type_name, strlen(node->as.assign.type_name));
-      size_t type_idx = add_constant(c, type_val);
-      if (type_idx == SIZE_MAX) {
-        value_release(type_val);
+      if (!emit_constant_index(c, type_val)) {
         return;
       }
-      if (type_idx > UINT16_MAX) {
-        compiler_set_error(c, "Too many constants (limit 65535)");
-        value_release(type_val);
-        return;
-      }
-      // Release our reference - constant pool now owns it
-      value_release(type_val);
-      emit_uint16(c, (uint16_t)type_idx);
     } else {
       emit_byte(c, 0); // no type specified
     }
@@ -1651,12 +1681,14 @@ static void compile_statement(Compiler *c, ASTNode *node) {
 
       // Store iterator state in hidden variables to preserve across loop body
       // Create hidden variable names for iterator state
+      // Use loop_counter to ensure uniqueness even for nested loops with same
+      // var name
       char iter_list_name[64];
       char iter_index_name[64];
-      snprintf(iter_list_name, sizeof(iter_list_name), "__iter_list_%zu",
-               var_idx);
-      snprintf(iter_index_name, sizeof(iter_index_name), "__iter_index_%zu",
-               var_idx);
+      snprintf(iter_list_name, sizeof(iter_list_name), "__iter_list_%zu_%zu",
+               var_idx, c->loop_counter);
+      snprintf(iter_index_name, sizeof(iter_index_name), "__iter_index_%zu_%zu",
+               var_idx, c->loop_counter);
 
       // Stack after OP_LIST_ITER: [list, index] with index on top
       // Store index first (pops index)
@@ -2161,6 +2193,7 @@ Bytecode *compile(AST *ast, const char **out_err) {
   c.error_message = NULL;
   c.loop_stack = NULL;
   c.to_string_const_idx = SIZE_MAX; // Not yet created
+  c.loop_counter = 0; // Initialize loop counter for unique iterator names
   c.bytecode = malloc(sizeof(Bytecode));
   if (!c.bytecode) {
     if (out_err)
