@@ -15,6 +15,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Forward declaration of MapEntry (defined in runtime.c)
+typedef struct {
+  KronosValue *key;
+  KronosValue *value;
+  bool is_tombstone;
+} MapEntry;
+
 /** Initial capacity for the object tracking array */
 #define INITIAL_TRACKED_CAPACITY 1024
 
@@ -264,20 +271,159 @@ void gc_untrack(KronosValue *val) {
 }
 
 /**
- * @brief Collect cycles (placeholder for future implementation)
+ * @brief Mark all objects reachable from a given object
  *
- * Currently a no-op. Reference counting cannot detect circular references
- * (e.g., a list containing itself). This will be implemented using
- * mark-and-sweep when needed.
+ * Helper function for mark-and-sweep. Recursively marks all objects
+ * reachable from the given object.
  *
- * TODO: Implement mark-and-sweep cycle detection
+ * @param val Object to start marking from
+ * @param marked Array of booleans indicating which objects are marked
+ * @param object_count Number of tracked objects
+ * @param objects Array of tracked objects
+ */
+static void gc_mark_reachable(KronosValue *val, bool *marked,
+                              size_t object_count, KronosValue **objects) {
+  if (!val)
+    return;
+
+  // Find index of this object in the tracked objects array
+  size_t idx = SIZE_MAX;
+  for (size_t i = 0; i < object_count; i++) {
+    if (objects[i] == val) {
+      idx = i;
+      break;
+    }
+  }
+
+  // If not tracked or already marked, return
+  if (idx == SIZE_MAX || marked[idx])
+    return;
+
+  // Mark this object
+  marked[idx] = true;
+
+  // Recursively mark reachable objects based on type
+  switch (val->type) {
+  case VAL_LIST:
+    // Mark all items in the list
+    if (val->as.list.items) {
+      for (size_t i = 0; i < val->as.list.count; i++) {
+        if (val->as.list.items[i]) {
+          gc_mark_reachable(val->as.list.items[i], marked, object_count,
+                            objects);
+        }
+      }
+    }
+    break;
+  case VAL_MAP: {
+    // Mark all keys and values in the map
+    MapEntry *entries = (MapEntry *)val->as.map.entries;
+    if (entries) {
+      for (size_t i = 0; i < val->as.map.capacity; i++) {
+        if (entries[i].key && !entries[i].is_tombstone) {
+          gc_mark_reachable(entries[i].key, marked, object_count, objects);
+        }
+        if (entries[i].value) {
+          gc_mark_reachable(entries[i].value, marked, object_count, objects);
+        }
+      }
+    }
+    break;
+  }
+  default:
+    // Other types don't contain references to other KronosValues
+    break;
+  }
+}
+
+/**
+ * @brief Collect cycles using mark-and-sweep algorithm
+ *
+ * Performs mark-and-sweep garbage collection to detect and free circular
+ * references that reference counting cannot handle. Objects with refcount > 1
+ * are considered roots (have external references). All objects reachable from
+ * roots are marked. Unmarked objects with refcount > 0 are part of cycles
+ * and are freed.
  */
 void gc_collect_cycles(void) {
-  // TODO: Implement mark-and-sweep for cycles
-  // This will be needed when we have circular references
-  // (e.g., lists containing themselves, closures with circular refs)
+  pthread_mutex_lock(&gc_mutex);
 
-  // For now, we rely on pure reference counting
+  if (gc_state.count == 0) {
+    pthread_mutex_unlock(&gc_mutex);
+    return;
+  }
+
+  // Allocate mark array
+  bool *marked = calloc(gc_state.count, sizeof(bool));
+  if (!marked) {
+    pthread_mutex_unlock(&gc_mutex);
+    return; // Out of memory, skip cycle collection
+  }
+
+  // Mark phase: Mark all objects reachable from roots (refcount > 1)
+  for (size_t i = 0; i < gc_state.count; i++) {
+    KronosValue *obj = gc_state.objects[i];
+    if (obj && obj->refcount > 1) {
+      // This object has external references, mark it and all reachable objects
+      gc_mark_reachable(obj, marked, gc_state.count, gc_state.objects);
+    }
+  }
+
+  // Sweep phase: Free unmarked objects (they're part of cycles)
+  // Iterate backwards to safely remove elements
+  for (size_t i = gc_state.count; i > 0; i--) {
+    size_t idx = i - 1;
+    KronosValue *obj = gc_state.objects[idx];
+    if (obj && !marked[idx] && obj->refcount > 0) {
+      // Unmarked object with refcount > 0 is part of a cycle
+      // Decrement refcount and free if it reaches 0
+      // Note: We can't use value_release() here because it would try to
+      // untrack, which modifies the array we're iterating. Instead, we
+      // manually decrement refcount and finalize.
+      obj->refcount--;
+      if (obj->refcount == 0) {
+        // Remove from tracking array first
+        gc_state.objects[idx] = gc_state.objects[gc_state.count - 1];
+        gc_state.objects[gc_state.count - 1] = NULL;
+        gc_state.count--;
+
+        // Update allocated bytes
+        gc_state.allocated_bytes -= sizeof(KronosValue);
+        switch (obj->type) {
+        case VAL_STRING:
+          gc_state.allocated_bytes -= obj->as.string.length + 1;
+          break;
+        case VAL_LIST:
+          if (obj->as.list.capacity > 0) {
+            gc_state.allocated_bytes -=
+                obj->as.list.capacity * sizeof(KronosValue *);
+          }
+          break;
+        case VAL_MAP:
+          if (obj->as.map.capacity > 0) {
+            gc_state.allocated_bytes -=
+                obj->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
+          }
+          break;
+        case VAL_FUNCTION:
+          if (obj->as.function.bytecode && obj->as.function.length > 0) {
+            gc_state.allocated_bytes -= obj->as.function.length;
+          }
+          break;
+        default:
+          break;
+        }
+
+        // Unlock mutex before finalizing (value_finalize may need GC)
+        pthread_mutex_unlock(&gc_mutex);
+        value_finalize(obj);
+        pthread_mutex_lock(&gc_mutex);
+      }
+    }
+  }
+
+  free(marked);
+  pthread_mutex_unlock(&gc_mutex);
 }
 
 /**
