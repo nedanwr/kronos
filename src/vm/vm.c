@@ -30,6 +30,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+// Constants for buffer sizes
+#define NUMBER_STRING_BUFFER_SIZE 64  // Buffer size for converting numbers to strings
+#define REGEX_ERROR_BUFFER_SIZE 256   // Buffer size for regex error messages
+
 /**
  * @brief Comparison function for qsort on KronosValue arrays
  *
@@ -1239,20 +1243,20 @@ static char *value_to_string_repr(KronosValue *val) {
     str[val->as.string.length] = '\0';
     return str;
   } else if (val->type == VAL_NUMBER) {
-    char *str_buf = malloc(64);
+    char *str_buf = malloc(NUMBER_STRING_BUFFER_SIZE);
     if (!str_buf)
       return NULL;
     double intpart;
     double frac = modf(val->as.number, &intpart);
     size_t len;
     // Use scientific notation for large numbers to prevent buffer overflow
-    // (buffer is 64 bytes)
+    // (buffer is NUMBER_STRING_BUFFER_SIZE bytes)
 
     if (frac == 0.0 && fabs(val->as.number) < 1.0e15) {
 
-      len = (size_t)snprintf(str_buf, 64, "%.0f", val->as.number);
+      len = (size_t)snprintf(str_buf, NUMBER_STRING_BUFFER_SIZE, "%.0f", val->as.number);
     } else {
-      len = (size_t)snprintf(str_buf, 64, "%g", val->as.number);
+      len = (size_t)snprintf(str_buf, NUMBER_STRING_BUFFER_SIZE, "%g", val->as.number);
     }
     // Reallocate to exact size
     char *result = realloc(str_buf, len + 1);
@@ -1289,6 +1293,23 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   if (!bytecode) {
     return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
                     "vm_execute: bytecode must not be NULL");
+  }
+
+  // Basic bytecode validation to prevent execution of malformed bytecode
+  if (!bytecode->code && bytecode->count > 0) {
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "vm_execute: bytecode has non-zero count but NULL code pointer");
+  }
+  if (bytecode->code && bytecode->count == 0) {
+    // Empty bytecode is valid (e.g., empty function body)
+    vm->bytecode = bytecode;
+    vm->ip = bytecode->code;
+    return 0;
+  }
+  // Validate constants array if present
+  if (bytecode->const_count > 0 && !bytecode->constants) {
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "vm_execute: bytecode has non-zero const_count but NULL constants array");
   }
 
   vm->bytecode = bytecode;
@@ -2164,7 +2185,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           value_release(path_val);
           return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Could not open file");
         }
-        fseek(file, 0L, SEEK_END);
+        if (fseek(file, 0L, SEEK_END) != 0) {
+          fclose(file);
+          value_release(path_val);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to seek to end of file");
+        }
         long fsize = ftell(file);
         if (fsize < 0) {
           fclose(file);
@@ -2935,7 +2960,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         } else if (arg->type == VAL_NUMBER) {
           // Convert number to string
           // Use a reasonable buffer size
-          str_buf = malloc(64);
+          str_buf = malloc(NUMBER_STRING_BUFFER_SIZE);
           if (!str_buf) {
             value_release(arg);
             return vm_error(vm, KRONOS_ERR_INTERNAL,
@@ -2947,16 +2972,24 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           double frac = modf(arg->as.number, &intpart);
 
           if (frac == 0.0 && fabs(arg->as.number) < 1.0e15) {
-            str_len = (size_t)snprintf(str_buf, 64, "%.0f", arg->as.number);
+            str_len = (size_t)snprintf(str_buf, NUMBER_STRING_BUFFER_SIZE, "%.0f", arg->as.number);
           } else {
-            str_len = (size_t)snprintf(str_buf, 64, "%g", arg->as.number);
+            str_len = (size_t)snprintf(str_buf, NUMBER_STRING_BUFFER_SIZE, "%g", arg->as.number);
           }
         } else if (arg->type == VAL_BOOL) {
           if (arg->as.boolean) {
             str_buf = strdup("true");
+            if (!str_buf) {
+              value_release(arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+            }
             str_len = 4;
           } else {
             str_buf = strdup("false");
+            if (!str_buf) {
+              value_release(arg);
+              return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+            }
             str_len = 5;
           }
           if (!str_buf) {
@@ -3838,9 +3871,17 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         }
 
         // Get file size
-        fseek(file, 0, SEEK_END);
+        if (fseek(file, 0, SEEK_END) != 0) {
+          fclose(file);
+          value_release(path_arg);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to seek to end of file");
+        }
         long file_size = ftell(file);
-        fseek(file, 0, SEEK_SET);
+        if (fseek(file, 0, SEEK_SET) != 0) {
+          fclose(file);
+          value_release(path_arg);
+          return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to seek to start of file");
+        }
 
         if (file_size < 0) {
           fclose(file);
@@ -4391,7 +4432,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           // regcomp() failed - regex structure is in undefined state
           // regerror() is safe to call with the error code even after failed regcomp()
           // Do NOT call regfree() on a failed regcomp() - it's unsafe
-          char errbuf[256];
+          char errbuf[REGEX_ERROR_BUFFER_SIZE];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                               "Invalid regex pattern: %s", errbuf);
@@ -4447,7 +4488,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           // regcomp() failed - regex structure is in undefined state
           // regerror() is safe to call with the error code even after failed regcomp()
           // Do NOT call regfree() on a failed regcomp() - it's unsafe
-          char errbuf[256];
+          char errbuf[REGEX_ERROR_BUFFER_SIZE];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                               "Invalid regex pattern: %s", errbuf);
@@ -4521,7 +4562,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
           // regcomp() failed - regex structure is in undefined state
           // regerror() is safe to call with the error code even after failed regcomp()
           // Do NOT call regfree() on a failed regcomp() - it's unsafe
-          char errbuf[256];
+          char errbuf[REGEX_ERROR_BUFFER_SIZE];
           regerror(ret, &regex, errbuf, sizeof(errbuf));
           int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                               "Invalid regex pattern: %s", errbuf);
