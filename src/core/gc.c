@@ -123,10 +123,16 @@ void gc_cleanup(void) {
 
   // Finalize all objects without releasing children to avoid use-after-free.
   // Children will be finalized separately when we encounter them in the array.
+  // Only finalize objects with refcount == 1 (only GC tracking reference).
+  // Objects with refcount > 1 have external references and should not be freed.
   for (size_t i = 0; i < count; i++) {
     KronosValue *obj = objects[i];
-    if (obj)
+    if (obj && obj->refcount == 1) {
+      // Only GC tracking reference, safe to finalize
+      // Objects with refcount > 1 have external references and will be
+      // cleaned up naturally when their refcount reaches 0
       value_finalize(obj);
+    }
   }
   free(objects);
 
