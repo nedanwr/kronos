@@ -299,11 +299,15 @@ static void patch_jump_offset_unsigned(Compiler *c, size_t offset_pos,
  * returns its index. Otherwise adds a new entry.
  *
  * @param c Compiler state
- * @param value Value to add (ownership transferred to bytecode)
+ * @param value Value to add (ownership ALWAYS transferred - value is released
+ *              if duplicate, retained if new)
  * @return Index in constant pool, or SIZE_MAX on error
  */
 static size_t add_constant(Compiler *c, KronosValue *value) {
   if (!c || compiler_has_error(c)) {
+    if (value) {
+      value_release(value);
+    }
     return SIZE_MAX;
   }
 
@@ -325,6 +329,7 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
       if (c->bytecode->const_capacity >
           SIZE_MAX / (2 * sizeof(KronosValue *))) {
         compiler_set_error(c, "Constant pool capacity overflow");
+        value_release(value);
         return SIZE_MAX;
       }
       new_capacity = c->bytecode->const_capacity * 2;
@@ -338,6 +343,7 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
 
     if (!new_constants) {
       compiler_set_error(c, "Failed to allocate memory for constant pool");
+      value_release(value);
       return SIZE_MAX;
     }
 
@@ -351,14 +357,17 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
     c->bytecode->constants = new_constants;
     c->bytecode->const_capacity = new_capacity;
   }
-  if (compiler_has_error(c))
+  if (compiler_has_error(c)) {
+    value_release(value);
     return SIZE_MAX;
+  }
 
   // Check if this constant already exists (deduplication)
   for (size_t i = 0; i < c->bytecode->const_count; i++) {
     if (value_equals(c->bytecode->constants[i], value)) {
       // Found existing constant - return its index
-      // The caller will release the duplicate value (it's not added to pool)
+      // Release the duplicate value since add_constant always takes ownership
+      value_release(value);
       return i;
     }
   }
@@ -396,25 +405,25 @@ static void emit_constant(Compiler *c, KronosValue *value) {
   }
 
   size_t idx = add_constant(c, value);
+  // add_constant() always takes ownership (releases if duplicate, retains if
+  // new)
 
   // Check for errors immediately after add_constant
   if (compiler_has_error(c)) {
-    // If add_constant failed before adding to pool, we need to release
-    // If it succeeded, pool owns it and we still need to release our reference
-    value_release(value);
+    // add_constant already released the value on error
     return;
   }
 
   if (idx == SIZE_MAX) {
     // add_constant failed but didn't set error (shouldn't happen)
     compiler_set_error(c, "Failed to add constant to pool");
-    value_release(value);
+    // Value was already released by add_constant
     return;
   }
 
   if (idx > UINT16_MAX) {
     compiler_set_error(c, "Too many constants (limit 65535)");
-    value_release(value);
+    // Value was already released by add_constant
     return;
   }
 
@@ -422,7 +431,6 @@ static void emit_constant(Compiler *c, KronosValue *value) {
 
   // Check for errors immediately
   if (compiler_has_error(c)) {
-    value_release(value);
     return;
   }
 
@@ -430,12 +438,10 @@ static void emit_constant(Compiler *c, KronosValue *value) {
 
   // Check for errors immediately
   if (compiler_has_error(c)) {
-    value_release(value);
     return;
   }
 
-  // Success - release our reference (pool still owns it)
-  value_release(value);
+  // Success - add_constant already handled ownership
 }
 
 /**
@@ -473,22 +479,24 @@ static bool emit_constant_index(Compiler *c, KronosValue *value) {
   }
 
   size_t idx = add_constant(c, value);
+  // add_constant() always takes ownership (releases if duplicate, retains if
+  // new)
 
   // Check for errors immediately after add_constant
   if (compiler_has_error(c)) {
-    value_release(value);
+    // add_constant already released the value on error
     return false;
   }
 
   if (idx == SIZE_MAX) {
     compiler_set_error(c, "Failed to add constant to pool");
-    value_release(value);
+    // Value was already released by add_constant
     return false;
   }
 
   if (idx > UINT16_MAX) {
     compiler_set_error(c, "Too many constants (limit 65535)");
-    value_release(value);
+    // Value was already released by add_constant
     return false;
   }
 
@@ -496,12 +504,10 @@ static bool emit_constant_index(Compiler *c, KronosValue *value) {
 
   // Check for errors after emitting
   if (compiler_has_error(c)) {
-    value_release(value);
     return false;
   }
 
-  // Success - release our reference (pool still owns it)
-  value_release(value);
+  // Success - add_constant already handled ownership
   return true;
 }
 
@@ -530,9 +536,8 @@ static size_t get_to_string_constant(Compiler *c) {
   }
 
   size_t idx = add_constant(c, to_string_name);
-
-  // Always release our reference (pool owns it now, or it failed)
-  value_release(to_string_name);
+  // add_constant() always takes ownership (releases if duplicate, retains if
+  // new)
 
   if (idx == SIZE_MAX || idx > UINT16_MAX) {
     if (idx > UINT16_MAX) {
@@ -815,12 +820,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       // Default step is 1.0
       KronosValue *one = value_new_number(1.0);
       size_t step_idx = add_constant(c, one);
+      // add_constant() always takes ownership
       if (step_idx == SIZE_MAX || step_idx > UINT16_MAX) {
-        value_release(one);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(one);
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)step_idx);
       if (compiler_has_error(c))
@@ -895,12 +898,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       // Implicit end (to end): push -1 as marker
       KronosValue *end_marker = value_new_number(-1);
       size_t end_idx = add_constant(c, end_marker);
+      // add_constant() always takes ownership
       if (end_idx == SIZE_MAX || end_idx > UINT16_MAX) {
-        value_release(end_marker);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(end_marker);
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)end_idx);
       if (compiler_has_error(c))
@@ -1082,17 +1083,14 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
         KronosValue *error_type_val =
             value_new_string(error_type, strlen(error_type));
         size_t error_type_idx = add_constant(c, error_type_val);
+        // add_constant() always takes ownership
         if (error_type_idx == SIZE_MAX) {
-          value_release(error_type_val);
           return;
         }
         if (error_type_idx > UINT16_MAX) {
           compiler_set_error(c, "Too many constants");
-          value_release(error_type_val);
           return;
         }
-        // Release our reference - constant pool now owns it
-        value_release(error_type_val);
         emit_uint16(c, (uint16_t)error_type_idx);
       } else {
         // Catch all - use 0xFFFF as marker
@@ -1105,17 +1103,14 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
         KronosValue *catch_var_val =
             value_new_string(catch_var, strlen(catch_var));
         size_t catch_var_idx = add_constant(c, catch_var_val);
+        // add_constant() always takes ownership
         if (catch_var_idx == SIZE_MAX) {
-          value_release(catch_var_val);
           return;
         }
         if (catch_var_idx > UINT16_MAX) {
           compiler_set_error(c, "Too many constants");
-          value_release(catch_var_val);
           return;
         }
-        // Release our reference - constant pool now owns it
-        value_release(catch_var_val);
         emit_uint16(c, (uint16_t)catch_var_idx);
 
         // After OP_CATCH pushes error onto stack, store it as variable
@@ -1252,17 +1247,14 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
           value_new_string(node->as.raise_stmt.error_type,
                            strlen(node->as.raise_stmt.error_type));
       size_t error_type_idx = add_constant(c, error_type_val);
+      // add_constant() always takes ownership
       if (error_type_idx == SIZE_MAX) {
-        value_release(error_type_val);
         return;
       }
       if (error_type_idx > UINT16_MAX) {
         compiler_set_error(c, "Too many constants");
-        value_release(error_type_val);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(error_type_val);
       emit_uint16(c, (uint16_t)error_type_idx);
     } else {
       // Generic Error type
@@ -1514,17 +1506,14 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     KronosValue *var_name =
         value_new_string(node->as.for_stmt.var, strlen(node->as.for_stmt.var));
     size_t var_idx = add_constant(c, var_name);
+    // add_constant() always takes ownership
     if (var_idx == SIZE_MAX) {
-      value_release(var_name);
       return;
     }
     if (var_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(var_name);
       return;
     }
-    // Release our reference - constant pool now owns it
-    value_release(var_name);
 
     if (node->as.for_stmt.is_range) {
       // Range iteration: for i in range start to end [by step]
@@ -1696,12 +1685,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       KronosValue *iter_index_name_val =
           value_new_string(iter_index_name, strlen(iter_index_name));
       size_t iter_index_name_idx = add_constant(c, iter_index_name_val);
+      // add_constant() always takes ownership
       if (iter_index_name_idx == SIZE_MAX || iter_index_name_idx > UINT16_MAX) {
-        value_release(iter_index_name_val);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(iter_index_name_val);
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_index_name_idx);
       emit_byte(c, 1); // mutable
@@ -1713,12 +1700,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       KronosValue *iter_list_name_val =
           value_new_string(iter_list_name, strlen(iter_list_name));
       size_t iter_list_name_idx = add_constant(c, iter_list_name_val);
+      // add_constant() always takes ownership
       if (iter_list_name_idx == SIZE_MAX || iter_list_name_idx > UINT16_MAX) {
-        value_release(iter_list_name_val);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(iter_list_name_val);
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_list_name_idx);
       emit_byte(c, 1); // mutable
@@ -1931,19 +1916,16 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     KronosValue *func_name = value_new_string(node->as.function.name,
                                               strlen(node->as.function.name));
     size_t name_idx = add_constant(c, func_name);
+    // add_constant() always takes ownership
     if (name_idx == SIZE_MAX) {
-      value_release(func_name);
       return;
     }
 
     // Store parameter count
     if (name_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(func_name);
       return;
     }
-    // Release our reference - constant pool now owns it
-    value_release(func_name);
     emit_byte(c, OP_DEFINE_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
@@ -1962,17 +1944,14 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       KronosValue *param_name = value_new_string(
           node->as.function.params[i], strlen(node->as.function.params[i]));
       size_t param_idx = add_constant(c, param_name);
+      // add_constant() always takes ownership
       if (param_idx == SIZE_MAX) {
-        value_release(param_name);
         return;
       }
       if (param_idx > UINT16_MAX) {
         compiler_set_error(c, "Too many constants (limit 65535)");
-        value_release(param_name);
         return;
       }
-      // Release our reference - constant pool now owns it
-      value_release(param_name);
       emit_uint16(c, (uint16_t)param_idx);
       if (compiler_has_error(c))
         return;
@@ -2031,19 +2010,16 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     KronosValue *func_name =
         value_new_string(node->as.call.name, strlen(node->as.call.name));
     size_t name_idx = add_constant(c, func_name);
+    // add_constant() always takes ownership
     if (name_idx == SIZE_MAX) {
-      value_release(func_name);
       return;
     }
 
     // Call function
     if (name_idx > UINT16_MAX) {
       compiler_set_error(c, "Too many constants (limit 65535)");
-      value_release(func_name);
       return;
     }
-    // Release our reference - constant pool now owns it
-    value_release(func_name);
     emit_byte(c, OP_CALL_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
@@ -2088,14 +2064,12 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       return;
     }
     size_t module_name_idx = add_constant(c, module_name_val);
+    // add_constant() always takes ownership
     if (module_name_idx == SIZE_MAX || module_name_idx > UINT16_MAX) {
-      value_release(module_name_val); // Only release on error
       compiler_set_error(c, "Failed to add module name constant");
       return;
     }
     emit_uint16(c, (uint16_t)module_name_idx);
-    // Release our reference - constant pool now owns it (or it was a duplicate)
-    value_release(module_name_val);
 
     // Add file path to constant pool and emit index (nil for built-in modules)
     KronosValue *file_path_val = NULL;
@@ -2115,13 +2089,11 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       }
     }
     size_t file_path_idx = add_constant(c, file_path_val);
+    // add_constant() always takes ownership
     if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
-      value_release(file_path_val); // Only release on error
       compiler_set_error(c, "Failed to add file path constant");
       return;
     }
-    // Release our reference - constant pool now owns it
-    value_release(file_path_val);
     emit_uint16(c, (uint16_t)file_path_idx);
 
     break;
