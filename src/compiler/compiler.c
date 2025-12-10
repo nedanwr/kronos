@@ -1575,22 +1575,93 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // For comparison, we need to check direction based on step
       // If step > 0: check var <= end
       // If step < 0: check var >= end
-      // If step is a constant number, we can optimize at compile time
-      // Otherwise, we'll use <= and let runtime handle it (though this may not
-      // work correctly for negative steps - would need runtime step sign check)
       bool use_gte = false; // Default to LTE for positive steps
+      bool step_is_constant = false;
+
       if (has_step && node->as.for_stmt.step->type == AST_NUMBER) {
-        // Step is a constant - check if it's negative
+        // Step is a constant - check if it's negative at compile time
+        step_is_constant = true;
         if (node->as.for_stmt.step->as.number < 0.0) {
           use_gte = true; // Use >= for negative steps
         }
       }
 
-      // Emit comparison based on step direction
-      if (use_gte) {
+      // For non-constant steps, check step sign at runtime
+      if (has_step && !step_is_constant) {
+        // Evaluate step expression to check its sign
+        compile_expression(c, node->as.for_stmt.step);
+        if (compiler_has_error(c)) {
+          return;
+        }
+
+        // Compare step to 0: step < 0
+        // Stack before: [var, end, step]
+        KronosValue *zero = value_new_number(0);
+        emit_constant(c, zero);
+        if (compiler_has_error(c)) {
+          return;
+        }
+        // Stack: [var, end, step, 0]
+        emit_byte(c, OP_LT); // Compares step < 0, pops step and 0, pushes bool
+        // Stack: [var, end, (step < 0)]
+        if (compiler_has_error(c)) {
+          return;
+        }
+
+        // Logic: if step < 0 is TRUE, use OP_GTE; if FALSE (step >= 0), use
+        // OP_LTE OP_JUMP_IF_FALSE jumps if the value is false, so:
+        // - If step < 0 is FALSE (step >= 0): jump to LTE path
+        // - If step < 0 is TRUE (step < 0): continue to GTE path
+        size_t jump_to_lte_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+        if (compiler_has_error(c)) {
+          return;
+        }
+
+        // Step < 0 path: use OP_GTE
+        // Stack: [var, end] (OP_JUMP_IF_FALSE popped the boolean)
         emit_byte(c, OP_GTE);
-      } else {
+        if (compiler_has_error(c)) {
+          return;
+        }
+        // Stack: [var >= end]
+        size_t jump_after_comparison_pos = emit_jump_with_offset(c, OP_JUMP);
+        if (compiler_has_error(c)) {
+          return;
+        }
+
+        // Patch jump to LTE path
+        size_t lte_path_start = c->bytecode->count;
+        int16_t lte_offset = (int16_t)(lte_path_start - (jump_to_lte_pos + 2));
+        if (lte_offset < INT16_MIN || lte_offset > INT16_MAX) {
+          compiler_set_error(c, "Jump offset too large in for loop step check");
+          return;
+        }
+        patch_jump_offset(c, jump_to_lte_pos, lte_offset);
+
+        // Step >= 0 path: use OP_LTE
+        // Stack: [var, end] (OP_JUMP_IF_FALSE popped the boolean)
         emit_byte(c, OP_LTE);
+        if (compiler_has_error(c)) {
+          return;
+        }
+        // Stack: [var <= end]
+
+        // Patch jump after comparison
+        size_t after_comparison = c->bytecode->count;
+        int16_t after_offset =
+            (int16_t)(after_comparison - (jump_after_comparison_pos + 2));
+        if (after_offset < INT16_MIN || after_offset > INT16_MAX) {
+          compiler_set_error(c, "Jump offset too large in for loop comparison");
+          return;
+        }
+        patch_jump_offset(c, jump_after_comparison_pos, after_offset);
+      } else {
+        // Constant step or no step: use compile-time decision
+        if (use_gte) {
+          emit_byte(c, OP_GTE);
+        } else {
+          emit_byte(c, OP_LTE);
+        }
       }
       if (compiler_has_error(c)) {
         return;
