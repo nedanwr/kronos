@@ -1082,16 +1082,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       if (error_type) {
         KronosValue *error_type_val =
             value_new_string(error_type, strlen(error_type));
-        size_t error_type_idx = add_constant(c, error_type_val);
-        // add_constant() always takes ownership
-        if (error_type_idx == SIZE_MAX) {
+        if (!emit_constant_index(c, error_type_val)) {
           return;
         }
-        if (error_type_idx > UINT16_MAX) {
-          compiler_set_error(c, "Too many constants");
-          return;
-        }
-        emit_uint16(c, (uint16_t)error_type_idx);
       } else {
         // Catch all - use 0xFFFF as marker
         emit_uint16(c, 0xFFFF);
@@ -1104,11 +1097,7 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
             value_new_string(catch_var, strlen(catch_var));
         size_t catch_var_idx = add_constant(c, catch_var_val);
         // add_constant() always takes ownership
-        if (catch_var_idx == SIZE_MAX) {
-          return;
-        }
-        if (catch_var_idx > UINT16_MAX) {
-          compiler_set_error(c, "Too many constants");
+        if (catch_var_idx == SIZE_MAX || catch_var_idx > UINT16_MAX) {
           return;
         }
         emit_uint16(c, (uint16_t)catch_var_idx);
@@ -1140,19 +1129,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
         if (error_type) {
           KronosValue *error_type_val =
               value_new_string(error_type, strlen(error_type));
-          size_t error_type_idx = add_constant(c, error_type_val);
-          if (error_type_idx == SIZE_MAX) {
-            value_release(error_type_val);
+          if (!emit_constant_index(c, error_type_val)) {
             return;
           }
-          if (error_type_idx > UINT16_MAX) {
-            compiler_set_error(c, "Too many constants");
-            value_release(error_type_val);
-            return;
-          }
-          // Release our reference - constant pool now owns it
-          value_release(error_type_val);
-          emit_uint16(c, (uint16_t)error_type_idx);
         } else {
           emit_uint16(c, 0xFFFF);
         }
@@ -1161,17 +1140,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
           KronosValue *catch_var_val =
               value_new_string(catch_var, strlen(catch_var));
           size_t catch_var_idx = add_constant(c, catch_var_val);
-          if (catch_var_idx == SIZE_MAX) {
-            value_release(catch_var_val);
+          // add_constant() always takes ownership
+          if (catch_var_idx == SIZE_MAX || catch_var_idx > UINT16_MAX) {
             return;
           }
-          if (catch_var_idx > UINT16_MAX) {
-            compiler_set_error(c, "Too many constants");
-            value_release(catch_var_val);
-            return;
-          }
-          // Release our reference - constant pool now owns it
-          value_release(catch_var_val);
           emit_uint16(c, (uint16_t)catch_var_idx);
 
           // After OP_CATCH pushes error onto stack, store it as variable
@@ -1246,16 +1218,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       KronosValue *error_type_val =
           value_new_string(node->as.raise_stmt.error_type,
                            strlen(node->as.raise_stmt.error_type));
-      size_t error_type_idx = add_constant(c, error_type_val);
-      // add_constant() always takes ownership
-      if (error_type_idx == SIZE_MAX) {
+      if (!emit_constant_index(c, error_type_val)) {
         return;
       }
-      if (error_type_idx > UINT16_MAX) {
-        compiler_set_error(c, "Too many constants");
-        return;
-      }
-      emit_uint16(c, (uint16_t)error_type_idx);
     } else {
       // Generic Error type
       emit_uint16(c, 0xFFFF);
@@ -1505,6 +1470,7 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_FOR: {
     KronosValue *var_name =
         value_new_string(node->as.for_stmt.var, strlen(node->as.for_stmt.var));
+    // Get variable index once - it's used multiple times in the loop
     size_t var_idx = add_constant(c, var_name);
     // add_constant() always takes ownership
     if (var_idx == SIZE_MAX) {
@@ -1915,19 +1881,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Store function name
     KronosValue *func_name = value_new_string(node->as.function.name,
                                               strlen(node->as.function.name));
-    size_t name_idx = add_constant(c, func_name);
-    // add_constant() always takes ownership
-    if (name_idx == SIZE_MAX) {
-      return;
-    }
-
-    // Store parameter count
-    if (name_idx > UINT16_MAX) {
-      compiler_set_error(c, "Too many constants (limit 65535)");
-      return;
-    }
     emit_byte(c, OP_DEFINE_FUNC);
-    emit_uint16(c, (uint16_t)name_idx);
+    if (!emit_constant_index(c, func_name)) {
+      return;
+    }
     if (compiler_has_error(c))
       return;
     // Validate parameter count limit (uint8_t max is 255)
@@ -1943,16 +1900,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     for (size_t i = 0; i < node->as.function.param_count; i++) {
       KronosValue *param_name = value_new_string(
           node->as.function.params[i], strlen(node->as.function.params[i]));
-      size_t param_idx = add_constant(c, param_name);
-      // add_constant() always takes ownership
-      if (param_idx == SIZE_MAX) {
+      if (!emit_constant_index(c, param_name)) {
         return;
       }
-      if (param_idx > UINT16_MAX) {
-        compiler_set_error(c, "Too many constants (limit 65535)");
-        return;
-      }
-      emit_uint16(c, (uint16_t)param_idx);
       if (compiler_has_error(c))
         return;
     }
@@ -2009,19 +1959,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Push function name
     KronosValue *func_name =
         value_new_string(node->as.call.name, strlen(node->as.call.name));
-    size_t name_idx = add_constant(c, func_name);
-    // add_constant() always takes ownership
-    if (name_idx == SIZE_MAX) {
-      return;
-    }
-
-    // Call function
-    if (name_idx > UINT16_MAX) {
-      compiler_set_error(c, "Too many constants (limit 65535)");
-      return;
-    }
     emit_byte(c, OP_CALL_FUNC);
-    emit_uint16(c, (uint16_t)name_idx);
+    if (!emit_constant_index(c, func_name)) {
+      return;
+    }
     if (compiler_has_error(c))
       return;
     // Validate argument count limit (uint8_t max is 255)
@@ -2063,13 +2004,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       compiler_set_error(c, "Failed to create module name constant");
       return;
     }
-    size_t module_name_idx = add_constant(c, module_name_val);
-    // add_constant() always takes ownership
-    if (module_name_idx == SIZE_MAX || module_name_idx > UINT16_MAX) {
+    if (!emit_constant_index(c, module_name_val)) {
       compiler_set_error(c, "Failed to add module name constant");
       return;
     }
-    emit_uint16(c, (uint16_t)module_name_idx);
 
     // Add file path to constant pool and emit index (nil for built-in modules)
     KronosValue *file_path_val = NULL;
@@ -2088,13 +2026,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
         return;
       }
     }
-    size_t file_path_idx = add_constant(c, file_path_val);
-    // add_constant() always takes ownership
-    if (file_path_idx == SIZE_MAX || file_path_idx > UINT16_MAX) {
+    if (!emit_constant_index(c, file_path_val)) {
       compiler_set_error(c, "Failed to add file path constant");
       return;
     }
-    emit_uint16(c, (uint16_t)file_path_idx);
 
     break;
   }
