@@ -8,6 +8,7 @@
  */
 
 #include "gc.h"
+#include <assert.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -41,13 +42,23 @@ typedef struct {
 #define INITIAL_TRACKED_CAPACITY 64
 
 /**
- * Garbage collector state
- * Tracks all allocated KronosValue objects for leak detection and statistics
+ * Hash set entry for tracking objects
+ * Uses open addressing with linear probing
  */
 typedef struct {
-  KronosValue **objects;  /**< Array of tracked object pointers */
+  KronosValue *object; /**< Tracked object pointer (NULL if empty slot) */
+  bool is_tombstone;   /**< True if slot was deleted (for open addressing) */
+} GCHashEntry;
+
+/**
+ * Garbage collector state
+ * Tracks all allocated KronosValue objects for leak detection and statistics
+ * Uses a hash set for O(1) track/untrack operations
+ */
+typedef struct {
+  GCHashEntry *entries;   /**< Hash table entries (open addressing) */
   size_t count;           /**< Number of currently tracked objects */
-  size_t capacity;        /**< Capacity of the objects array */
+  size_t capacity;        /**< Capacity of the hash table */
   size_t allocated_bytes; /**< Total bytes allocated (approximate) */
 } GCState;
 
@@ -60,48 +71,148 @@ static pthread_mutex_t gc_mutex;
 /** Track whether mutex has been initialized */
 static bool gc_mutex_initialized = false;
 
-static void gc_abort_allocation(void) {
+/**
+ * @brief Report allocation failure
+ *
+ * Logs an error message. Used when allocation fails.
+ * Does not abort - caller should handle the error.
+ */
+static void gc_report_allocation_failure(void) {
   fprintf(stderr,
-          "Fatal: Failed to grow GC tracking table (current count: %zu, "
+          "Error: Failed to grow GC tracking table (current count: %zu, "
           "capacity: %zu)\n",
           gc_state.count, gc_state.capacity);
   fflush(stderr);
-  pthread_mutex_unlock(&gc_mutex);
-  abort();
-}
-
-static void gc_ensure_capacity_locked(size_t min_capacity) {
-  if (gc_state.capacity >= min_capacity)
-    return;
-
-  size_t new_capacity =
-      gc_state.capacity ? gc_state.capacity : INITIAL_TRACKED_CAPACITY;
-
-  while (new_capacity < min_capacity) {
-    if (new_capacity > SIZE_MAX / 2) {
-      gc_abort_allocation();
-    }
-    new_capacity *= 2;
-  }
-
-  KronosValue **new_objects =
-      realloc(gc_state.objects, new_capacity * sizeof(KronosValue *));
-  if (!new_objects) {
-    gc_abort_allocation();
-  }
-
-  memset(new_objects + gc_state.capacity, 0,
-         (new_capacity - gc_state.capacity) * sizeof(KronosValue *));
-
-  gc_state.objects = new_objects;
-  gc_state.capacity = new_capacity;
 }
 
 /**
- * @brief Shrink the objects array if it's significantly underutilized
+ * @brief Hash function for object pointers
  *
- * Shrinks the array when count < capacity / 4 and capacity >
- * INITIAL_TRACKED_CAPACITY. This prevents the array from staying large after
+ * Uses pointer address as hash key. Simple multiplicative hash.
+ */
+static size_t gc_hash_pointer(KronosValue *ptr) {
+  uintptr_t addr = (uintptr_t)ptr;
+  // Multiply by a large prime and shift
+  return (size_t)(addr * 2654435761u);
+}
+
+/**
+ * @brief Find slot for an object in the hash table
+ *
+ * Returns the index where the object should be stored or is stored.
+ * Uses linear probing for collision resolution.
+ *
+ * @param object Object pointer to find
+ * @param insert If true, find empty slot for insertion; if false, find existing
+ * entry
+ * @return Index of slot, or SIZE_MAX if not found (when insert=false)
+ */
+static size_t gc_find_slot_locked(KronosValue *object, bool insert) {
+  if (gc_state.capacity == 0)
+    return SIZE_MAX;
+
+  size_t hash = gc_hash_pointer(object);
+  size_t start_idx = hash % gc_state.capacity;
+  size_t idx = start_idx;
+  size_t first_tombstone = SIZE_MAX;
+
+  // Linear probing
+  while (true) {
+    GCHashEntry *entry = &gc_state.entries[idx];
+
+    if (entry->object == NULL) {
+      // Empty slot found
+      if (insert) {
+        // Return first tombstone if found, otherwise this empty slot
+        return (first_tombstone != SIZE_MAX) ? first_tombstone : idx;
+      } else {
+        // Not found
+        return SIZE_MAX;
+      }
+    }
+
+    if (entry->object == object && !entry->is_tombstone) {
+      // Found the object
+      return idx;
+    }
+
+    if (entry->is_tombstone && first_tombstone == SIZE_MAX) {
+      // Remember first tombstone for potential reuse
+      first_tombstone = idx;
+    }
+
+    // Move to next slot (linear probing)
+    idx = (idx + 1) % gc_state.capacity;
+    if (idx == start_idx) {
+      // Wrapped around - table is full (shouldn't happen if we maintain load
+      // factor)
+      if (insert) {
+        return (first_tombstone != SIZE_MAX) ? first_tombstone : SIZE_MAX;
+      } else {
+        return SIZE_MAX;
+      }
+    }
+  }
+}
+
+/**
+ * @brief Ensure hash table has sufficient capacity
+ *
+ * Grows the hash table when load factor exceeds 75%.
+ * Rehashes all entries after growth.
+ *
+ * @return true on success, false on allocation failure
+ */
+static bool gc_ensure_capacity_locked(void) {
+  // Grow when load factor > 75%
+  if (gc_state.capacity == 0 || (gc_state.count * 4 > gc_state.capacity * 3)) {
+    size_t old_capacity = gc_state.capacity;
+    size_t new_capacity =
+        old_capacity == 0 ? INITIAL_TRACKED_CAPACITY : old_capacity * 2;
+
+    // Check for overflow
+    if (new_capacity > SIZE_MAX / 2) {
+      gc_report_allocation_failure();
+      return false;
+    }
+
+    GCHashEntry *old_entries = gc_state.entries;
+    GCHashEntry *new_entries = calloc(new_capacity, sizeof(GCHashEntry));
+    if (!new_entries) {
+      gc_report_allocation_failure();
+      return false;
+    }
+
+    // Rehash all existing entries
+    if (old_entries) {
+      for (size_t i = 0; i < old_capacity; i++) {
+        if (old_entries[i].object && !old_entries[i].is_tombstone) {
+          size_t hash = gc_hash_pointer(old_entries[i].object);
+          size_t idx = hash % new_capacity;
+
+          // Linear probing to find empty slot
+          while (new_entries[idx].object != NULL) {
+            idx = (idx + 1) % new_capacity;
+          }
+
+          new_entries[idx].object = old_entries[i].object;
+          new_entries[idx].is_tombstone = false;
+        }
+      }
+      free(old_entries);
+    }
+
+    gc_state.entries = new_entries;
+    gc_state.capacity = new_capacity;
+  }
+  return true;
+}
+
+/**
+ * @brief Shrink the hash table if it's significantly underutilized
+ *
+ * Shrinks the hash table when count < capacity / 4 and capacity >
+ * INITIAL_TRACKED_CAPACITY. This prevents the table from staying large after
  * many deallocations. Must be called with gc_mutex locked.
  */
 static void gc_shrink_if_needed_locked(void) {
@@ -117,14 +228,30 @@ static void gc_shrink_if_needed_locked(void) {
       new_capacity = INITIAL_TRACKED_CAPACITY;
     }
 
-    KronosValue **new_objects =
-        realloc(gc_state.objects, new_capacity * sizeof(KronosValue *));
-    if (new_objects) {
-      // Only update if realloc succeeded (if it fails, keep old capacity)
-      gc_state.objects = new_objects;
+    GCHashEntry *old_entries = gc_state.entries;
+    GCHashEntry *new_entries = calloc(new_capacity, sizeof(GCHashEntry));
+    if (new_entries) {
+      // Rehash all existing entries
+      size_t old_capacity = gc_state.capacity;
+      for (size_t i = 0; i < old_capacity; i++) {
+        if (old_entries[i].object && !old_entries[i].is_tombstone) {
+          size_t hash = gc_hash_pointer(old_entries[i].object);
+          size_t idx = hash % new_capacity;
+
+          // Linear probing to find empty slot
+          while (new_entries[idx].object != NULL) {
+            idx = (idx + 1) % new_capacity;
+          }
+
+          new_entries[idx].object = old_entries[i].object;
+          new_entries[idx].is_tombstone = false;
+        }
+      }
+      free(old_entries);
+      gc_state.entries = new_entries;
       gc_state.capacity = new_capacity;
     }
-    // If realloc fails, we keep the larger capacity (not a fatal error)
+    // If calloc fails, we keep the larger capacity (not a fatal error)
   }
 }
 
@@ -146,11 +273,11 @@ void gc_init(void) {
 
   pthread_mutex_lock(&gc_mutex);
   // Free any previously allocated memory if gc_init is called multiple times
-  if (gc_state.objects && gc_state.count > 0) {
-    // Save objects and count before clearing state
-    KronosValue **objects = gc_state.objects;
-    size_t count = gc_state.count;
-    gc_state.objects = NULL;
+  if (gc_state.entries && gc_state.count > 0) {
+    // Save entries and capacity before clearing state
+    GCHashEntry *entries = gc_state.entries;
+    size_t capacity = gc_state.capacity;
+    gc_state.entries = NULL;
     gc_state.count = 0;
     gc_state.capacity = 0;
     gc_state.allocated_bytes = 0;
@@ -158,24 +285,31 @@ void gc_init(void) {
 
     // Finalize all tracked objects (similar to gc_cleanup)
     // Only finalize objects with refcount == 1 (only GC tracking reference)
-    for (size_t i = 0; i < count; i++) {
-      KronosValue *obj = objects[i];
-      if (obj && obj->refcount == 1) {
-        value_finalize(obj);
+    for (size_t i = 0; i < capacity; i++) {
+      if (entries[i].object && !entries[i].is_tombstone) {
+        KronosValue *obj = entries[i].object;
+        if (obj->refcount == 1) {
+          value_finalize(obj);
+        }
       }
     }
-    free(objects);
+    free(entries);
 
     // Re-acquire mutex for initialization
     pthread_mutex_lock(&gc_mutex);
-  } else if (gc_state.objects) {
-    // Array exists but is empty, just free it
-    free(gc_state.objects);
-    // Note: No need to set gc_state.objects = NULL here since memset follows
+  } else if (gc_state.entries) {
+    // Hash table exists but is empty, just free it
+    free(gc_state.entries);
+    // Note: No need to set gc_state.entries = NULL here since memset follows
   }
 
   memset(&gc_state, 0, sizeof(GCState));
-  gc_ensure_capacity_locked(INITIAL_TRACKED_CAPACITY);
+  if (!gc_ensure_capacity_locked()) {
+    // Allocation failed during init - this is fatal
+    fprintf(stderr, "Fatal: Failed to initialize GC tracking table\n");
+    pthread_mutex_unlock(&gc_mutex);
+    abort(); // Init failure is fatal
+  }
   pthread_mutex_unlock(&gc_mutex);
 }
 
@@ -187,31 +321,34 @@ void gc_init(void) {
  */
 void gc_cleanup(void) {
   pthread_mutex_lock(&gc_mutex);
-  KronosValue **objects = gc_state.objects;
-  size_t count = gc_state.count;
-  gc_state.objects = NULL;
+  GCHashEntry *entries = gc_state.entries;
+  size_t capacity = gc_state.capacity;
+  gc_state.entries = NULL;
   gc_state.count = 0;
   gc_state.capacity = 0;
   gc_state.allocated_bytes = 0;
   pthread_mutex_unlock(&gc_mutex);
 
-  if (!objects)
+  if (!entries)
     return;
 
   // Finalize all objects without releasing children to avoid use-after-free.
-  // Children will be finalized separately when we encounter them in the array.
-  // Only finalize objects with refcount == 1 (only GC tracking reference).
-  // Objects with refcount > 1 have external references and should not be freed.
-  for (size_t i = 0; i < count; i++) {
-    KronosValue *obj = objects[i];
-    if (obj && obj->refcount == 1) {
-      // Only GC tracking reference, safe to finalize
-      // Objects with refcount > 1 have external references and will be
-      // cleaned up naturally when their refcount reaches 0
-      value_finalize(obj);
+  // Children will be finalized separately when we encounter them in the hash
+  // table. Only finalize objects with refcount == 1 (only GC tracking
+  // reference). Objects with refcount > 1 have external references and should
+  // not be freed.
+  for (size_t i = 0; i < capacity; i++) {
+    if (entries[i].object && !entries[i].is_tombstone) {
+      KronosValue *obj = entries[i].object;
+      if (obj->refcount == 1) {
+        // Only GC tracking reference, safe to finalize
+        // Objects with refcount > 1 have external references and will be
+        // cleaned up naturally when their refcount reaches 0
+        value_finalize(obj);
+      }
     }
   }
-  free(objects);
+  free(entries);
 
   // Destroy the mutex to prevent resource leak
   if (gc_mutex_initialized) {
@@ -233,18 +370,41 @@ void gc_track(KronosValue *val) {
     return;
 
   pthread_mutex_lock(&gc_mutex);
-  // Check if object is already tracked to prevent duplicates
-  for (size_t i = 0; i < gc_state.count; i++) {
-    if (gc_state.objects[i] == val) {
-      // Already tracked, skip
-      pthread_mutex_unlock(&gc_mutex);
-      return;
-    }
+
+  // Check if object is already tracked using hash set (O(1) lookup)
+  size_t idx = gc_find_slot_locked(val, false);
+  if (idx != SIZE_MAX) {
+    // Already tracked, skip
+#ifdef DEBUG
+    // In debug builds, this indicates a bug (double-tracking)
+    fprintf(stderr, "Warning: gc_track() called on already-tracked object %p\n",
+            (void *)val);
+#endif
+    pthread_mutex_unlock(&gc_mutex);
+    return;
   }
 
-  // Object not found, add it
-  gc_ensure_capacity_locked(gc_state.count + 1);
-  gc_state.objects[gc_state.count++] = val;
+  // Object not found, ensure capacity and add it
+  if (!gc_ensure_capacity_locked()) {
+    // Allocation failed - log error and return early (don't abort)
+    fprintf(stderr,
+            "Warning: gc_track() failed to allocate memory for object %p\n",
+            (void *)val);
+    pthread_mutex_unlock(&gc_mutex);
+    return;
+  }
+  idx = gc_find_slot_locked(val, true);
+  if (idx == SIZE_MAX) {
+    // Should not happen if capacity was ensured, but handle gracefully
+    fprintf(stderr, "Warning: gc_track() failed to find slot for object %p\n",
+            (void *)val);
+    pthread_mutex_unlock(&gc_mutex);
+    return;
+  }
+
+  gc_state.entries[idx].object = val;
+  gc_state.entries[idx].is_tombstone = false;
+  gc_state.count++;
   gc_state.allocated_bytes += sizeof(KronosValue);
 
   // Add size of type-specific data
@@ -294,53 +454,61 @@ void gc_untrack(KronosValue *val) {
     return;
 
   pthread_mutex_lock(&gc_mutex);
-  for (size_t i = 0; i < gc_state.count; i++) {
-    if (gc_state.objects[i] == val) {
-      // Subtract from allocated bytes
-      gc_state.allocated_bytes -= sizeof(KronosValue);
 
-      // Subtract size of type-specific data
-      switch (val->type) {
-      case VAL_STRING:
-        gc_state.allocated_bytes -= val->as.string.length + 1;
-        break;
-      case VAL_LIST:
-        // Subtract list item array size
-        if (val->as.list.capacity > 0) {
-          gc_state.allocated_bytes -=
-              val->as.list.capacity * sizeof(KronosValue *);
-        }
-        break;
-      case VAL_MAP: {
-        // Subtract map entries array size
-        if (val->as.map.capacity > 0) {
-          gc_state.allocated_bytes -=
-              val->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
-        }
-        break;
-      }
-      case VAL_FUNCTION:
-        // Subtract function bytecode buffer size
-        if (val->as.function.bytecode && val->as.function.length > 0) {
-          gc_state.allocated_bytes -= val->as.function.length;
-        }
-        break;
-      default:
-        break;
-      }
-
-      // Remove from array by swapping with last element (O(1) instead of O(n))
-      gc_state.objects[i] = gc_state.objects[gc_state.count - 1];
-      gc_state.objects[gc_state.count - 1] = NULL;
-      gc_state.count--;
-
-      // Shrink array if significantly underutilized
-      gc_shrink_if_needed_locked();
-
-      pthread_mutex_unlock(&gc_mutex);
-      return;
-    }
+  // Find object in hash set (O(1) average case)
+  size_t idx = gc_find_slot_locked(val, false);
+  if (idx == SIZE_MAX) {
+#ifdef DEBUG
+    // Assert: object should be tracked (catch use-after-free or double-untrack)
+    fprintf(stderr,
+            "Warning: gc_untrack() called on untracked object %p (possible "
+            "use-after-free or double-untrack)\n",
+            (void *)val);
+#endif
+    pthread_mutex_unlock(&gc_mutex);
+    return;
   }
+
+  // Subtract from allocated bytes
+  gc_state.allocated_bytes -= sizeof(KronosValue);
+
+  // Subtract size of type-specific data
+  switch (val->type) {
+  case VAL_STRING:
+    gc_state.allocated_bytes -= val->as.string.length + 1;
+    break;
+  case VAL_LIST:
+    // Subtract list item array size
+    if (val->as.list.capacity > 0) {
+      gc_state.allocated_bytes -= val->as.list.capacity * sizeof(KronosValue *);
+    }
+    break;
+  case VAL_MAP: {
+    // Subtract map entries array size
+    if (val->as.map.capacity > 0) {
+      gc_state.allocated_bytes -=
+          val->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
+    }
+    break;
+  }
+  case VAL_FUNCTION:
+    // Subtract function bytecode buffer size
+    if (val->as.function.bytecode && val->as.function.length > 0) {
+      gc_state.allocated_bytes -= val->as.function.length;
+    }
+    break;
+  default:
+    break;
+  }
+
+  // Remove from hash set by marking as tombstone (O(1))
+  gc_state.entries[idx].object = NULL;
+  gc_state.entries[idx].is_tombstone = true;
+  gc_state.count--;
+
+  // Shrink hash table if significantly underutilized
+  gc_shrink_if_needed_locked();
+
   pthread_mutex_unlock(&gc_mutex);
 }
 
@@ -351,26 +519,39 @@ void gc_untrack(KronosValue *val) {
  * reachable from the given object.
  *
  * @param val Object to start marking from
- * @param marked Array of booleans indicating which objects are marked
- * @param object_count Number of tracked objects
- * @param objects Array of tracked objects
+ * @param marked Hash table mapping object pointers to marked status
+ * @param capacity Capacity of the hash table
+ * @param entries Hash table entries
  */
-static void gc_mark_reachable(KronosValue *val, bool *marked,
-                              size_t object_count, KronosValue **objects) {
+static void gc_mark_reachable(KronosValue *val, bool *marked, size_t capacity,
+                              GCHashEntry *entries) {
   if (!val)
     return;
 
-  // Find index of this object in the tracked objects array
-  size_t idx = SIZE_MAX;
-  for (size_t i = 0; i < object_count; i++) {
-    if (objects[i] == val) {
-      idx = i;
+  // Find index of this object in the hash table
+  size_t hash = gc_hash_pointer(val);
+  size_t start_idx = hash % capacity;
+  size_t idx = start_idx;
+
+  // Linear probing to find the object
+  while (true) {
+    if (entries[idx].object == val && !entries[idx].is_tombstone) {
+      // Found the object
       break;
+    }
+    if (entries[idx].object == NULL) {
+      // Not tracked
+      return;
+    }
+    idx = (idx + 1) % capacity;
+    if (idx == start_idx) {
+      // Wrapped around, not found
+      return;
     }
   }
 
-  // If not tracked or already marked, return
-  if (idx == SIZE_MAX || marked[idx])
+  // If already marked, return
+  if (marked[idx])
     return;
 
   // Mark this object
@@ -383,22 +564,21 @@ static void gc_mark_reachable(KronosValue *val, bool *marked,
     if (val->as.list.items) {
       for (size_t i = 0; i < val->as.list.count; i++) {
         if (val->as.list.items[i]) {
-          gc_mark_reachable(val->as.list.items[i], marked, object_count,
-                            objects);
+          gc_mark_reachable(val->as.list.items[i], marked, capacity, entries);
         }
       }
     }
     break;
   case VAL_MAP: {
     // Mark all keys and values in the map
-    MapEntry *entries = (MapEntry *)val->as.map.entries;
-    if (entries) {
+    MapEntry *map_entries = (MapEntry *)val->as.map.entries;
+    if (map_entries) {
       for (size_t i = 0; i < val->as.map.capacity; i++) {
-        if (entries[i].key && !entries[i].is_tombstone) {
-          gc_mark_reachable(entries[i].key, marked, object_count, objects);
+        if (map_entries[i].key && !map_entries[i].is_tombstone) {
+          gc_mark_reachable(map_entries[i].key, marked, capacity, entries);
         }
-        if (entries[i].value) {
-          gc_mark_reachable(entries[i].value, marked, object_count, objects);
+        if (map_entries[i].value) {
+          gc_mark_reachable(map_entries[i].value, marked, capacity, entries);
         }
       }
     }
@@ -422,76 +602,82 @@ static void gc_mark_reachable(KronosValue *val, bool *marked,
 void gc_collect_cycles(void) {
   pthread_mutex_lock(&gc_mutex);
 
-  if (gc_state.count == 0) {
+  if (gc_state.count == 0 || gc_state.capacity == 0) {
     pthread_mutex_unlock(&gc_mutex);
     return;
   }
 
-  // Allocate mark array
-  bool *marked = calloc(gc_state.count, sizeof(bool));
+  // Allocate array to track which objects are marked (indexed by hash table
+  // slot)
+  bool *marked = calloc(gc_state.capacity, sizeof(bool));
   if (!marked) {
     pthread_mutex_unlock(&gc_mutex);
-    return; // Out of memory, skip cycle collection
+    return; // Can't allocate, skip cycle collection
   }
 
-  // Mark phase: Mark all objects reachable from roots (refcount > 1)
-  for (size_t i = 0; i < gc_state.count; i++) {
-    KronosValue *obj = gc_state.objects[i];
-    if (obj && obj->refcount > 1) {
-      // This object has external references, mark it and all reachable objects
-      gc_mark_reachable(obj, marked, gc_state.count, gc_state.objects);
+  // Mark phase: Mark all objects reachable from roots (objects with refcount >
+  // 1)
+  for (size_t i = 0; i < gc_state.capacity; i++) {
+    if (gc_state.entries[i].object && !gc_state.entries[i].is_tombstone) {
+      KronosValue *obj = gc_state.entries[i].object;
+      if (obj->refcount > 1) {
+        // This object has external references, mark it and all reachable
+        // objects
+        gc_mark_reachable(obj, marked, gc_state.capacity, gc_state.entries);
+      }
     }
   }
 
   // Sweep phase: Free unmarked objects (they're part of cycles)
-  // Iterate backwards to safely remove elements
-  for (size_t i = gc_state.count; i > 0; i--) {
-    size_t idx = i - 1;
-    KronosValue *obj = gc_state.objects[idx];
-    if (obj && !marked[idx] && obj->refcount > 0) {
-      // Unmarked object with refcount > 0 is part of a cycle
-      // Decrement refcount and free if it reaches 0
-      // Note: We can't use value_release() here because it would try to
-      // untrack, which modifies the array we're iterating. Instead, we
-      // manually decrement refcount and finalize.
-      obj->refcount--;
-      if (obj->refcount == 0) {
-        // Remove from tracking array first
-        gc_state.objects[idx] = gc_state.objects[gc_state.count - 1];
-        gc_state.objects[gc_state.count - 1] = NULL;
-        gc_state.count--;
+  // Iterate through hash table
+  for (size_t i = 0; i < gc_state.capacity; i++) {
+    if (gc_state.entries[i].object && !gc_state.entries[i].is_tombstone) {
+      KronosValue *obj = gc_state.entries[i].object;
+      if (!marked[i] && obj->refcount > 0) {
+        // Unmarked object with refcount > 0 is part of a cycle
+        // Decrement refcount and free if it reaches 0
+        // Note: We can't use value_release() here because it would try to
+        // untrack, which modifies the hash table we're iterating. Instead, we
+        // manually decrement refcount and finalize.
+        obj->refcount--;
+        if (obj->refcount == 0) {
+          // Remove from hash table by marking as tombstone
+          gc_state.entries[i].object = NULL;
+          gc_state.entries[i].is_tombstone = true;
+          gc_state.count--;
 
-        // Update allocated bytes
-        gc_state.allocated_bytes -= sizeof(KronosValue);
-        switch (obj->type) {
-        case VAL_STRING:
-          gc_state.allocated_bytes -= obj->as.string.length + 1;
-          break;
-        case VAL_LIST:
-          if (obj->as.list.capacity > 0) {
-            gc_state.allocated_bytes -=
-                obj->as.list.capacity * sizeof(KronosValue *);
+          // Update allocated bytes
+          gc_state.allocated_bytes -= sizeof(KronosValue);
+          switch (obj->type) {
+          case VAL_STRING:
+            gc_state.allocated_bytes -= obj->as.string.length + 1;
+            break;
+          case VAL_LIST:
+            if (obj->as.list.capacity > 0) {
+              gc_state.allocated_bytes -=
+                  obj->as.list.capacity * sizeof(KronosValue *);
+            }
+            break;
+          case VAL_MAP:
+            if (obj->as.map.capacity > 0) {
+              gc_state.allocated_bytes -=
+                  obj->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
+            }
+            break;
+          case VAL_FUNCTION:
+            if (obj->as.function.bytecode && obj->as.function.length > 0) {
+              gc_state.allocated_bytes -= obj->as.function.length;
+            }
+            break;
+          default:
+            break;
           }
-          break;
-        case VAL_MAP:
-          if (obj->as.map.capacity > 0) {
-            gc_state.allocated_bytes -=
-                obj->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
-          }
-          break;
-        case VAL_FUNCTION:
-          if (obj->as.function.bytecode && obj->as.function.length > 0) {
-            gc_state.allocated_bytes -= obj->as.function.length;
-          }
-          break;
-        default:
-          break;
+
+          // Unlock mutex before finalizing (value_finalize may need GC)
+          pthread_mutex_unlock(&gc_mutex);
+          value_finalize(obj);
+          pthread_mutex_lock(&gc_mutex);
         }
-
-        // Unlock mutex before finalizing (value_finalize may need GC)
-        pthread_mutex_unlock(&gc_mutex);
-        value_finalize(obj);
-        pthread_mutex_lock(&gc_mutex);
       }
     }
   }
@@ -527,4 +713,27 @@ size_t gc_get_object_count(void) {
   size_t count = gc_state.count;
   pthread_mutex_unlock(&gc_mutex);
   return count;
+}
+
+/**
+ * @brief Get detailed GC statistics
+ *
+ * Returns comprehensive statistics about the garbage collector state.
+ * Useful for debugging memory issues and monitoring memory usage.
+ *
+ * @param stats Pointer to GCStats structure to fill (must not be NULL)
+ */
+void gc_stats(GCStats *stats) {
+  if (!stats)
+    return;
+
+  pthread_mutex_lock(&gc_mutex);
+  stats->object_count = gc_state.count;
+  stats->allocated_bytes = gc_state.allocated_bytes;
+  stats->array_capacity = gc_state.capacity;
+  stats->array_utilization =
+      gc_state.capacity > 0
+          ? (size_t)((gc_state.count * 100) / gc_state.capacity)
+          : 0;
+  pthread_mutex_unlock(&gc_mutex);
 }
