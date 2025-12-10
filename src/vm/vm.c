@@ -982,6 +982,56 @@ static KronosValue *pop(KronosVM *vm) {
   return val;
 }
 
+/**
+ * @brief Helper macro to pop a value and check for errors
+ *
+ * Pops a value from the stack and checks if it's NULL. If NULL, returns
+ * an error immediately. This reduces boilerplate in opcode handlers.
+ *
+ * Usage:
+ *   KronosValue *value;
+ *   POP_OR_RETURN(vm, value);
+ *   // value is now guaranteed to be non-NULL
+ *
+ * @param vm VM instance
+ * @param var Variable name to store the popped value
+ */
+#define POP_OR_RETURN(vm, var)                                                 \
+  do {                                                                         \
+    (var) = pop(vm);                                                           \
+    if (!(var)) {                                                              \
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);                       \
+    }                                                                          \
+  } while (0)
+
+/**
+ * @brief Helper macro to pop a value with cleanup on error
+ *
+ * Pops a value from the stack and checks if it's NULL. If NULL, executes
+ * cleanup code and returns an error. Used when popping multiple values where
+ * earlier values need cleanup on error.
+ *
+ * Usage:
+ *   KronosValue *b;
+ *   POP_OR_RETURN(vm, b);
+ *   KronosValue *a;
+ *   POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
+ *   // a and b are now guaranteed to be non-NULL
+ *
+ * @param vm VM instance
+ * @param var Variable name to store the popped value
+ * @param cleanup Code to execute before returning on error (e.g.,
+ * value_release(...))
+ */
+#define POP_OR_RETURN_WITH_CLEANUP(vm, var, cleanup)                           \
+  do {                                                                         \
+    (var) = pop(vm);                                                           \
+    if (!(var)) {                                                              \
+      cleanup;                                                                 \
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);                       \
+    }                                                                          \
+  } while (0)
+
 static KronosValue *peek(KronosVM *vm, int distance) {
   // Bounds checking: ensure distance is valid
   // Guard: distance must be >= 0 and < stack size
@@ -1427,10 +1477,8 @@ static int handle_op_store_var(KronosVM *vm) {
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Variable name constant is not a string");
   }
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+  POP_OR_RETURN(vm, value);
 
   // Read mutability flag
   uint8_t is_mutable_byte = read_byte(vm);
@@ -1471,10 +1519,8 @@ static int handle_op_store_var(KronosVM *vm) {
 }
 
 static int handle_op_print(KronosVM *vm) {
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+  POP_OR_RETURN(vm, value);
   value_fprint(stdout, value);
   printf("\n");
   value_release(value);
@@ -1482,15 +1528,10 @@ static int handle_op_print(KronosVM *vm) {
 }
 
 static int handle_op_add(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     // Numeric addition
@@ -1562,15 +1603,12 @@ static int handle_op_add(KronosVM *vm) {
 }
 
 static int handle_op_sub(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number - b->as.number);
@@ -1595,15 +1633,12 @@ static int handle_op_sub(KronosVM *vm) {
 }
 
 static int handle_op_mul(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number * b->as.number);
@@ -1628,15 +1663,12 @@ static int handle_op_mul(KronosVM *vm) {
 }
 
 static int handle_op_div(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     if (b->as.number == 0) {
@@ -1667,15 +1699,12 @@ static int handle_op_div(KronosVM *vm) {
 }
 
 static int handle_op_mod(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     if (b->as.number == 0) {
@@ -1707,10 +1736,9 @@ static int handle_op_mod(KronosVM *vm) {
 }
 
 static int handle_op_neg(KronosVM *vm) {
-  KronosValue *val = pop(vm);
-  if (!val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *val;
+
+  POP_OR_RETURN(vm, val);
 
   if (val->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(-val->as.number);
@@ -1732,15 +1760,12 @@ static int handle_op_neg(KronosVM *vm) {
 }
 
 static int handle_op_eq(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   bool result = value_equals(a, b);
   KronosValue *res = value_new_bool(result);
   if (push(vm, res) != 0) {
@@ -1756,15 +1781,12 @@ static int handle_op_eq(KronosVM *vm) {
 }
 
 static int handle_op_neq(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   bool result = !value_equals(a, b);
   KronosValue *res = value_new_bool(result);
   if (push(vm, res) != 0) {
@@ -1780,15 +1802,12 @@ static int handle_op_neq(KronosVM *vm) {
 }
 
 static int handle_op_gt(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number > b->as.number;
@@ -1814,15 +1833,12 @@ static int handle_op_gt(KronosVM *vm) {
 }
 
 static int handle_op_lt(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number < b->as.number;
@@ -1848,15 +1864,12 @@ static int handle_op_lt(KronosVM *vm) {
 }
 
 static int handle_op_gte(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number >= b->as.number;
@@ -1882,15 +1895,12 @@ static int handle_op_gte(KronosVM *vm) {
 }
 
 static int handle_op_lte(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     bool result = a->as.number <= b->as.number;
@@ -1916,15 +1926,12 @@ static int handle_op_lte(KronosVM *vm) {
 }
 
 static int handle_op_and(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   // Both operands must be truthy for AND to be true
   bool a_truthy = value_is_truthy(a);
@@ -1944,15 +1951,12 @@ static int handle_op_and(KronosVM *vm) {
 }
 
 static int handle_op_or(KronosVM *vm) {
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
 
   // At least one operand must be truthy for OR to be true
   bool a_truthy = value_is_truthy(a);
@@ -1972,10 +1976,9 @@ static int handle_op_or(KronosVM *vm) {
 }
 
 static int handle_op_not(KronosVM *vm) {
-  KronosValue *a = pop(vm);
-  if (!a) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *a;
+
+  POP_OR_RETURN(vm, a);
 
   // NOT returns the opposite of the truthiness
   bool a_truthy = value_is_truthy(a);
@@ -2029,19 +2032,17 @@ static int handle_op_jump_if_false(KronosVM *vm) {
     }
     vm->ip = new_ip;
   }
-  KronosValue *condition_val = pop(vm);
-  if (!condition_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *condition_val;
+
+  POP_OR_RETURN(vm, condition_val);
   value_release(condition_val); // Pop condition
   return 0;
 }
 
 static int handle_op_pop(KronosVM *vm) {
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+
+  POP_OR_RETURN(vm, value);
   value_release(value);
   return 0;
 }
@@ -2078,9 +2079,8 @@ static int handle_op_halt(KronosVM *vm) {
 static int builtin_read_file(KronosVM *vm, uint8_t arg_count) {
   if (arg_count != 1)
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Expected 1 argument");
-  KronosValue *path_val = pop(vm);
-  if (!path_val)
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  KronosValue *path_val;
+  POP_OR_RETURN(vm, path_val);
   if (path_val->type != VAL_STRING) {
     value_release(path_val);
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Path must be a string");
@@ -2140,15 +2140,12 @@ static int builtin_add(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'add' expects 2 arguments, got %d", arg_count);
   }
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number + b->as.number);
     if (push(vm, result) != 0) {
@@ -2176,15 +2173,12 @@ static int builtin_subtract(KronosVM *vm, uint8_t arg_count) {
                      "Function 'subtract' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number - b->as.number);
     if (push(vm, result) != 0) {
@@ -2213,15 +2207,12 @@ static int builtin_multiply(KronosVM *vm, uint8_t arg_count) {
                      "Function 'multiply' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     KronosValue *result = value_new_number(a->as.number * b->as.number);
     if (push(vm, result) != 0) {
@@ -2250,15 +2241,12 @@ static int builtin_divide(KronosVM *vm, uint8_t arg_count) {
                      "Function 'divide' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *b = pop(vm);
-  if (!b) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *a = pop(vm);
-  if (!a) {
-    value_release(b);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *b;
+
+  POP_OR_RETURN(vm, b);
+  KronosValue *a;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, a, value_release(b));
   if (a->type == VAL_NUMBER && b->type == VAL_NUMBER) {
     if (b->as.number == 0.0) {
       value_release(a);
@@ -2291,10 +2279,9 @@ static int builtin_len(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'len' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type == VAL_LIST) {
     KronosValue *result = value_new_number((double)arg->as.list.count);
     if (push(vm, result) != 0) {
@@ -2355,10 +2342,9 @@ static int builtin_uppercase(KronosVM *vm, uint8_t arg_count) {
                      "Function 'uppercase' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'uppercase' requires a string argument");
@@ -2398,10 +2384,9 @@ static int builtin_lowercase(KronosVM *vm, uint8_t arg_count) {
                      "Function 'lowercase' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'lowercase' requires a string argument");
@@ -2440,10 +2425,9 @@ static int builtin_trim(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'trim' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'trim' requires a string argument");
@@ -2494,15 +2478,12 @@ static int builtin_split(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'split' expects 2 arguments, got %d", arg_count);
   }
-  KronosValue *delim = pop(vm);
-  if (!delim) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *str = pop(vm);
-  if (!str) {
-    value_release(delim);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *delim;
+
+  POP_OR_RETURN(vm, delim);
+  KronosValue *str;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, str, value_release(delim));
   if (str->type != VAL_STRING || delim->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'split' requires two string arguments");
@@ -2670,15 +2651,12 @@ static int builtin_join(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'join' expects 2 arguments, got %d", arg_count);
   }
-  KronosValue *delim = pop(vm);
-  if (!delim) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *list = pop(vm);
-  if (!list) {
-    value_release(delim);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *delim;
+
+  POP_OR_RETURN(vm, delim);
+  KronosValue *list;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, list, value_release(delim));
   if (list->type != VAL_LIST || delim->type != VAL_STRING) {
     int err =
         vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -2749,10 +2727,9 @@ static int builtin_to_string(KronosVM *vm, uint8_t arg_count) {
                      "Function 'to_string' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
 
   char *str_buf = NULL;
   size_t str_len = 0;
@@ -2834,15 +2811,12 @@ static int builtin_contains(KronosVM *vm, uint8_t arg_count) {
                      "Function 'contains' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *substring = pop(vm);
-  if (!substring) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *str = pop(vm);
-  if (!str) {
-    value_release(substring);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *substring;
+
+  POP_OR_RETURN(vm, substring);
+  KronosValue *str;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, str, value_release(substring));
   if (str->type != VAL_STRING || substring->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'contains' requires two string arguments");
@@ -2872,15 +2846,12 @@ static int builtin_starts_with(KronosVM *vm, uint8_t arg_count) {
                      "Function 'starts_with' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *prefix = pop(vm);
-  if (!prefix) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *str = pop(vm);
-  if (!str) {
-    value_release(prefix);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *prefix;
+
+  POP_OR_RETURN(vm, prefix);
+  KronosValue *str;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, str, value_release(prefix));
   if (str->type != VAL_STRING || prefix->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'starts_with' requires two string arguments");
@@ -2913,15 +2884,12 @@ static int builtin_ends_with(KronosVM *vm, uint8_t arg_count) {
                      "Function 'ends_with' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *suffix = pop(vm);
-  if (!suffix) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *str = pop(vm);
-  if (!str) {
-    value_release(suffix);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *suffix;
+
+  POP_OR_RETURN(vm, suffix);
+  KronosValue *str;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, str, value_release(suffix));
   if (str->type != VAL_STRING || suffix->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'ends_with' requires two string arguments");
@@ -2955,21 +2923,15 @@ static int builtin_replace(KronosVM *vm, uint8_t arg_count) {
                      "Function 'replace' expects 3 arguments, got %d",
                      arg_count);
   }
-  KronosValue *new_str = pop(vm);
-  if (!new_str) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *old_str = pop(vm);
-  if (!old_str) {
-    value_release(new_str);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *str = pop(vm);
-  if (!str) {
-    value_release(old_str);
-    value_release(new_str);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *new_str;
+
+  POP_OR_RETURN(vm, new_str);
+  KronosValue *old_str;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, old_str, value_release(new_str));
+  KronosValue *str;
+  POP_OR_RETURN_WITH_CLEANUP(vm, str, value_release(old_str);
+                             value_release(new_str));
   if (str->type != VAL_STRING || old_str->type != VAL_STRING ||
       new_str->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -3091,10 +3053,9 @@ static int builtin_sqrt(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'sqrt' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'sqrt' requires a number argument");
@@ -3123,15 +3084,12 @@ static int builtin_power(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'power' expects 2 arguments, got %d", arg_count);
   }
-  KronosValue *exponent = pop(vm);
-  if (!exponent) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *base = pop(vm);
-  if (!base) {
-    value_release(exponent);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *exponent;
+
+  POP_OR_RETURN(vm, exponent);
+  KronosValue *base;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, base, value_release(exponent));
   if (base->type != VAL_NUMBER || exponent->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'power' requires two number arguments");
@@ -3158,10 +3116,9 @@ static int builtin_abs(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'abs' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'abs' requires a number argument");
@@ -3184,10 +3141,9 @@ static int builtin_round(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'round' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'round' requires a number argument");
@@ -3210,10 +3166,9 @@ static int builtin_floor(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'floor' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'floor' requires a number argument");
@@ -3236,10 +3191,9 @@ static int builtin_ceil(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'ceil' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_NUMBER) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'ceil' requires a number argument");
@@ -3401,10 +3355,9 @@ static int builtin_to_number(KronosVM *vm, uint8_t arg_count) {
                      "Function 'to_number' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
 
   if (arg->type == VAL_NUMBER) {
     // Already a number, just return it
@@ -3449,10 +3402,9 @@ static int builtin_to_bool(KronosVM *vm, uint8_t arg_count) {
                      "Function 'to_bool' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
 
   bool bool_val = false;
   if (arg->type == VAL_BOOL) {
@@ -3485,10 +3437,9 @@ static int builtin_reverse(KronosVM *vm, uint8_t arg_count) {
                      "Function 'reverse' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_LIST) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'reverse' requires a list argument");
@@ -3535,10 +3486,9 @@ static int builtin_sort(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function 'sort' expects 1 argument, got %d", arg_count);
   }
-  KronosValue *arg = pop(vm);
-  if (!arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *arg;
+
+  POP_OR_RETURN(vm, arg);
   if (arg->type != VAL_LIST) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'sort' requires a list argument");
@@ -3617,15 +3567,12 @@ static int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
                      "Function 'write_file' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *content_arg = pop(vm);
-  if (!content_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    value_release(content_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *content_arg;
+
+  POP_OR_RETURN(vm, content_arg);
+  KronosValue *path_arg;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, path_arg, value_release(content_arg));
   if (path_arg->type != VAL_STRING || content_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'write_file' requires two string arguments");
@@ -3677,10 +3624,9 @@ static int builtin_read_lines(KronosVM *vm, uint8_t arg_count) {
                      "Function 'read_lines' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path_arg;
+
+  POP_OR_RETURN(vm, path_arg);
   if (path_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'read_lines' requires a string argument");
@@ -3763,10 +3709,9 @@ static int builtin_file_exists(KronosVM *vm, uint8_t arg_count) {
                      "Function 'file_exists' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path_arg;
+
+  POP_OR_RETURN(vm, path_arg);
   if (path_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'file_exists' requires a string argument");
@@ -3793,10 +3738,9 @@ static int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
                      "Function 'list_files' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path_arg;
+
+  POP_OR_RETURN(vm, path_arg);
   if (path_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'list_files' requires a string argument");
@@ -3873,15 +3817,12 @@ static int builtin_join_path(KronosVM *vm, uint8_t arg_count) {
                      "Function 'join_path' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *path2_arg = pop(vm);
-  if (!path2_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *path1_arg = pop(vm);
-  if (!path1_arg) {
-    value_release(path2_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path2_arg;
+
+  POP_OR_RETURN(vm, path2_arg);
+  KronosValue *path1_arg;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, path1_arg, value_release(path2_arg));
   if (path1_arg->type != VAL_STRING || path2_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'join_path' requires two string arguments");
@@ -3941,10 +3882,9 @@ static int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
                      "Function 'dirname' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path_arg;
+
+  POP_OR_RETURN(vm, path_arg);
   if (path_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'dirname' requires a string argument");
@@ -4014,10 +3954,9 @@ static int builtin_basename(KronosVM *vm, uint8_t arg_count) {
                      "Function 'basename' expects 1 argument, got %d",
                      arg_count);
   }
-  KronosValue *path_arg = pop(vm);
-  if (!path_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *path_arg;
+
+  POP_OR_RETURN(vm, path_arg);
   if (path_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'basename' requires a string argument");
@@ -4070,15 +4009,12 @@ static int builtin_regex_match(KronosVM *vm, uint8_t arg_count) {
                      "Function 'regex.match' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *pattern_arg = pop(vm);
-  if (!pattern_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *string_arg = pop(vm);
-  if (!string_arg) {
-    value_release(pattern_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *pattern_arg;
+
+  POP_OR_RETURN(vm, pattern_arg);
+  KronosValue *string_arg;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, string_arg, value_release(pattern_arg));
   if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'regex.match' requires string arguments");
@@ -4124,15 +4060,12 @@ static int builtin_regex_search(KronosVM *vm, uint8_t arg_count) {
                      "Function 'regex.search' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *pattern_arg = pop(vm);
-  if (!pattern_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *string_arg = pop(vm);
-  if (!string_arg) {
-    value_release(pattern_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *pattern_arg;
+
+  POP_OR_RETURN(vm, pattern_arg);
+  KronosValue *string_arg;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, string_arg, value_release(pattern_arg));
   if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'regex.search' requires string arguments");
@@ -4194,15 +4127,12 @@ static int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
                      "Function 'regex.findall' expects 2 arguments, got %d",
                      arg_count);
   }
-  KronosValue *pattern_arg = pop(vm);
-  if (!pattern_arg) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *string_arg = pop(vm);
-  if (!string_arg) {
-    value_release(pattern_arg);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *pattern_arg;
+
+  POP_OR_RETURN(vm, pattern_arg);
+  KronosValue *string_arg;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, string_arg, value_release(pattern_arg));
   if (pattern_arg->type != VAL_STRING || string_arg->type != VAL_STRING) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Function 'regex.findall' requires string arguments");
@@ -4577,21 +4507,15 @@ static int handle_op_call_func(KronosVM *vm) {
 static int handle_op_range_new(KronosVM *vm) {
   // Stack: [start, end, step]
   // Pop step, end, start and create range
-  KronosValue *step_val = pop(vm);
-  if (!step_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *end_val = pop(vm);
-  if (!end_val) {
-    value_release(step_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *start_val = pop(vm);
-  if (!start_val) {
-    value_release(step_val);
-    value_release(end_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *step_val;
+
+  POP_OR_RETURN(vm, step_val);
+  KronosValue *end_val;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, end_val, value_release(step_val));
+  KronosValue *start_val;
+  POP_OR_RETURN_WITH_CLEANUP(vm, start_val, value_release(step_val);
+                             value_release(end_val));
 
   // All must be numbers
   if (start_val->type != VAL_NUMBER || end_val->type != VAL_NUMBER ||
@@ -4627,15 +4551,12 @@ static int handle_op_range_new(KronosVM *vm) {
 }
 
 static int handle_op_list_append(KronosVM *vm) {
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *list = pop(vm);
-  if (!list) {
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+
+  POP_OR_RETURN(vm, value);
+  KronosValue *list;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, list, value_release(value));
 
   if (list->type != VAL_LIST) {
     value_release(value);
@@ -4697,21 +4618,14 @@ static int handle_op_map_new(KronosVM *vm) {
 
 static int handle_op_map_set(KronosVM *vm) {
   // Stack: [map, key, value]
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *key = pop(vm);
-  if (!key) {
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *map = pop(vm);
-  if (!map) {
-    value_release(key);
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+
+  POP_OR_RETURN(vm, value);
+  KronosValue *key;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, key, value_release(value));
+  KronosValue *map;
+  POP_OR_RETURN_WITH_CLEANUP(vm, map, value_release(key); value_release(value));
 
   if (map->type != VAL_MAP) {
     value_release(key);
@@ -4738,15 +4652,12 @@ static int handle_op_map_set(KronosVM *vm) {
 }
 
 static int handle_op_list_get(KronosVM *vm) {
-  KronosValue *index_val = pop(vm);
-  if (!index_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *container = pop(vm);
-  if (!container) {
-    value_release(index_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *index_val;
+
+  POP_OR_RETURN(vm, index_val);
+  KronosValue *container;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, container, value_release(index_val));
 
   // Handle maps first (they accept any key type)
   if (container->type == VAL_MAP) {
@@ -4896,21 +4807,15 @@ static int handle_op_list_get(KronosVM *vm) {
 
 static int handle_op_list_set(KronosVM *vm) {
   // Stack: [list, index, value]
-  KronosValue *value = pop(vm);
-  if (!value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *index_val = pop(vm);
-  if (!index_val) {
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *list = pop(vm);
-  if (!list) {
-    value_release(index_val);
-    value_release(value);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *value;
+
+  POP_OR_RETURN(vm, value);
+  KronosValue *index_val;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, index_val, value_release(value));
+  KronosValue *list;
+  POP_OR_RETURN_WITH_CLEANUP(vm, list, value_release(index_val);
+                             value_release(value));
 
   if (list->type != VAL_LIST) {
     value_release(index_val);
@@ -4960,15 +4865,12 @@ static int handle_op_list_set(KronosVM *vm) {
 
 static int handle_op_delete(KronosVM *vm) {
   // Stack: [map, key]
-  KronosValue *key = pop(vm);
-  if (!key) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *map = pop(vm);
-  if (!map) {
-    value_release(key);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *key;
+
+  POP_OR_RETURN(vm, key);
+  KronosValue *map;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, map, value_release(key));
 
   if (map->type != VAL_MAP) {
     value_release(key);
@@ -4994,10 +4896,9 @@ static int handle_op_delete(KronosVM *vm) {
 }
 
 static int handle_op_list_len(KronosVM *vm) {
-  KronosValue *container = pop(vm);
-  if (!container) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *container;
+
+  POP_OR_RETURN(vm, container);
 
   if (container->type == VAL_LIST) {
     KronosValue *len = value_new_number((double)container->as.list.count);
@@ -5053,21 +4954,15 @@ static int handle_op_list_len(KronosVM *vm) {
 }
 
 static int handle_op_list_slice(KronosVM *vm) {
-  KronosValue *end_val = pop(vm);
-  if (!end_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *start_val = pop(vm);
-  if (!start_val) {
-    value_release(end_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *container = pop(vm);
-  if (!container) {
-    value_release(start_val);
-    value_release(end_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *end_val;
+
+  POP_OR_RETURN(vm, end_val);
+  KronosValue *start_val;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, start_val, value_release(end_val));
+  KronosValue *container;
+  POP_OR_RETURN_WITH_CLEANUP(vm, container, value_release(start_val);
+                             value_release(end_val));
 
   if (start_val->type != VAL_NUMBER || end_val->type != VAL_NUMBER) {
     value_release(container);
@@ -5257,10 +5152,9 @@ static int handle_op_list_slice(KronosVM *vm) {
 }
 
 static int handle_op_list_iter(KronosVM *vm) {
-  KronosValue *iterable = pop(vm);
-  if (!iterable) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *iterable;
+
+  POP_OR_RETURN(vm, iterable);
 
   if (iterable->type == VAL_LIST) {
     // Create iterator (just push the list and current index)
@@ -5312,15 +5206,12 @@ static int handle_op_list_next(KronosVM *vm) {
         "This usually means iterator variables were not loaded correctly.",
         stack_depth);
   }
-  KronosValue *state_val = pop(vm);
-  if (!state_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
-  KronosValue *iterable = pop(vm);
-  if (!iterable) {
-    value_release(state_val);
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *state_val;
+
+  POP_OR_RETURN(vm, state_val);
+  KronosValue *iterable;
+
+  POP_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(state_val));
 
   if (iterable->type == VAL_LIST) {
     if (state_val->type != VAL_NUMBER) {
@@ -5669,10 +5560,9 @@ static int handle_op_throw(KronosVM *vm) {
   }
 
   // Pop error message from stack
-  KronosValue *message_val = pop(vm);
-  if (!message_val) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *message_val;
+
+  POP_OR_RETURN(vm, message_val);
 
   // Get error message as string
   const char *message = "Unknown error";
@@ -5959,10 +5849,9 @@ static int handle_op_define_func(KronosVM *vm) {
 
 static int handle_op_return_val(KronosVM *vm) {
   // Pop return value from stack
-  KronosValue *return_value = pop(vm);
-  if (!return_value) {
-    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
-  }
+  KronosValue *return_value;
+
+  POP_OR_RETURN(vm, return_value);
 
   // If we're in a function call, return from it
   if (vm->call_stack_size > 0) {
