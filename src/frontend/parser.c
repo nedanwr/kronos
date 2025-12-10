@@ -117,11 +117,27 @@ void parse_error_free(ParseError *err) {
  * @brief Look ahead at a token without consuming it
  *
  * @param p Parser state
- * @param offset How many tokens ahead to look (0 = current token)
+ * @param offset How many tokens ahead to look (0 = current token, negative for
+ * looking back)
  * @return Token pointer, or NULL if out of bounds
  */
 static Token *peek(Parser *p, int offset) {
-  size_t idx = p->pos + offset;
+  // Handle negative offsets to prevent unsigned underflow
+  if (offset < 0) {
+    // For negative offsets, check if p->pos is large enough
+    size_t abs_offset = (size_t)(-offset);
+    if (p->pos < abs_offset) {
+      // Would underflow - return NULL
+      return NULL;
+    }
+    size_t idx = p->pos - abs_offset;
+    if (idx >= p->tokens->count)
+      return NULL;
+    return &p->tokens->tokens[idx];
+  }
+
+  // Positive offset - safe to add
+  size_t idx = p->pos + (size_t)offset;
   if (idx >= p->tokens->count)
     return NULL;
   return &p->tokens->tokens[idx];
