@@ -45,13 +45,18 @@ typedef struct {
   KronosValue **frame_start; // Start of this frame's stack
 
   // Local variables (includes parameters)
-  struct {
+  struct LocalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
     char *type_name; // NULL if no type restriction
   } locals[LOCALS_MAX];
   size_t local_count;
+
+  // Local variable hash table for O(1) lookup
+  // Stores pointers to local variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct LocalVar *local_hash[LOCALS_MAX];
 } CallFrame;
 
 // Virtual machine state
@@ -66,13 +71,18 @@ typedef struct KronosVM {
   CallFrame *current_frame;
 
   // Global variables
-  struct {
+  struct GlobalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
     char *type_name; // NULL if no type restriction
   } globals[GLOBALS_MAX];
   size_t global_count;
+
+  // Global variable hash table for O(1) lookup
+  // Stores pointers to global variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct GlobalVar *global_hash[GLOBALS_MAX];
 
   // Functions
   Function *functions[FUNCTIONS_MAX];

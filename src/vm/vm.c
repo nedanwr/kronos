@@ -167,6 +167,11 @@ static void cleanup_call_frame_locals(CallFrame *frame) {
     }
   }
   frame->local_count = 0;
+
+  // Initialize local variable hash table to all NULL
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    frame->local_hash[i] = NULL;
+  }
 }
 
 // Forward declaration for vm_execute (needed by call_module_function)
@@ -498,6 +503,11 @@ KronosVM *vm_new(void) {
     vm->function_hash[i] = NULL;
   }
 
+  // Initialize global variable hash table to all NULL
+  for (size_t i = 0; i < GLOBALS_MAX; i++) {
+    vm->global_hash[i] = NULL;
+  }
+
   // Initialize Pi constant - immutable
   // Note: double precision provides ~15-17 decimal digits of precision
   // Use M_PI from math.h if available, otherwise use hardcoded value
@@ -660,6 +670,40 @@ static size_t hash_function_name(const char *str) {
     hash = ((hash << 5) + hash) + c; // hash * 33 + c
   }
   return hash % FUNCTIONS_MAX;
+}
+
+/**
+ * @brief Hash function for variable names (globals)
+ *
+ * Simple djb2 hash algorithm for string hashing.
+ *
+ * @param str String to hash
+ * @return Hash value (modulo GLOBALS_MAX)
+ */
+static size_t hash_global_name(const char *str) {
+  unsigned long hash = 5381;
+  int c;
+  while ((c = *str++)) {
+    hash = ((hash << 5) + hash) + c; // hash * 33 + c
+  }
+  return hash % GLOBALS_MAX;
+}
+
+/**
+ * @brief Hash function for variable names (locals)
+ *
+ * Simple djb2 hash algorithm for string hashing.
+ *
+ * @param str String to hash
+ * @return Hash value (modulo LOCALS_MAX)
+ */
+static size_t hash_local_name(const char *str) {
+  unsigned long hash = 5381;
+  int c;
+  while ((c = *str++)) {
+    hash = ((hash << 5) + hash) + c; // hash * 33 + c
+  }
+  return hash % LOCALS_MAX;
 }
 
 // Define a function
@@ -1312,17 +1356,45 @@ int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
   vm->globals[vm->global_count].is_mutable = is_mutable;
   vm->globals[vm->global_count].type_name = type_copy;
 
+  // Add to hash table for O(1) lookup
+  size_t hash_index = hash_global_name(name);
+  for (size_t i = 0; i < GLOBALS_MAX; i++) {
+    size_t idx = (hash_index + i) % GLOBALS_MAX;
+    if (!vm->global_hash[idx]) {
+      // Found empty slot
+      vm->global_hash[idx] = &vm->globals[vm->global_count];
+      break;
+    }
+  }
+
   // Only increment global_count after everything succeeds
   vm->global_count++;
   return 0;
 }
 
 KronosValue *vm_get_global(KronosVM *vm, const char *name) {
-  for (size_t i = 0; i < vm->global_count; i++) {
-    if (strcmp(vm->globals[i].name, name) == 0) {
-      return vm->globals[i].value;
+  if (!vm || !name) {
+    return NULL;
+  }
+
+  // Use hash table for O(1) lookup
+  size_t index = hash_global_name(name);
+  for (size_t i = 0; i < GLOBALS_MAX; i++) {
+    size_t idx = (index + i) % GLOBALS_MAX;
+    struct GlobalVar *global = vm->global_hash[idx];
+
+    // Empty slot means variable not found
+    if (!global) {
+      return NULL;
+    }
+
+    // Check if this is the variable we're looking for
+    if (global->name && strcmp(global->name, name) == 0) {
+      return global->value;
     }
   }
+
+  // Hash table full (shouldn't happen if GLOBALS_MAX is respected)
   return NULL;
 }
 
@@ -1333,25 +1405,34 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
     return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
                     "vm_set_local requires non-null inputs");
 
-  // Check if variable already exists
-  for (size_t i = 0; i < frame->local_count; i++) {
-    if (strcmp(frame->locals[i].name, name) == 0) {
+  // Check if variable already exists using hash table
+  size_t index = hash_local_name(name);
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    size_t idx = (index + i) % LOCALS_MAX;
+    struct LocalVar *local = frame->local_hash[idx];
+
+    if (!local) {
+      // Empty slot - variable doesn't exist, will add new one below
+      break;
+    }
+
+    if (local->name && strcmp(local->name, name) == 0) {
+      // Found existing variable
       // Check if it's immutable
-      if (!frame->locals[i].is_mutable) {
+      if (!local->is_mutable) {
         return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                          "Cannot reassign immutable local variable '%s'", name);
       }
 
       // Check type if specified
-      if (frame->locals[i].type_name != NULL &&
-          !value_is_type(value, frame->locals[i].type_name)) {
+      if (local->type_name != NULL && !value_is_type(value, local->type_name)) {
         return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                          "Type mismatch for local variable '%s': expected '%s'",
-                         name, frame->locals[i].type_name);
+                         name, local->type_name);
       }
 
-      value_release(frame->locals[i].value);
-      frame->locals[i].value = value;
+      value_release(local->value);
+      local->value = value;
       value_retain(value);
       return 0;
     }
@@ -1391,6 +1472,17 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
   frame->locals[frame->local_count].is_mutable = is_mutable;
   frame->locals[frame->local_count].type_name = type_copy;
 
+  // Add to hash table for O(1) lookup
+  size_t hash_index = hash_local_name(name);
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    size_t idx = (hash_index + i) % LOCALS_MAX;
+    if (!frame->local_hash[idx]) {
+      // Found empty slot
+      frame->local_hash[idx] = &frame->locals[frame->local_count];
+      break;
+    }
+  }
+
   // Only call value_retain after all allocations and assignments succeed
   value_retain(value);
   // Only increment frame->local_count after everything succeeds
@@ -1398,17 +1490,30 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
   return 0;
 }
 
-// Get local variable from current frame
+// Get local variable from current frame using hash table for O(1) lookup
 KronosValue *vm_get_local(CallFrame *frame, const char *name) {
-  if (!frame)
+  if (!frame || !name) {
     return NULL;
+  }
 
-  for (size_t i = 0; i < frame->local_count; i++) {
-    if (strcmp(frame->locals[i].name, name) == 0) {
-      return frame->locals[i].value;
+  // Use hash table for O(1) lookup
+  size_t index = hash_local_name(name);
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    size_t idx = (index + i) % LOCALS_MAX;
+    struct LocalVar *local = frame->local_hash[idx];
+
+    // Empty slot means variable not found
+    if (!local) {
+      return NULL;
+    }
+
+    // Check if this is the variable we're looking for
+    if (local->name && strcmp(local->name, name) == 0) {
+      return local->value;
     }
   }
 
+  // Hash table full (shouldn't happen if LOCALS_MAX is respected)
   return NULL;
 }
 
