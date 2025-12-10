@@ -613,7 +613,7 @@ static void compile_expression(Compiler *c, ASTNode *node) {
       value_release(name);
       return;
     }
-    // Release our reference - constant pool now owns it
+    // Release our reference - constant pool owns it (or it was a duplicate)
     value_release(name);
     emit_byte(c, OP_LOAD_VAR);
     emit_uint16(c, (uint16_t)idx);
@@ -868,6 +868,11 @@ static void compile_expression(Compiler *c, ASTNode *node) {
 
     emit_byte(c, OP_CALL_FUNC);
     emit_uint16(c, (uint16_t)name_idx);
+    // Validate argument count limit (uint8_t max is 255)
+    if (node->as.call.arg_count > 255) {
+      compiler_set_error(c, "Function call argument count exceeds limit (255)");
+      return;
+    }
     emit_byte(c, (uint8_t)node->as.call.arg_count);
     break;
   }
@@ -1890,6 +1895,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
       return;
+    // Validate parameter count limit (uint8_t max is 255)
+    if (node->as.function.param_count > 255) {
+      compiler_set_error(c, "Function parameter count exceeds limit (255)");
+      return;
+    }
     emit_byte(c, (uint8_t)node->as.function.param_count);
     if (compiler_has_error(c))
       return;
@@ -1985,6 +1995,11 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     emit_uint16(c, (uint16_t)name_idx);
     if (compiler_has_error(c))
       return;
+    // Validate argument count limit (uint8_t max is 255)
+    if (node->as.call.arg_count > 255) {
+      compiler_set_error(c, "Function call argument count exceeds limit (255)");
+      return;
+    }
     emit_byte(c, (uint8_t)node->as.call.arg_count);
     if (compiler_has_error(c))
       return;
@@ -2251,6 +2266,11 @@ void bytecode_print(Bytecode *bytecode) {
 
     switch (instruction) {
     case OP_LOAD_CONST: {
+      if (offset + 2 >= bytecode->count) {
+        printf("LOAD_CONST <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                 bytecode->code[offset + 2]);
       printf("LOAD_CONST %u\n", idx);
@@ -2258,6 +2278,11 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_LOAD_VAR: {
+      if (offset + 2 >= bytecode->count) {
+        printf("LOAD_VAR <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                 bytecode->code[offset + 2]);
       printf("LOAD_VAR %u\n", idx);
@@ -2265,6 +2290,11 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_STORE_VAR: {
+      if (offset + 4 >= bytecode->count) {
+        printf("STORE_VAR <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                 bytecode->code[offset + 2]);
       uint8_t is_mutable = bytecode->code[offset + 3];
@@ -2272,6 +2302,11 @@ void bytecode_print(Bytecode *bytecode) {
       printf("STORE_VAR name=%u mutable=%u", idx, is_mutable);
       offset += 5;
       if (has_type) {
+        if (offset + 1 >= bytecode->count) {
+          printf(" <invalid: type index out of bounds>\n");
+          offset = bytecode->count;
+          break;
+        }
         uint16_t type_idx = (uint16_t)(bytecode->code[offset] << 8 |
                                        bytecode->code[offset + 1]);
         printf(" type=%u", type_idx);
@@ -2298,6 +2333,14 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     case OP_DIV:
       printf("DIV\n");
+      offset++;
+      break;
+    case OP_MOD:
+      printf("MOD\n");
+      offset++;
+      break;
+    case OP_NEG:
+      printf("NEG\n");
       offset++;
       break;
     case OP_EQ:
@@ -2361,15 +2404,32 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_DEFINE_FUNC: {
+      if (offset + 3 >= bytecode->count) {
+        printf("DEFINE_FUNC <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                      bytecode->code[offset + 2]);
       uint8_t param_count = bytecode->code[offset + 3];
-      printf("DEFINE_FUNC %u (param_count=%u)\n", name_idx, param_count);
       size_t skip = 4 + (size_t)param_count * 2 + 2 + 2;
+      if (offset + skip > bytecode->count) {
+        printf("DEFINE_FUNC %u (param_count=%u) <invalid: parameters out of "
+               "bounds>\n",
+               name_idx, param_count);
+        offset = bytecode->count;
+        break;
+      }
+      printf("DEFINE_FUNC %u (param_count=%u)\n", name_idx, param_count);
       offset += skip;
       break;
     }
     case OP_CALL_FUNC: {
+      if (offset + 3 >= bytecode->count) {
+        printf("CALL_FUNC <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                      bytecode->code[offset + 2]);
       uint8_t arg_count = bytecode->code[offset + 3];
@@ -2387,6 +2447,11 @@ void bytecode_print(Bytecode *bytecode) {
       break;
 
     case OP_LIST_NEW: {
+      if (offset + 2 >= bytecode->count) {
+        printf("LIST_NEW <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
       uint16_t count = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                   bytecode->code[offset + 2]);
       printf("LIST_NEW %u\n", count);
@@ -2428,6 +2493,114 @@ void bytecode_print(Bytecode *bytecode) {
       printf("LIST_NEXT\n");
       offset++;
       break;
+
+    case OP_RANGE_NEW:
+      printf("RANGE_NEW\n");
+      offset++;
+      break;
+
+    case OP_MAP_NEW: {
+      if (offset + 2 >= bytecode->count) {
+        printf("MAP_NEW <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t count = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                  bytecode->code[offset + 2]);
+      printf("MAP_NEW %u\n", count);
+      offset += 3;
+      break;
+    }
+
+    case OP_MAP_SET:
+      printf("MAP_SET\n");
+      offset++;
+      break;
+
+    case OP_MAP_GET:
+      printf("MAP_GET\n");
+      offset++;
+      break;
+
+    case OP_DELETE:
+      printf("DELETE\n");
+      offset++;
+      break;
+
+    case OP_TRY_ENTER: {
+      if (offset + 2 >= bytecode->count) {
+        printf("TRY_ENTER <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t handler_offset = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                           bytecode->code[offset + 2]);
+      printf("TRY_ENTER handler_offset=%u\n", handler_offset);
+      offset += 3;
+      break;
+    }
+
+    case OP_TRY_EXIT: {
+      if (offset + 2 >= bytecode->count) {
+        printf("TRY_EXIT <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t finally_offset = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                           bytecode->code[offset + 2]);
+      printf("TRY_EXIT finally_offset=%u\n", finally_offset);
+      offset += 3;
+      break;
+    }
+
+    case OP_CATCH: {
+      if (offset + 4 >= bytecode->count) {
+        printf("CATCH <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t error_type_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                           bytecode->code[offset + 2]);
+      uint16_t catch_var_idx = (uint16_t)(bytecode->code[offset + 3] << 8 |
+                                          bytecode->code[offset + 4]);
+      printf("CATCH error_type=%u catch_var=%u\n", error_type_idx,
+             catch_var_idx);
+      offset += 5;
+      break;
+    }
+
+    case OP_FINALLY:
+      printf("FINALLY\n");
+      offset++;
+      break;
+
+    case OP_THROW: {
+      if (offset + 2 >= bytecode->count) {
+        printf("THROW <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t error_type_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                           bytecode->code[offset + 2]);
+      printf("THROW error_type=%u\n", error_type_idx);
+      offset += 3;
+      break;
+    }
+
+    case OP_IMPORT: {
+      if (offset + 4 >= bytecode->count) {
+        printf("IMPORT <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t module_name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
+                                            bytecode->code[offset + 2]);
+      uint16_t file_path_idx = (uint16_t)(bytecode->code[offset + 3] << 8 |
+                                          bytecode->code[offset + 4]);
+      printf("IMPORT module=%u file_path=%u\n", module_name_idx, file_path_idx);
+      offset += 5;
+      break;
+    }
 
     case OP_HALT:
       printf("HALT\n");
