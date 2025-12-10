@@ -83,6 +83,37 @@ static void gc_ensure_capacity_locked(size_t min_capacity) {
 }
 
 /**
+ * @brief Shrink the objects array if it's significantly underutilized
+ *
+ * Shrinks the array when count < capacity / 4 and capacity >
+ * INITIAL_TRACKED_CAPACITY. This prevents the array from staying large after
+ * many deallocations. Must be called with gc_mutex locked.
+ */
+static void gc_shrink_if_needed_locked(void) {
+  // Only shrink if:
+  // 1. Count is less than 25% of capacity (significant underutilization)
+  // 2. Capacity is above initial capacity (don't shrink below initial)
+  if (gc_state.count * 4 < gc_state.capacity &&
+      gc_state.capacity > INITIAL_TRACKED_CAPACITY) {
+    // Shrink to max(count * 2, INITIAL_TRACKED_CAPACITY)
+    // This provides headroom for future allocations
+    size_t new_capacity = gc_state.count * 2;
+    if (new_capacity < INITIAL_TRACKED_CAPACITY) {
+      new_capacity = INITIAL_TRACKED_CAPACITY;
+    }
+
+    KronosValue **new_objects =
+        realloc(gc_state.objects, new_capacity * sizeof(KronosValue *));
+    if (new_objects) {
+      // Only update if realloc succeeded (if it fails, keep old capacity)
+      gc_state.objects = new_objects;
+      gc_state.capacity = new_capacity;
+    }
+    // If realloc fails, we keep the larger capacity (not a fatal error)
+  }
+}
+
+/**
  * @brief Initialize the garbage collector
  *
  * Allocates the initial object tracking array. Safe to call multiple times
@@ -263,6 +294,10 @@ void gc_untrack(KronosValue *val) {
       gc_state.objects[i] = gc_state.objects[gc_state.count - 1];
       gc_state.objects[gc_state.count - 1] = NULL;
       gc_state.count--;
+
+      // Shrink array if significantly underutilized
+      gc_shrink_if_needed_locked();
+
       pthread_mutex_unlock(&gc_mutex);
       return;
     }
