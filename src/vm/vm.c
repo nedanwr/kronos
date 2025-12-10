@@ -1103,7 +1103,7 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
     return vm_error(vm, KRONOS_ERR_TOKENIZE, "Failed to tokenize module");
   }
 
-  AST *ast = parse(tokens);
+  AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
 
   if (!ast) {

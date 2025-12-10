@@ -75,7 +75,8 @@ const char *kronos_get_last_error(KronosVM *vm) {
  * @brief Get the last error code from the VM
  *
  * Returns the error code for the most recent error. Use this to distinguish
- * between different types of errors (tokenization, parsing, compilation, runtime).
+ * between different types of errors (tokenization, parsing, compilation,
+ * runtime).
  *
  * @param vm The VM instance
  * @return Error code, or KRONOS_ERR_INVALID_ARGUMENT if vm is NULL
@@ -106,7 +107,8 @@ void kronos_set_error_callback(KronosVM *vm, KronosErrorCallback callback) {
  *
  * Compiles and executes Kronos source code in a single call. This function
  * handles the full pipeline: tokenization, parsing, compilation, and execution.
- * Errors are stored in the VM and can be retrieved with kronos_get_last_error().
+ * Errors are stored in the VM and can be retrieved with
+ * kronos_get_last_error().
  *
  * @param vm The VM instance to use for execution
  * @param source The Kronos source code to execute (must not be NULL)
@@ -125,7 +127,7 @@ int kronos_run_string(KronosVM *vm, const char *source) {
   }
 
   // Step 2: Parse - Build Abstract Syntax Tree from tokens
-  AST *ast = parse(tokens);
+  AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
 
   if (!ast) {

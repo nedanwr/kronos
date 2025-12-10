@@ -92,7 +92,8 @@ void get_node_position(ASTNode *node, size_t *line, size_t *col) {
   // LIMITATION: This function uses approximate position estimates because
   // the AST doesn't store exact source positions. The parser would need to
   // be modified to track line/column information for each AST node.
-  // Current implementation uses indent as a crude estimate, which is inaccurate.
+  // Current implementation uses indent as a crude estimate, which is
+  // inaccurate.
   // TODO: Enhance parser to track source positions (line/column) for each node.
   *line = 1;
   *col = 1;
@@ -184,7 +185,7 @@ Symbol *load_module_exports(const char *file_path) {
   if (!tokens)
     return NULL;
 
-  AST *ast = parse(tokens);
+  AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
 
   if (!ast || ast->count == 0) {
@@ -237,7 +238,8 @@ Symbol *load_module_exports(const char *file_path) {
         if (source_for_pos) {
           char pattern[LSP_PATTERN_BUFFER_SIZE];
           snprintf(pattern, sizeof(pattern), "function %s", sym->name);
-          find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+          find_node_position(node, source_for_pos, pattern, &sym->line,
+                             &sym->column);
           if (sym->line == 1 && sym->column == 0) {
             // Fallback to approximate
             get_node_position(node, &sym->line, &sym->column);
@@ -265,10 +267,12 @@ Symbol *load_module_exports(const char *file_path) {
         if (source_for_pos) {
           char pattern[LSP_PATTERN_BUFFER_SIZE];
           snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
-          find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+          find_node_position(node, source_for_pos, pattern, &sym->line,
+                             &sym->column);
           if (sym->line == 1 && sym->column == 0) {
             snprintf(pattern, sizeof(pattern), "set %s to", sym->name);
-            find_node_position(node, source_for_pos, pattern, &sym->line, &sym->column);
+            find_node_position(node, source_for_pos, pattern, &sym->line,
+                               &sym->column);
           }
           if (sym->line == 1 && sym->column == 0) {
             // Fallback to approximate
@@ -376,7 +380,7 @@ void free_document_state(DocumentState *doc) {
 }
 
 void process_statements_for_symbols(ASTNode **statements, size_t count,
-                                           Symbol ***tail, Symbol **head) {
+                                    Symbol ***tail, Symbol **head) {
   if (!statements || !tail)
     return;
 
@@ -547,8 +551,9 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *text) {
   ImportedModule **import_tail = &doc->imported_modules;
 
   // Calculate line starts for position lookup
-  // Note: If allocation fails, we continue without line_starts - position lookup
-  // will be less accurate but the function can still build the symbol table
+  // Note: If allocation fails, we continue without line_starts - position
+  // lookup will be less accurate but the function can still build the symbol
+  // table
   size_t *line_starts = NULL;
   size_t line_count = 0;
   size_t capacity = 64;
@@ -1038,7 +1043,7 @@ bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity, size_t pos,
 }
 
 bool find_nth_occurrence(const char *text, const char *varname, size_t n,
-                                size_t *line, size_t *col) {
+                         size_t *line, size_t *col) {
   *line = 1;
   *col = 0;
   if (!text || !varname || n == 0)
@@ -1128,7 +1133,8 @@ bool find_nth_occurrence(const char *text, const char *varname, size_t n,
       }
     }
     if (in_string) {
-      continue; // Skip patterns inside strings - pos will be set from next match
+      continue; // Skip patterns inside strings - pos will be set from next
+                // match
     }
 
     // Make sure the pattern starts at word boundary (after whitespace or start
@@ -1326,8 +1332,7 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
       ctx->count++; // Definition counts as a reference
     }
     if (node->as.assign.value) {
-      count_references_in_node_recursive(node->as.assign.value, ctx,
-                                         depth + 1);
+      count_references_in_node_recursive(node->as.assign.value, ctx, depth + 1);
     }
     break;
 
@@ -1508,8 +1513,8 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     if (node->as.try_stmt.finally_block) {
       for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
         if (node->as.try_stmt.finally_block[i]) {
-          count_references_in_node_recursive(
-              node->as.try_stmt.finally_block[i], ctx, depth + 1);
+          count_references_in_node_recursive(node->as.try_stmt.finally_block[i],
+                                             ctx, depth + 1);
         }
       }
     }

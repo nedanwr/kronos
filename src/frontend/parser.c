@@ -31,7 +31,12 @@ typedef struct {
   size_t pos;             /**< Current position in token array */
   size_t recursion_depth; /**< Current recursion depth for stack overflow
                              protection */
+  ParseError **error_out; /**< Optional pointer to error output (for structured
+                             errors) */
 } Parser;
+
+// Forward declaration
+static void parser_set_error(Parser *p, const char *message);
 
 /**
  * @brief Check and increment recursion depth
@@ -41,8 +46,10 @@ typedef struct {
  */
 static bool check_recursion_depth(Parser *p) {
   if (p->recursion_depth >= MAX_RECURSION_DEPTH) {
-    fprintf(stderr, "Maximum recursion depth (%d) exceeded\n",
-            MAX_RECURSION_DEPTH);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Maximum recursion depth (%d) exceeded",
+             MAX_RECURSION_DEPTH);
+    parser_set_error(p, msg);
     return false;
   }
   p->recursion_depth++;
@@ -58,6 +65,47 @@ static void decrement_recursion_depth(Parser *p) {
   if (p->recursion_depth > 0) {
     p->recursion_depth--;
   }
+}
+
+/**
+ * @brief Report a parse error
+ *
+ * Sets the error in the output parameter if provided, otherwise falls back
+ * to stderr for backward compatibility.
+ *
+ * @param p Parser state
+ * @param message Error message (will be copied)
+ */
+static void parser_set_error(Parser *p, const char *message) {
+  if (!p || !message)
+    return;
+
+  // If error output is provided, use structured error reporting
+  if (p->error_out && *p->error_out == NULL) {
+    ParseError *err = malloc(sizeof(ParseError));
+    if (err) {
+      err->message = strdup(message);
+      err->line = 0;   // TODO: Track line numbers from tokens
+      err->column = 0; // TODO: Track column numbers from tokens
+      *p->error_out = err;
+      return;
+    }
+  }
+
+  // Fall back to stderr for backward compatibility
+  fprintf(stderr, "%s\n", message);
+}
+
+/**
+ * @brief Free a ParseError structure
+ *
+ * @param err ParseError to free (may be NULL)
+ */
+void parse_error_free(ParseError *err) {
+  if (!err)
+    return;
+  free(err->message);
+  free(err);
 }
 
 /**
@@ -86,13 +134,16 @@ static Token *peek(Parser *p, int offset) {
  */
 static Token *consume(Parser *p, TokenType expected) {
   if (p->pos >= p->tokens->count) {
-    fprintf(stderr, "Unexpected end of input\n");
+    parser_set_error(p, "Unexpected end of input");
     return NULL;
   }
 
   Token *tok = &p->tokens->tokens[p->pos];
   if (tok->type != expected) {
-    fprintf(stderr, "Expected token type %d, got %d\n", expected, tok->type);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Expected token type %d, got %d", expected,
+             tok->type);
+    parser_set_error(p, msg);
     return NULL;
   }
 
@@ -183,7 +234,9 @@ static ASTNode *parse_value(Parser *p) {
     if (errno == ERANGE) {
       // Overflow or underflow occurred
       if (value == HUGE_VAL || value == -HUGE_VAL) {
-        fprintf(stderr, "Number overflow: %s\n", tok->text);
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Number overflow: %s", tok->text);
+        parser_set_error(p, msg);
         free(node);
         return NULL;
       }
@@ -193,7 +246,9 @@ static ASTNode *parse_value(Parser *p) {
     // Check if the entire string was consumed
     // endptr should point to the null terminator if conversion succeeded
     if (endptr == tok->text || *endptr != '\0') {
-      fprintf(stderr, "Invalid number format: %s\n", tok->text);
+      char msg[256];
+      snprintf(msg, sizeof(msg), "Invalid number format: %s", tok->text);
+      parser_set_error(p, msg);
       free(node);
       return NULL;
     }
@@ -284,7 +339,7 @@ static ASTNode *parse_value(Parser *p) {
         p, -1); // -1 indicates expression context (no newline required)
   }
 
-  fprintf(stderr, "Unexpected token in value position\n");
+  parser_set_error(p, "Unexpected token in value position");
   return NULL;
 }
 
@@ -908,7 +963,7 @@ static ASTNode *parse_fstring(Parser *p) {
       }
 
       // Create a temporary parser for the expression
-      Parser expr_parser = {expr_tokens, 0, 0};
+      Parser expr_parser = {expr_tokens, 0, 0, NULL};
 
       // Skip INDENT token if present (tokenizer adds it for each line)
       if (expr_parser.pos < expr_tokens->count &&
@@ -2691,8 +2746,12 @@ static ASTNode *parse_statement(Parser *p) {
  * @param tokens Token array to parse
  * @return AST containing all statements, or NULL on critical error
  */
-AST *parse(TokenArray *tokens) {
-  Parser p = {tokens, 0, 0};
+AST *parse(TokenArray *tokens, ParseError **out_err) {
+  // Initialize error output to NULL
+  if (out_err)
+    *out_err = NULL;
+
+  Parser p = {tokens, 0, 0, out_err};
 
   AST *ast = malloc(sizeof(AST));
   if (!ast)

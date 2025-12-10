@@ -17,7 +17,7 @@ static Bytecode *compile_string(const char *source) {
     return NULL;
   }
 
-  AST *ast = parse(tokens);
+  AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
   if (ast == NULL) {
     return NULL;

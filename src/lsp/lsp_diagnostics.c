@@ -3,8 +3,8 @@
  * @brief Error checking and diagnostics for LSP server
  */
 
-#include "lsp.h"
 #include "../frontend/tokenizer.h"
+#include "lsp.h"
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -137,9 +137,8 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
 }
 
 void check_function_calls(AST *ast, const char *text, Symbol *symbols,
-                                 char **diagnostics, size_t *pos,
-                                 size_t *remaining, bool *has_diagnostics,
-                                 size_t *capacity) {
+                          char **diagnostics, size_t *pos, size_t *remaining,
+                          bool *has_diagnostics, size_t *capacity) {
   if (!ast || !ast->statements)
     return;
 
@@ -417,7 +416,7 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
 static void check_expression_recursive(ASTNode *node, const char *text,
                                        Symbol *symbols, AST *ast,
                                        char **diagnostics, size_t *pos,
-                             size_t *remaining, bool *has_diagnostics,
+                                       size_t *remaining, bool *has_diagnostics,
                                        void *seen_vars_ptr, size_t seen_count,
                                        size_t *capacity, int depth) {
   // Prevent stack overflow from deeply nested AST structures
@@ -479,7 +478,8 @@ static void check_expression_recursive(ASTNode *node, const char *text,
       size_t line = 1, col = 0;
       find_node_position(node, text, "at", &line, &col);
 
-      char escaped_msg[LSP_ERROR_MSG_SIZE] = "List/string/range index must be a number";
+      char escaped_msg[LSP_ERROR_MSG_SIZE] =
+          "List/string/range index must be a number";
       char escaped_msg_final[LSP_ERROR_MSG_SIZE];
       json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
 
@@ -831,10 +831,10 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
                              seen_count, capacity, 0);
 }
 
-void check_undefined_variables(AST *ast, const char *text,
-                                      Symbol *symbols, char **diagnostics,
-                                      size_t *pos, size_t *remaining,
-                                      bool *has_diagnostics, size_t *capacity) {
+void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
+                               char **diagnostics, size_t *pos,
+                               size_t *remaining, bool *has_diagnostics,
+                               size_t *capacity) {
   if (!ast || !ast->statements)
     return;
 
@@ -1889,9 +1889,8 @@ void check_undefined_variables(AST *ast, const char *text,
 }
 
 void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
-                                 char **diagnostics, size_t *pos,
-                                 size_t *remaining, bool *has_diagnostics,
-                                 size_t *capacity) {
+                          char **diagnostics, size_t *pos, size_t *remaining,
+                          bool *has_diagnostics, size_t *capacity) {
   if (!symbols || !text)
     return;
 
@@ -2113,7 +2112,6 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
   }
 }
 
-
 void check_diagnostics(const char *uri, const char *text) {
   TokenizeError *tokenize_err = NULL;
   TokenArray *tokens = tokenize(text, &tokenize_err);
@@ -2197,7 +2195,7 @@ void check_diagnostics(const char *uri, const char *text) {
   // Check parsing errors and analyze AST
   AST *ast = NULL;
   if (tokens) {
-    ast = parse(tokens);
+    ast = parse(tokens, NULL);
     if (!ast || ast->count == 0) {
       // Parse error - use first token position as estimate
       if (tokens->count > 0) {
@@ -2265,4 +2263,3 @@ void check_diagnostics(const char *uri, const char *text) {
   send_notification("textDocument/publishDiagnostics", diagnostics);
   free(diagnostics);
 }
-
