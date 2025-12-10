@@ -171,7 +171,7 @@ void gc_init(void) {
   } else if (gc_state.objects) {
     // Array exists but is empty, just free it
     free(gc_state.objects);
-    gc_state.objects = NULL;
+    // Note: No need to set gc_state.objects = NULL here since memset follows
   }
 
   memset(&gc_state, 0, sizeof(GCState));
