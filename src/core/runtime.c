@@ -919,6 +919,9 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
 
   MapEntry *entries = (MapEntry *)map->as.map.entries;
 
+  // Track first tombstone slot found (can be reused for insertion)
+  size_t first_tombstone = SIZE_MAX;
+
   // Linear probing
   for (size_t i = 0; i < capacity; i++) {
     size_t probe = (index + i) % capacity;
@@ -930,9 +933,19 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
       *out_index = probe;
       return true; // Found
     }
+    // Track first tombstone for potential reuse
+    if (entries[probe].is_tombstone && first_tombstone == SIZE_MAX) {
+      first_tombstone = probe;
+    }
   }
 
-  *out_index = index; // Fallback
+  // If we found a tombstone, reuse it; otherwise use original hash index
+  // (This should rarely happen as map_set grows before calling this)
+  if (first_tombstone != SIZE_MAX) {
+    *out_index = first_tombstone;
+  } else {
+    *out_index = index; // Fallback (map should have been grown before this)
+  }
   return false;
 }
 
