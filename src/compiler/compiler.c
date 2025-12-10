@@ -68,10 +68,12 @@ static inline bool compiler_has_error(const Compiler *c) {
 }
 
 static void compiler_set_error(Compiler *c, const char *message) {
-  if (!c || c->error_message)
+  if (!c || c->error_message) {
     return;
-  if (!message)
+  }
+  if (!message) {
     return;
+  }
   // Copy the error message to avoid thread-safety issues with static buffers
   size_t len = strlen(message);
   c->error_message = malloc(len + 1);
@@ -194,8 +196,9 @@ static void pop_loop(Compiler *c) {
  * @param byte Byte value to emit
  */
 static void emit_byte(Compiler *c, uint8_t byte) {
-  if (!c || compiler_has_error(c))
+  if (!c || compiler_has_error(c)) {
     return;
+  }
 
   if (c->bytecode->count >= c->bytecode->capacity) {
     // Determine new capacity (minimum BYTECODE_INITIAL_CAPACITY if starting
@@ -233,11 +236,8 @@ static void emit_byte(Compiler *c, uint8_t byte) {
   c->bytecode->code[c->bytecode->count++] = byte;
 }
 
-// Helper to emit two bytes
-static void emit_bytes(Compiler *c, uint8_t byte1, uint8_t byte2) {
-  emit_byte(c, byte1);
-  emit_byte(c, byte2);
-}
+// Note: emit_bytes() was removed as it's no longer used after switching to
+// 16-bit jumps
 
 /**
  * @brief Emit a 16-bit value in big-endian format
@@ -303,8 +303,9 @@ static void patch_jump_offset_unsigned(Compiler *c, size_t offset_pos,
  * @return Index in constant pool, or SIZE_MAX on error
  */
 static size_t add_constant(Compiler *c, KronosValue *value) {
-  if (!c || compiler_has_error(c))
+  if (!c || compiler_has_error(c)) {
     return SIZE_MAX;
+  }
 
   if (!value) {
     compiler_set_error(c, "Cannot add NULL constant to pool");
@@ -319,7 +320,10 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
       new_capacity = CONSTANT_POOL_INITIAL_CAPACITY;
     } else {
       // Check for overflow before doubling capacity
-      if (c->bytecode->const_capacity > SIZE_MAX / 2 / sizeof(KronosValue *)) {
+      // Use parentheses to ensure correct division order: SIZE_MAX / (2 *
+      // sizeof(...))
+      if (c->bytecode->const_capacity >
+          SIZE_MAX / (2 * sizeof(KronosValue *))) {
         compiler_set_error(c, "Constant pool capacity overflow");
         return SIZE_MAX;
       }
@@ -414,7 +418,6 @@ static void emit_constant(Compiler *c, KronosValue *value) {
     return;
   }
 
-  // Emit opcode
   emit_byte(c, OP_LOAD_CONST);
 
   // Check for errors immediately
@@ -423,7 +426,6 @@ static void emit_constant(Compiler *c, KronosValue *value) {
     return;
   }
 
-  // Emit constant index
   emit_uint16(c, (uint16_t)idx);
 
   // Check for errors immediately
@@ -490,7 +492,6 @@ static bool emit_constant_index(Compiler *c, KronosValue *value) {
     return false;
   }
 
-  // Emit constant index
   emit_uint16(c, (uint16_t)idx);
 
   // Check for errors after emitting
@@ -552,9 +553,9 @@ static size_t get_to_string_constant(Compiler *c) {
  * the result on the VM stack.
  *
  * @param c Compiler state
- * @param node Expression AST node to compile
+ * @param node Expression AST node to compile (not modified)
  */
-static void compile_expression(Compiler *c, ASTNode *node) {
+static void compile_expression(Compiler *c, const ASTNode *node) {
   if (!node || compiler_has_error(c))
     return;
 
@@ -948,9 +949,9 @@ static void compile_expression(Compiler *c, ASTNode *node) {
  * loops, functions, returns, etc.
  *
  * @param c Compiler state
- * @param node Statement AST node to compile
+ * @param node Statement AST node to compile (not modified)
  */
-static void compile_statement(Compiler *c, ASTNode *node) {
+static void compile_statement(Compiler *c, const ASTNode *node) {
   if (!node || compiler_has_error(c))
     return;
 
@@ -2189,11 +2190,8 @@ Bytecode *compile(AST *ast, const char **out_err) {
     return NULL;
   }
 
-  Compiler c;
-  c.error_message = NULL;
-  c.loop_stack = NULL;
-  c.to_string_const_idx = SIZE_MAX; // Not yet created
-  c.loop_counter = 0; // Initialize loop counter for unique iterator names
+  Compiler c = {0};                 // Initialize all fields to zero/NULL
+  c.to_string_const_idx = SIZE_MAX; // Not yet created (SIZE_MAX is not zero)
   c.bytecode = malloc(sizeof(Bytecode));
   if (!c.bytecode) {
     if (out_err)
