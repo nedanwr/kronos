@@ -230,8 +230,9 @@ static void emit_byte(Compiler *c, uint8_t byte) {
     c->bytecode->code = new_code;
     c->bytecode->capacity = new_capacity;
   }
-  if (compiler_has_error(c))
+  if (compiler_has_error(c)) {
     return;
+  }
 
   c->bytecode->code[c->bytecode->count++] = byte;
 }
@@ -561,8 +562,9 @@ static size_t get_to_string_constant(Compiler *c) {
  * @param node Expression AST node to compile (not modified)
  */
 static void compile_expression(Compiler *c, const ASTNode *node) {
-  if (!node || compiler_has_error(c))
+  if (!node || compiler_has_error(c)) {
     return;
+  }
 
   switch (node->type) {
   case AST_NUMBER: {
@@ -602,8 +604,9 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     if (first_part->type == AST_STRING) {
       // First part is a string - emit it
       compile_expression(c, first_part);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     } else {
       // First part is an expression - start with empty string
       KronosValue *empty = value_new_string("", 0);
@@ -612,12 +615,14 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
         return;
       }
       emit_constant(c, empty);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Then compile expression, convert to string, and concatenate
       compile_expression(c, first_part);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Call to_string to convert expression result to string
       size_t to_string_idx = get_to_string_constant(c);
@@ -625,18 +630,22 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
         return;
       }
       emit_byte(c, OP_CALL_FUNC);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_uint16(c, (uint16_t)to_string_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, 1); // 1 argument
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       emit_byte(c, OP_ADD);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Process remaining parts (pairs of expr, string)
@@ -646,13 +655,15 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       if (part->type == AST_STRING) {
         // String literal - just compile it
         compile_expression(c, part);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
           return;
+        }
       } else {
         // Expression - compile it and convert to string
         compile_expression(c, part);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
           return;
+        }
 
         // Call to_string to convert expression result to string
         size_t to_string_idx = get_to_string_constant(c);
@@ -662,13 +673,15 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
         emit_byte(c, OP_CALL_FUNC);
         emit_uint16(c, (uint16_t)to_string_idx);
         emit_byte(c, 1); // 1 argument
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
           return;
+        }
       }
 
       emit_byte(c, OP_ADD); // Concatenate
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
     break;
   }
@@ -699,26 +712,30 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     // Handle unary operators (NOT and NEG) - right is NULL
     if (node->as.binop.op == BINOP_NOT) {
       compile_expression(c, node->as.binop.left);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_NOT);
       break;
     }
     if (node->as.binop.op == BINOP_NEG) {
       compile_expression(c, node->as.binop.left);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_NEG);
       break;
     }
 
     // Compile left and right operands for binary operators
     compile_expression(c, node->as.binop.left);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     compile_expression(c, node->as.binop.right);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit operator (arithmetic, comparison, or logical)
     switch (node->as.binop.op) {
@@ -780,8 +797,9 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     // Create empty list first
     emit_byte(c, OP_LIST_NEW);
     emit_uint16(c, 0); // Start with empty list
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile each element and append in order
     for (size_t i = 0; i < node->as.list.element_count; i++) {
@@ -790,13 +808,15 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       // So we need to duplicate it before each append
       // Actually, OP_LIST_APPEND should leave the list on stack
       compile_expression(c, node->as.list.elements[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Stack: [list, element]
       // OP_LIST_APPEND: pop element, pop list, append, push list
       emit_byte(c, OP_LIST_APPEND);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
     break;
   }
@@ -805,17 +825,20 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     // Compile range literal: range start to end [by step]
     // Compile start, end, and step (if provided) expressions
     compile_expression(c, node->as.range.start);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     compile_expression(c, node->as.range.end);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     if (node->as.range.step) {
       compile_expression(c, node->as.range.step);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     } else {
       // Default step is 1.0
       KronosValue *one = value_new_number(1.0);
@@ -826,15 +849,17 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       }
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)step_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Stack: [start, end, step]
     // OP_RANGE_NEW: pop step, pop end, pop start, create range, push range
     emit_byte(c, OP_RANGE_NEW);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
@@ -843,26 +868,30 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     // Create empty map first
     emit_byte(c, OP_MAP_NEW);
     emit_uint16(c, 0); // Start with empty map
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile each key-value pair and set in order
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
       // Stack: [map]
       // Compile key
       compile_expression(c, node->as.map.keys[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Stack: [map, key]
       // Compile value
       compile_expression(c, node->as.map.values[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Stack: [map, key, value]
       // OP_MAP_SET: pop value, pop key, pop map, set, push map
       emit_byte(c, OP_MAP_SET);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Stack: [map]
     }
     break;
@@ -871,11 +900,13 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
   case AST_INDEX: {
     // Compile indexing: list at index
     compile_expression(c, node->as.index.list_expr);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     compile_expression(c, node->as.index.index);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     emit_byte(c, OP_LIST_GET);
     break;
   }
@@ -883,17 +914,20 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
   case AST_SLICE: {
     // Compile slicing: container from start to end
     compile_expression(c, node->as.slice.list_expr);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     compile_expression(c, node->as.slice.start);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     if (node->as.slice.end) {
       // Explicit end: compile end expression
       compile_expression(c, node->as.slice.end);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     } else {
       // Implicit end (to end): push -1 as marker
       KronosValue *end_marker = value_new_number(-1);
@@ -904,8 +938,9 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
       }
       emit_byte(c, OP_LOAD_CONST);
       emit_uint16(c, (uint16_t)end_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     emit_byte(c, OP_LIST_SLICE);
@@ -917,8 +952,9 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     // Push arguments onto stack (in order)
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       compile_expression(c, node->as.call.args[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Emit call instruction
@@ -953,15 +989,17 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
  * @param node Statement AST node to compile (not modified)
  */
 static void compile_statement(Compiler *c, const ASTNode *node) {
-  if (!node || compiler_has_error(c))
+  if (!node || compiler_has_error(c)) {
     return;
+  }
 
   switch (node->type) {
   case AST_ASSIGN: {
     // Compile value expression
     compile_expression(c, node->as.assign.value);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Store in variable
     KronosValue *name =
@@ -970,13 +1008,15 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     if (!emit_constant_index(c, name)) {
       return;
     }
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit mutability flag (1 byte: 1 for mutable, 0 for immutable)
     emit_byte(c, node->as.assign.is_mutable ? 1 : 0);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit type name if specified
     if (node->as.assign.type_name) {
@@ -989,49 +1029,57 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     } else {
       emit_byte(c, 0); // no type specified
     }
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
   case AST_ASSIGN_INDEX: {
     // Compile target (variable)
     compile_expression(c, node->as.assign_index.target);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile index expression
     compile_expression(c, node->as.assign_index.index);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile value expression
     compile_expression(c, node->as.assign_index.value);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit OP_LIST_SET instruction
     emit_byte(c, OP_LIST_SET);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
   case AST_DELETE: {
     // Compile target (variable)
     compile_expression(c, node->as.delete_stmt.target);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile key expression
     compile_expression(c, node->as.delete_stmt.key);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit OP_DELETE instruction
     emit_byte(c, OP_DELETE);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
@@ -1046,8 +1094,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Compile try block
     for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
       compile_statement(c, node->as.try_stmt.try_block[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Emit OP_TRY_EXIT to mark normal completion
@@ -1115,8 +1164,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       for (size_t i = 0; i < node->as.try_stmt.catch_blocks[0].catch_block_size;
            i++) {
         compile_statement(c, node->as.try_stmt.catch_blocks[0].catch_block[i]);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
           return;
+        }
       }
 
       // Compile additional catch blocks (if any)
@@ -1160,8 +1210,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
              i < node->as.try_stmt.catch_blocks[cb].catch_block_size; i++) {
           compile_statement(c,
                             node->as.try_stmt.catch_blocks[cb].catch_block[i]);
-          if (compiler_has_error(c))
+          if (compiler_has_error(c)) {
             return;
+          }
         }
       }
     }
@@ -1186,8 +1237,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // Compile finally block
       for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
         compile_statement(c, node->as.try_stmt.finally_block[i]);
-        if (compiler_has_error(c))
+        if (compiler_has_error(c)) {
           return;
+        }
       }
     } else {
       // No finally, patch OP_TRY_EXIT to jump past exception handler
@@ -1207,8 +1259,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_RAISE: {
     // Compile error message expression
     compile_expression(c, node->as.raise_stmt.message);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit OP_THROW with error type constant
     emit_byte(c, OP_THROW);
@@ -1231,32 +1284,37 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_PRINT: {
     // Compile value expression
     compile_expression(c, node->as.print.value);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit print instruction
     emit_byte(c, OP_PRINT);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
   case AST_IF: {
     // Compile condition
     compile_expression(c, node->as.if_stmt.condition);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit jump if false (placeholder for jump offset)
     size_t jump_offset_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile if block
     for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
       compile_statement(c, node->as.if_stmt.block[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Collect all jump positions that need to be patched to point to next
@@ -1485,14 +1543,16 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // Range iteration: for i in range start to end [by step]
       // Initialize loop variable
       compile_expression(c, node->as.for_stmt.iterable);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)var_idx);
       emit_byte(c, 1); // for loop variables default mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Loop start
       size_t loop_start = c->bytecode->count;
@@ -1500,11 +1560,13 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // Load loop variable and end value
       emit_byte(c, OP_LOAD_VAR);
       emit_uint16(c, (uint16_t)var_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       compile_expression(c, node->as.for_stmt.end);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Determine step value (default to 1 if not specified)
       // If step is NULL, we'll use 1
@@ -1530,13 +1592,15 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       } else {
         emit_byte(c, OP_LTE);
       }
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Jump if false (exit loop)
       size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Push loop info for break/continue
       if (!push_loop(c, loop_start)) {
@@ -1627,13 +1691,15 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // List iteration: for item in list_expr
       // Compile list expression
       compile_expression(c, node->as.for_stmt.iterable);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Start iteration - pushes [list, index=0] onto stack
       emit_byte(c, OP_LIST_ITER);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Store iterator state in hidden variables to preserve across loop body
       // Create hidden variable names for iterator state
@@ -1659,8 +1725,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       emit_uint16(c, (uint16_t)iter_index_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Now store list (pops list)
       KronosValue *iter_list_name_val =
@@ -1674,8 +1741,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       emit_uint16(c, (uint16_t)iter_list_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Loop start
       size_t loop_start = c->bytecode->count;
@@ -1683,25 +1751,29 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // Restore iterator state from variables
       emit_byte(c, OP_LOAD_VAR);
       emit_uint16(c, (uint16_t)iter_list_name_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_LOAD_VAR);
       emit_uint16(c, (uint16_t)iter_index_name_idx);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       // Stack: [list, index]
 
       // Get next item
       emit_byte(c, OP_LIST_NEXT);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Stack after OP_LIST_NEXT: [list, index+1, item, has_more]
       // Check has_more flag (it's on top of stack)
       // Note: OP_JUMP_IF_FALSE pops the condition, so we don't need OP_POP
       size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       // Push loop info for break/continue
       if (!push_loop(c, loop_start)) {
@@ -1792,25 +1864,29 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       // Reset hidden iterator variables to null to release references
       KronosValue *nil_val = value_new_nil();
       emit_constant(c, nil_val);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_list_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
 
       nil_val = value_new_nil();
       emit_constant(c, nil_val);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
       emit_byte(c, OP_STORE_VAR);
       emit_uint16(c, (uint16_t)iter_index_name_idx);
       emit_byte(c, 1); // mutable
       emit_byte(c, 0); // no type annotation
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
     break;
   }
@@ -1821,13 +1897,15 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
 
     // Compile condition
     compile_expression(c, node->as.while_stmt.condition);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Jump if false (exit loop)
     size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Push loop info for break/continue
     if (!push_loop(c, loop_start)) {
@@ -1885,16 +1963,18 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     if (!emit_constant_index(c, func_name)) {
       return;
     }
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     // Validate parameter count limit (uint8_t max is 255)
     if (node->as.function.param_count > 255) {
       compiler_set_error(c, "Function parameter count exceeds limit (255)");
       return;
     }
     emit_byte(c, (uint8_t)node->as.function.param_count);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Store parameter names as constants
     for (size_t i = 0; i < node->as.function.param_count; i++) {
@@ -1903,41 +1983,48 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
       if (!emit_constant_index(c, param_name)) {
         return;
       }
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Store function body start position
     size_t body_start = c->bytecode->count + 2; // +2 for jump instruction
     emit_byte(c, (uint8_t)(body_start >> 8));   // High byte
     emit_byte(c, (uint8_t)(body_start & 0xFF)); // Low byte
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Emit jump over function body
     size_t skip_body_pos = emit_jump_with_offset(c, OP_JUMP);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Compile function body
     for (size_t i = 0; i < node->as.function.block_size; i++) {
       compile_statement(c, node->as.function.block[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Implicit return nil if no explicit return
     KronosValue *nil_val = value_new_nil();
     emit_constant(c, nil_val);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     emit_byte(c, OP_RETURN_VAL);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // Patch jump over body
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     size_t func_end = c->bytecode->count;
     int16_t skip_offset = (int16_t)(func_end - (skip_body_pos + 2));
     if (skip_offset < 0 || skip_offset > INT16_MAX) {
@@ -1952,8 +2039,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Push arguments onto stack
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       compile_expression(c, node->as.call.args[i]);
-      if (compiler_has_error(c))
+      if (compiler_has_error(c)) {
         return;
+      }
     }
 
     // Push function name
@@ -1963,16 +2051,18 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     if (!emit_constant_index(c, func_name)) {
       return;
     }
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     // Validate argument count limit (uint8_t max is 255)
     if (node->as.call.arg_count > 255) {
       compiler_set_error(c, "Function call argument count exceeds limit (255)");
       return;
     }
     emit_byte(c, (uint8_t)node->as.call.arg_count);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
 
     // For built-in functions, print the result instead of discarding it
     // For user-defined functions, pop the return value (function calls as
@@ -1987,8 +2077,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     } else {
       emit_byte(c, OP_POP);
     }
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
@@ -2038,8 +2129,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Break out of loop - jump to loop end (will be patched after loop
     // compilation)
     size_t jump_pos = emit_jump_with_offset(c, OP_JUMP);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     // Add to pending jumps list (jump_pos points to first byte of offset)
     if (!add_pending_jump(c, jump_pos, true)) {
       return;
@@ -2051,8 +2143,9 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     // Continue to next loop iteration - jump to loop start (will be patched
     // after loop compilation)
     size_t jump_pos = emit_jump_with_offset(c, OP_JUMP);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     // Add to pending jumps list (jump_pos points to first byte of offset)
     if (!add_pending_jump(c, jump_pos, false)) {
       return;
@@ -2063,11 +2156,13 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_RETURN: {
     // Compile return value
     compile_expression(c, node->as.return_stmt.value);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     emit_byte(c, OP_RETURN_VAL);
-    if (compiler_has_error(c))
+    if (compiler_has_error(c)) {
       return;
+    }
     break;
   }
 
