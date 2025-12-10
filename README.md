@@ -6,10 +6,6 @@ A high-performance programming language built in C with human-readable syntax, f
 
 ### Language Features
 
-### Language Features
-
-### Language Features
-
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
 - **Optional Type Annotations**: Enforce types with the `as` keyword
