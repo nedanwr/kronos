@@ -414,7 +414,12 @@ KronosVM *vm_new(void) {
 
   // Initialize Pi constant - immutable
   // Note: double precision provides ~15-17 decimal digits of precision
-  KronosValue *pi_value = value_new_number(3.1415926535897932);
+  // Use M_PI from math.h if available, otherwise use hardcoded value
+#ifdef M_PI
+  KronosValue *pi_value = value_new_number(M_PI);
+#else
+  KronosValue *pi_value = value_new_number(3.14159265358979323846);
+#endif
   if (!pi_value) {
     free(vm);
     return NULL;
@@ -6014,17 +6019,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     }
 
     // Reserved/unused opcodes - these should never be emitted by the compiler
-    case OP_BREAK:
-      return vm_error(vm, KRONOS_ERR_INTERNAL,
-                      "OP_BREAK should not be emitted (break uses OP_JUMP)");
-    case OP_CONTINUE:
-      return vm_error(
-          vm, KRONOS_ERR_INTERNAL,
-          "OP_CONTINUE should not be emitted (continue uses OP_JUMP)");
-    case OP_MAP_GET:
-      return vm_error(vm, KRONOS_ERR_INTERNAL,
-                      "OP_MAP_GET is not used (map access uses OP_LIST_GET)");
-
     default:
       return vm_errorf(
           vm, KRONOS_ERR_INTERNAL,
