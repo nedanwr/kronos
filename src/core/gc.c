@@ -9,6 +9,7 @@
 
 #include "gc.h"
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +33,10 @@ typedef struct {
 static GCState gc_state = {0};
 
 /** Mutex for thread-safe GC operations */
-static pthread_mutex_t gc_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t gc_mutex;
+
+/** Track whether mutex has been initialized */
+static bool gc_mutex_initialized = false;
 
 static void gc_abort_allocation(void) {
   fprintf(stderr,
@@ -40,6 +44,7 @@ static void gc_abort_allocation(void) {
           "capacity: %zu)\n",
           gc_state.count, gc_state.capacity);
   fflush(stderr);
+  pthread_mutex_unlock(&gc_mutex);
   abort();
 }
 
@@ -77,6 +82,15 @@ static void gc_ensure_capacity_locked(size_t min_capacity) {
  * (will clean up previous state first).
  */
 void gc_init(void) {
+  // Initialize mutex if not already initialized
+  if (!gc_mutex_initialized) {
+    if (pthread_mutex_init(&gc_mutex, NULL) != 0) {
+      fprintf(stderr, "Fatal: Failed to initialize GC mutex\n");
+      abort();
+    }
+    gc_mutex_initialized = true;
+  }
+
   pthread_mutex_lock(&gc_mutex);
   // Free any previously allocated memory if gc_init is called multiple times
   if (gc_state.objects) {
@@ -115,6 +129,12 @@ void gc_cleanup(void) {
       value_finalize(obj);
   }
   free(objects);
+
+  // Destroy the mutex to prevent resource leak
+  if (gc_mutex_initialized) {
+    pthread_mutex_destroy(&gc_mutex);
+    gc_mutex_initialized = false;
+  }
 }
 
 /**
@@ -172,10 +192,9 @@ void gc_untrack(KronosValue *val) {
         gc_state.allocated_bytes -= val->as.string.length + 1;
       }
 
-      // Remove from array by shifting
-      for (size_t j = i; j < gc_state.count - 1; j++) {
-        gc_state.objects[j] = gc_state.objects[j + 1];
-      }
+      // Remove from array by swapping with last element (O(1) instead of O(n))
+      gc_state.objects[i] = gc_state.objects[gc_state.count - 1];
+      gc_state.objects[gc_state.count - 1] = NULL;
       gc_state.count--;
       pthread_mutex_unlock(&gc_mutex);
       return;
