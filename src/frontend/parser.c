@@ -2765,6 +2765,8 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
     return NULL;
   }
 
+  bool has_errors = false;
+
   while (p.pos < tokens->count) {
     Token *tok = peek(&p, 0);
     if (!tok || tok->type == TOK_EOF)
@@ -2784,7 +2786,29 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
       }
       ast->statements[ast->count++] = stmt;
     } else {
-      // Skip to next line on error
+      // Parse error occurred - track it
+      has_errors = true;
+
+      // If error output is provided and not already set, set it with details
+      // about the first parse error encountered
+      if (out_err && *out_err == NULL) {
+        Token *error_tok = peek(&p, 0);
+        if (error_tok) {
+          char msg[256];
+          snprintf(msg, sizeof(msg),
+                   "Parse error: failed to parse statement starting with token "
+                   "type %d",
+                   error_tok->type);
+          parser_set_error(&p, msg);
+        } else {
+          parser_set_error(&p, "Parse error: failed to parse statement "
+                               "(unexpected end of input)");
+        }
+      }
+
+      // Skip to next line on error (recovery mode - continue parsing)
+      // This allows partial ASTs to be returned, but callers can check
+      // out_err to know if the AST is incomplete due to parse errors
       while (tok && tok->type != TOK_NEWLINE && tok->type != TOK_EOF) {
         consume_any(&p);
         tok = peek(&p, 0);
@@ -2792,6 +2816,9 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
     }
   }
 
+  // If errors occurred, the error has been set in out_err (if provided)
+  // The AST is returned but may be partial - callers should check out_err
+  // to determine if the AST contains all statements or if some failed to parse
   return ast;
 }
 
