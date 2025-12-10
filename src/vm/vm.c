@@ -34,6 +34,86 @@
 #define NUMBER_STRING_BUFFER_SIZE                                              \
   64 // Buffer size for converting numbers to strings
 #define REGEX_ERROR_BUFFER_SIZE 256 // Buffer size for regex error messages
+#define PORTABLE_GETLINE_INITIAL_SIZE                                          \
+  256 // Initial buffer size for portable getline
+
+/**
+ * @brief Portable getline() implementation using fgetc()
+ *
+ * Reads a line from a file stream, dynamically allocating memory as needed.
+ * This is a portable replacement for POSIX getline() that works on Windows
+ * and other non-POSIX systems. On POSIX systems, the native getline() is
+ * preferred, but this provides a fallback.
+ *
+ * @param lineptr Pointer to buffer pointer (will be allocated/reallocated)
+ * @param n Pointer to buffer size (will be updated)
+ * @param stream File stream to read from
+ * @return Number of characters read (excluding null terminator), or -1 on
+ * EOF/error
+ */
+static ssize_t __attribute__((unused))
+portable_getline(char **lineptr, size_t *n, FILE *stream) {
+  if (!lineptr || !n || !stream) {
+    return -1;
+  }
+
+  // Initialize buffer if needed
+  if (!*lineptr || *n == 0) {
+    *n = PORTABLE_GETLINE_INITIAL_SIZE;
+    *lineptr = malloc(*n);
+    if (!*lineptr) {
+      return -1;
+    }
+  }
+
+  size_t pos = 0;
+  int c;
+
+  while ((c = fgetc(stream)) != EOF) {
+    // Grow buffer if needed
+    if (pos + 1 >= *n) {
+      size_t new_size = *n * 2;
+      char *new_buf = realloc(*lineptr, new_size);
+      if (!new_buf) {
+        return -1;
+      }
+      *lineptr = new_buf;
+      *n = new_size;
+    }
+
+    (*lineptr)[pos++] = (char)c;
+
+    // Stop at newline
+    if (c == '\n') {
+      break;
+    }
+  }
+
+  // Check for EOF without reading anything
+  if (pos == 0 && c == EOF) {
+    return -1;
+  }
+
+  // Null-terminate the string
+  (*lineptr)[pos] = '\0';
+
+  return (ssize_t)pos;
+}
+
+// Define a macro to use the appropriate getline implementation
+#ifdef _WIN32
+// On Windows, always use portable implementation
+#define KRONOS_GETLINE(lineptr, n, stream) portable_getline(lineptr, n, stream)
+#else
+// On POSIX systems, prefer native getline() but fallback to portable if needed
+#if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L
+// Use native POSIX getline()
+#define KRONOS_GETLINE(lineptr, n, stream) getline(lineptr, n, stream)
+#else
+// Fallback to portable implementation
+#define KRONOS_GETLINE(lineptr, n, stream) portable_getline(lineptr, n, stream)
+#endif
+#endif
 
 /**
  * @brief Comparison function for qsort on KronosValue arrays
@@ -3496,7 +3576,8 @@ static int builtin_read_lines(KronosVM *vm, uint8_t arg_count) {
   size_t line_len = 0;
   ssize_t read;
 
-  while ((read = getline(&line, &line_len, file)) != -1) {
+  // Use portable getline() implementation for cross-platform compatibility
+  while ((read = KRONOS_GETLINE(&line, &line_len, file)) != -1) {
     // Remove trailing newline if present
     if (read > 0 && line[read - 1] == '\n') {
       read--;
