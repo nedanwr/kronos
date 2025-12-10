@@ -337,8 +337,55 @@ static uint32_t hash_value(KronosValue *key) {
     return key->as.boolean ? 1 : 0;
   case VAL_NIL:
     return 0xDEADBEEF; // Arbitrary constant for null
+  case VAL_RANGE: {
+    // Hash range components
+    uint32_t h = 2166136261u;
+    union {
+      double d;
+      uint64_t u;
+    } converter;
+    converter.d = key->as.range.start;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    h *= 16777619;
+    converter.d = key->as.range.end;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    h *= 16777619;
+    converter.d = key->as.range.step;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    return h;
+  }
+  case VAL_LIST: {
+    // Hash list by hashing each element (content-based)
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < key->as.list.count; i++) {
+      h ^= hash_value(key->as.list.items[i]);
+      h *= 16777619;
+    }
+    return h;
+  }
+  case VAL_MAP: {
+    // Hash map by hashing key-value pairs (content-based)
+    // Note: Order-dependent, but maps are unordered anyway
+    uint32_t h = 2166136261u;
+    MapEntry *entries = (MapEntry *)key->as.map.entries;
+    for (size_t i = 0; i < key->as.map.capacity; i++) {
+      if (entries[i].key && !entries[i].is_tombstone) {
+        h ^= hash_value(entries[i].key);
+        h *= 16777619;
+        if (entries[i].value) {
+          h ^= hash_value(entries[i].value);
+          h *= 16777619;
+        }
+      }
+    }
+    return h;
+  }
+  case VAL_FUNCTION:
+  case VAL_CHANNEL:
   default:
-    // For other types, use pointer hash
+    // For functions and channels, use pointer hash since they are reference types.
+    // Two different function/channel objects should be considered different even
+    // if they have the same content, as they represent distinct instances.
     return (uint32_t)((uintptr_t)key * 2654435761u);
   }
 }
