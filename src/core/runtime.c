@@ -30,6 +30,13 @@
 /** Maximum depth for comparing nested structures to prevent stack overflow */
 #define VALUE_EQUALS_MAX_DEPTH 64
 
+/** Map entry structure for hash table implementation */
+typedef struct {
+  KronosValue *key;
+  KronosValue *value;
+  bool is_tombstone;
+} MapEntry;
+
 /** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 
@@ -352,11 +359,7 @@ KronosValue *value_new_map(size_t initial_capacity) {
   if (!val)
     return NULL;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = calloc(capacity, sizeof(*entries));
+  MapEntry *entries = calloc(capacity, sizeof(MapEntry));
 
   if (!entries) {
     free(val);
@@ -537,11 +540,7 @@ void value_release(KronosValue *val) {
       free(current->as.list.items);
       break;
     case VAL_MAP: {
-      struct {
-        KronosValue *key;
-        KronosValue *value;
-        bool is_tombstone;
-      } *entries = (void *)current->as.map.entries;
+      MapEntry *entries = (MapEntry *)current->as.map.entries;
       for (size_t i = 0; i < current->as.map.capacity; i++) {
         if (entries[i].key && !entries[i].is_tombstone) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
@@ -664,11 +663,7 @@ static void value_fprint_recursive(FILE *out, KronosValue *val, int depth) {
       fprintf(out, "{<max depth exceeded>}");
       break;
     }
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *entries = (void *)val->as.map.entries;
+    MapEntry *entries = (MapEntry *)val->as.map.entries;
     fprintf(out, "{");
     bool first = true;
     for (size_t i = 0; i < val->as.map.capacity; i++) {
@@ -839,16 +834,8 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
   case VAL_MAP: {
     if (a->as.map.count != b->as.map.count)
       return false;
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *a_entries = (void *)a->as.map.entries;
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *b_entries = (void *)b->as.map.entries;
+    MapEntry *a_entries = (MapEntry *)a->as.map.entries;
+    MapEntry *b_entries = (MapEntry *)b->as.map.entries;
     // For each key in a, check if it exists in b with same value
     for (size_t i = 0; i < a->as.map.capacity; i++) {
       if (a_entries[i].key && !a_entries[i].is_tombstone) {
@@ -930,11 +917,7 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
   size_t capacity = map->as.map.capacity;
   size_t index = hash % capacity;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   // Linear probing
   for (size_t i = 0; i < capacity; i++) {
@@ -963,16 +946,8 @@ static int map_grow(KronosValue *map) {
   size_t old_capacity = map->as.map.capacity;
   size_t new_capacity = old_capacity * 2;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *old_entries = (void *)map->as.map.entries;
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *new_entries = calloc(new_capacity, sizeof(*new_entries));
+  MapEntry *old_entries = (MapEntry *)map->as.map.entries;
+  MapEntry *new_entries = calloc(new_capacity, sizeof(MapEntry));
 
   if (!new_entries)
     return -1;
@@ -1017,11 +992,7 @@ KronosValue *map_get(KronosValue *map, KronosValue *key) {
   if (!map_find_entry(map, key, &index))
     return NULL;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   return entries[index].value;
 }
@@ -1047,11 +1018,7 @@ int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
   size_t index;
   bool found = map_find_entry(map, key, &index);
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   if (found) {
     // Update existing entry
@@ -1088,11 +1055,7 @@ bool map_delete(KronosValue *map, KronosValue *key) {
   if (!map_find_entry(map, key, &index))
     return false;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   if (entries[index].is_tombstone)
     return false;
