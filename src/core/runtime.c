@@ -1158,24 +1158,46 @@ bool value_is_type(KronosValue *val, const char *type_name) {
   if (!val || !type_name)
     return false;
 
-  if (strcmp(type_name, "number") == 0) {
-    return val->type == VAL_NUMBER;
-  } else if (strcmp(type_name, "string") == 0) {
-    return val->type == VAL_STRING;
-  } else if (strcmp(type_name, "boolean") == 0) {
-    return val->type == VAL_BOOL;
-  } else if (strcmp(type_name, "null") == 0) {
-    return val->type == VAL_NIL;
-  } else if (strcmp(type_name, "range") == 0) {
-    return val->type == VAL_RANGE;
-  } else if (strcmp(type_name, "list") == 0) {
-    return val->type == VAL_LIST;
-  } else if (strcmp(type_name, "map") == 0) {
-    return val->type == VAL_MAP;
-  } else if (strcmp(type_name, "function") == 0) {
-    return val->type == VAL_FUNCTION;
-  } else if (strcmp(type_name, "channel") == 0) {
-    return val->type == VAL_CHANNEL;
+  // Optimize by checking first character and length before strcmp
+  // This eliminates most comparisons quickly without needing full string comparison
+  char first = type_name[0];
+  size_t len = strlen(type_name);
+
+  switch (first) {
+  case 'b':
+    if (len == 7 && strcmp(type_name, "boolean") == 0)
+      return val->type == VAL_BOOL;
+    break;
+  case 'c':
+    if (len == 7 && strcmp(type_name, "channel") == 0)
+      return val->type == VAL_CHANNEL;
+    break;
+  case 'f':
+    if (len == 8 && strcmp(type_name, "function") == 0)
+      return val->type == VAL_FUNCTION;
+    break;
+  case 'l':
+    if (len == 4 && strcmp(type_name, "list") == 0)
+      return val->type == VAL_LIST;
+    break;
+  case 'm':
+    if (len == 3 && strcmp(type_name, "map") == 0)
+      return val->type == VAL_MAP;
+    break;
+  case 'n':
+    if (len == 6 && strcmp(type_name, "number") == 0)
+      return val->type == VAL_NUMBER;
+    else if (len == 4 && strcmp(type_name, "null") == 0)
+      return val->type == VAL_NIL;
+    break;
+  case 'r':
+    if (len == 5 && strcmp(type_name, "range") == 0)
+      return val->type == VAL_RANGE;
+    break;
+  case 's':
+    if (len == 6 && strcmp(type_name, "string") == 0)
+      return val->type == VAL_STRING;
+    break;
   }
 
   return false;
