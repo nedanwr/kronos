@@ -298,9 +298,15 @@ KronosValue *value_new_channel(Channel *channel) {
  * Creates a range object representing values from start to end (inclusive)
  * with the given step. The step defaults to 1.0 if 0.0 is provided.
  *
+ * Negative steps are supported for reverse iteration (e.g., range 10 to 1 by -1).
+ * The iteration logic in the VM handles negative steps correctly by checking
+ * the step direction. No validation is performed here as ranges with mismatched
+ * step direction and start/end relationship simply result in empty ranges
+ * (e.g., range 1 to 10 by -1 produces no values, which is correct behavior).
+ *
  * @param start Starting value (inclusive)
  * @param end Ending value (inclusive)
- * @param step Step size (defaults to 1.0 if 0.0)
+ * @param step Step size (defaults to 1.0 if 0.0, negative steps allowed for reverse iteration)
  * @return New range value, or NULL on allocation failure
  */
 KronosValue *value_new_range(double start, double end, double step) {
