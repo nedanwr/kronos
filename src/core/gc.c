@@ -22,8 +22,23 @@ typedef struct {
   bool is_tombstone;
 } MapEntry;
 
-/** Initial capacity for the object tracking array */
-#define INITIAL_TRACKED_CAPACITY 1024
+/**
+ * Initial capacity for the object tracking array
+ *
+ * Chosen to balance memory usage for small programs while minimizing
+ * reallocations. The array grows automatically as needed (doubles when full),
+ * so a smaller initial size (64) is reasonable for typical workloads.
+ * This is ~5KB of memory (64 * sizeof(KronosValue*) = 64 * 8 = 512 bytes).
+ *
+ * For comparison:
+ * - Compiler bytecode: 256 initial capacity
+ * - Constant pool: 32 initial capacity
+ * - Maps: 8 initial capacity
+ *
+ * 64 provides a good middle ground - small enough for tiny programs,
+ * large enough to avoid frequent resizes for typical use cases.
+ */
+#define INITIAL_TRACKED_CAPACITY 64
 
 /**
  * Garbage collector state
