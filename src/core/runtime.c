@@ -1158,6 +1158,8 @@ KronosValue *string_intern(const char *str, size_t len) {
 
   // Table full, fallback to non-interned string
   pthread_mutex_unlock(&intern_mutex);
+  fprintf(stderr, "Warning: String intern table full (size %d), falling back to non-interned string\n",
+          INTERN_TABLE_SIZE);
   return value_new_string(str, len);
 }
 
