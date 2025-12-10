@@ -170,9 +170,36 @@ void gc_track(KronosValue *val) {
   gc_state.objects[gc_state.count++] = val;
   gc_state.allocated_bytes += sizeof(KronosValue);
 
-  // Add size of string data if applicable
-  if (val->type == VAL_STRING) {
+  // Add size of type-specific data
+  switch (val->type) {
+  case VAL_STRING:
     gc_state.allocated_bytes += val->as.string.length + 1;
+    break;
+  case VAL_LIST:
+    // Track list item array: capacity * sizeof(KronosValue*)
+    if (val->as.list.capacity > 0) {
+      gc_state.allocated_bytes += val->as.list.capacity * sizeof(KronosValue *);
+    }
+    break;
+  case VAL_MAP: {
+    // Track map entries array: capacity * sizeof(MapEntry)
+    // MapEntry contains: KronosValue* key, KronosValue* value, bool
+    // is_tombstone Size is approximately: capacity * (sizeof(KronosValue*) * 2
+    // + sizeof(bool)) Using sizeof(void*) * 2 + sizeof(bool) for portability
+    if (val->as.map.capacity > 0) {
+      gc_state.allocated_bytes +=
+          val->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
+    }
+    break;
+  }
+  case VAL_FUNCTION:
+    // Track function bytecode buffer
+    if (val->as.function.bytecode && val->as.function.length > 0) {
+      gc_state.allocated_bytes += val->as.function.length;
+    }
+    break;
+  default:
+    break;
   }
   pthread_mutex_unlock(&gc_mutex);
 }
@@ -194,8 +221,35 @@ void gc_untrack(KronosValue *val) {
     if (gc_state.objects[i] == val) {
       // Subtract from allocated bytes
       gc_state.allocated_bytes -= sizeof(KronosValue);
-      if (val->type == VAL_STRING) {
+
+      // Subtract size of type-specific data
+      switch (val->type) {
+      case VAL_STRING:
         gc_state.allocated_bytes -= val->as.string.length + 1;
+        break;
+      case VAL_LIST:
+        // Subtract list item array size
+        if (val->as.list.capacity > 0) {
+          gc_state.allocated_bytes -=
+              val->as.list.capacity * sizeof(KronosValue *);
+        }
+        break;
+      case VAL_MAP: {
+        // Subtract map entries array size
+        if (val->as.map.capacity > 0) {
+          gc_state.allocated_bytes -=
+              val->as.map.capacity * (sizeof(void *) * 2 + sizeof(bool));
+        }
+        break;
+      }
+      case VAL_FUNCTION:
+        // Subtract function bytecode buffer size
+        if (val->as.function.bytecode && val->as.function.length > 0) {
+          gc_state.allocated_bytes -= val->as.function.length;
+        }
+        break;
+      default:
+        break;
       }
 
       // Remove from array by swapping with last element (O(1) instead of O(n))
