@@ -129,6 +129,7 @@ This document outlines the planned features and release schedule for Kronos.
   ```
 
 - ✅ **LSP Improvements** (Completed)
+
   - ✅ Hover info for file-based modules (show module path and exports)
   - ✅ Module function validation (verify functions exist in imported modules)
   - ✅ Find all references
@@ -137,6 +138,17 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Document formatting
   - ✅ Workspace symbols
   - ✅ Code lens
+
+- 📝 **Code Documentation Improvements** - Improve comment quality (in progress)
+
+  - Improve comments to explain "why" rather than just "what"
+  - Add design decision documentation
+  - Document edge cases and non-obvious behavior
+  - Incremental improvement as code is modified
+
+- 📋 **Code Refactoring** - Improve code organization (future)
+  - Refactor functions with long parameter lists (5+ parameters) to use parameter structs
+  - Example: `call_module_function()` currently takes 5 parameters; consider using a struct for better maintainability
 
 ---
 
