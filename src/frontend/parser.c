@@ -2786,8 +2786,21 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
     if (stmt) {
       if (ast->count >= ast->capacity) {
         ast->capacity *= 2;
-        ast->statements =
+        ASTNode **new_statements =
             realloc(ast->statements, sizeof(ASTNode *) * ast->capacity);
+        if (!new_statements) {
+          // Realloc failed - free the statement and report error
+          ast_node_free(stmt);
+          parser_set_error(&p, "Failed to grow AST statements array");
+          // Free existing AST and return NULL
+          for (size_t i = 0; i < ast->count; i++) {
+            ast_node_free(ast->statements[i]);
+          }
+          free(ast->statements);
+          free(ast);
+          return NULL;
+        }
+        ast->statements = new_statements;
       }
       ast->statements[ast->count++] = stmt;
     } else {
