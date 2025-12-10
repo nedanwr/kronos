@@ -37,6 +37,66 @@
 #define PORTABLE_GETLINE_INITIAL_SIZE                                          \
   256 // Initial buffer size for portable getline
 
+#ifdef _WIN32
+#include <io.h>
+#include <windows.h>
+#endif
+
+/**
+ * @brief Portable fopen() implementation with UTF-8 support
+ *
+ * Opens a file with UTF-8 path support on all platforms. On Windows, converts
+ * UTF-8 to wide characters and uses _wfopen() for proper UTF-8 handling. On
+ * other platforms, uses standard fopen().
+ *
+ * @param path UTF-8 encoded file path
+ * @param mode File access mode (same as fopen)
+ * @return FILE pointer on success, NULL on failure
+ */
+static FILE *portable_fopen(const char *path, const char *mode) {
+#ifdef _WIN32
+  // Convert UTF-8 to wide characters for Windows
+  int path_len = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+  if (path_len <= 0) {
+    return NULL;
+  }
+  wchar_t *wpath = malloc(path_len * sizeof(wchar_t));
+  if (!wpath) {
+    return NULL;
+  }
+  if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, path_len) <= 0) {
+    free(wpath);
+    return NULL;
+  }
+
+  // Convert mode string to wide characters
+  int mode_len = MultiByteToWideChar(CP_UTF8, 0, mode, -1, NULL, 0);
+  if (mode_len <= 0) {
+    free(wpath);
+    return NULL;
+  }
+  wchar_t *wmode = malloc(mode_len * sizeof(wchar_t));
+  if (!wmode) {
+    free(wpath);
+    return NULL;
+  }
+  if (MultiByteToWideChar(CP_UTF8, 0, mode, -1, wmode, mode_len) <= 0) {
+    free(wpath);
+    free(wmode);
+    return NULL;
+  }
+
+  // Use _wfopen for UTF-8 support on Windows
+  FILE *file = _wfopen(wpath, wmode);
+  free(wpath);
+  free(wmode);
+  return file;
+#else
+  // On non-Windows platforms, use standard fopen
+  return fopen(path, mode);
+#endif
+}
+
 /**
  * @brief Portable getline() implementation using fgetc()
  *
@@ -128,8 +188,8 @@ portable_getline(char **lineptr, size_t *n, FILE *stream) {
  * @return negative if a < b, 0 if equal, positive if a > b
  */
 static int sort_compare_values(const void *a, const void *b) {
-  KronosValue *val_a = *(KronosValue **)a;
-  KronosValue *val_b = *(KronosValue **)b;
+  const KronosValue *val_a = *(const KronosValue *const *)a;
+  const KronosValue *val_b = *(const KronosValue *const *)b;
 
   // Determine comparison type from values (all items are same type per
   // validation)
@@ -938,8 +998,8 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
   }
   root_vm->loading_count++;
 
-  // Read file
-  FILE *file = fopen(resolved_path, "r");
+  // Read file (using portable fopen for UTF-8 support)
+  FILE *file = portable_fopen(resolved_path, "r");
   if (!file) {
     free(resolved_path);
     return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s",
@@ -1697,7 +1757,7 @@ static int builtin_regex_findall(KronosVM *vm, uint8_t arg_count);
 
 // Helper function to convert a value to a string representation
 // Returns a newly allocated string that the caller must free
-static char *value_to_string_repr(KronosValue *val) {
+static char *value_to_string_repr(const KronosValue *val) {
   if (val->type == VAL_STRING) {
     char *str = malloc(val->as.string.length + 1);
     if (!str)
@@ -2312,7 +2372,7 @@ static int builtin_read_file(KronosVM *vm, uint8_t arg_count) {
     value_release(path_val);
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Path must be a string");
   }
-  FILE *file = fopen(path_val->as.string.data, "rb");
+  FILE *file = portable_fopen(path_val->as.string.data, "rb");
   if (!file) {
     value_release(path_val);
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Could not open file");
@@ -3695,7 +3755,7 @@ static int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
-  FILE *file = fopen(path_arg->as.string.data, "w");
+  FILE *file = portable_fopen(path_arg->as.string.data, "w");
   if (!file) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Failed to open file '%s' for writing",
@@ -3745,7 +3805,7 @@ static int builtin_read_lines(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
-  FILE *file = fopen(path_arg->as.string.data, "r");
+  FILE *file = portable_fopen(path_arg->as.string.data, "r");
   if (!file) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open file '%s'",
                         path_arg->as.string.data);
