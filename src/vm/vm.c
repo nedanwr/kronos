@@ -215,6 +215,10 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
   mod_frame->return_bytecode = NULL;
   mod_frame->frame_start = module_vm->stack_top;
   mod_frame->local_count = 0;
+  // Initialize local variable hash table to all NULL
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    mod_frame->local_hash[i] = NULL;
+  }
 
   // Set current_frame BEFORE setting locals
   module_vm->current_frame = mod_frame;
@@ -310,8 +314,9 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
  */
 static void vm_finalize_error(KronosVM *vm, KronosErrorCode code,
                               char *owned_message, const char *fallback_msg) {
-  if (!vm)
+  if (!vm) {
     return;
+  }
 
   free(vm->last_error_message);
   vm->last_error_message = owned_message;
@@ -347,21 +352,24 @@ static void vm_set_error_with_type(KronosVM *vm, KronosErrorCode code,
 }
 
 static char *vm_format_message(const char *fmt, va_list args) {
-  if (!fmt)
+  if (!fmt) {
     return NULL;
+  }
 
   va_list copy;
   va_copy(copy, args);
   int needed = vsnprintf(NULL, 0, fmt, copy);
   va_end(copy);
 
-  if (needed < 0)
+  if (needed < 0) {
     return NULL;
+  }
 
   size_t size = (size_t)needed + 1;
   char *buffer = malloc(size);
-  if (!buffer)
+  if (!buffer) {
     return NULL;
+  }
 
   if (vsnprintf(buffer, size, fmt, args) < 0) {
     free(buffer);
@@ -477,8 +485,9 @@ static bool handle_exception_if_any(KronosVM *vm) {
  */
 KronosVM *vm_new(void) {
   KronosVM *vm = malloc(sizeof(KronosVM));
-  if (!vm)
+  if (!vm) {
     return NULL;
+  }
 
   vm->stack_top = vm->stack;
   vm->global_count = 0;
@@ -560,8 +569,9 @@ KronosVM *vm_new(void) {
  * @param vm VM instance to free (safe to pass NULL)
  */
 void vm_free(KronosVM *vm) {
-  if (!vm)
+  if (!vm) {
     return;
+  }
 
   // Release all values on stack
   while (vm->stack_top > vm->stack) {
@@ -624,8 +634,9 @@ void vm_free(KronosVM *vm) {
  * @param vm VM instance
  */
 void vm_clear_stack(KronosVM *vm) {
-  if (!vm)
+  if (!vm) {
     return;
+  }
 
   // Release all values on stack
   while (vm->stack_top > vm->stack) {
@@ -636,8 +647,9 @@ void vm_clear_stack(KronosVM *vm) {
 
 // Free a function
 void function_free(Function *func) {
-  if (!func)
+  if (!func) {
     return;
+  }
 
   free(func->name);
   for (size_t i = 0; i < func->param_count; i++) {
@@ -782,8 +794,9 @@ Function *vm_get_function(KronosVM *vm, const char *name) {
 
 // Get a module by name
 Module *vm_get_module(KronosVM *vm, const char *name) {
-  if (!vm || !name)
+  if (!vm || !name) {
     return NULL;
+  }
 
   for (size_t i = 0; i < vm->module_count; i++) {
     if (vm->modules[i] && strcmp(vm->modules[i]->name, name) == 0) {
@@ -796,8 +809,9 @@ Module *vm_get_module(KronosVM *vm, const char *name) {
 // Resolve module file path (handles relative paths)
 static char *resolve_module_path(const char *base_path,
                                  const char *module_path) {
-  if (!module_path)
+  if (!module_path) {
     return NULL;
+  }
 
   // If module_path is absolute, use it as-is
   if (module_path[0] == '/') {
@@ -4503,6 +4517,10 @@ static int handle_op_call_func(KronosVM *vm) {
   frame->return_bytecode = vm->bytecode;
   frame->frame_start = vm->stack_top;
   frame->local_count = 0;
+  // Initialize local variable hash table to all NULL
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    frame->local_hash[i] = NULL;
+  }
 
   // Pop arguments and bind to parameters (in reverse order)
   KronosValue **args =
