@@ -19,6 +19,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Capacity constants for dynamic arrays
+#define BYTECODE_INITIAL_CAPACITY 256
+#define CONSTANT_POOL_INITIAL_CAPACITY 8
+#define CONSTANT_POOL_DEFAULT_CAPACITY 32
+#define JUMP_ARRAY_INITIAL_CAPACITY 4
+
 /**
  * Tracks a pending jump instruction that needs patching
  * Used for break/continue statements where the target isn't known yet
@@ -189,10 +195,11 @@ static void emit_byte(Compiler *c, uint8_t byte) {
     return;
 
   if (c->bytecode->count >= c->bytecode->capacity) {
-    // Determine new capacity (minimum 256 if starting from 0)
+    // Determine new capacity (minimum BYTECODE_INITIAL_CAPACITY if starting
+    // from 0)
     size_t new_capacity;
     if (c->bytecode->capacity == 0) {
-      new_capacity = 256; // Sane minimum initial capacity for bytecode
+      new_capacity = BYTECODE_INITIAL_CAPACITY;
     } else {
       // Check for overflow before doubling capacity
       if (c->bytecode->capacity > SIZE_MAX / 2) {
@@ -302,10 +309,11 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
   }
 
   if (c->bytecode->const_count >= c->bytecode->const_capacity) {
-    // Determine new capacity (minimum 8 if starting from 0)
+    // Determine new capacity (minimum CONSTANT_POOL_INITIAL_CAPACITY if
+    // starting from 0)
     size_t new_capacity;
     if (c->bytecode->const_capacity == 0) {
-      new_capacity = 8; // Sane minimum initial capacity
+      new_capacity = CONSTANT_POOL_INITIAL_CAPACITY;
     } else {
       // Check for overflow before doubling capacity
       if (c->bytecode->const_capacity > SIZE_MAX / 2 / sizeof(KronosValue *)) {
@@ -1277,7 +1285,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
     // Add the initial if jump (jump-if-false, should point to next
     // else-if/else/end)
     if (jump_count >= jump_capacity) {
-      size_t new_capacity = jump_capacity == 0 ? 4 : jump_capacity * 2;
+      size_t new_capacity =
+          jump_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY : jump_capacity * 2;
       size_t *new_positions =
           realloc(jump_positions, sizeof(size_t) * new_capacity);
       if (!new_positions) {
@@ -1302,7 +1311,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
         return;
       }
       if (skip_count >= skip_capacity) {
-        size_t new_capacity = skip_capacity == 0 ? 4 : skip_capacity * 2;
+        size_t new_capacity = skip_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY
+                                                 : skip_capacity * 2;
         size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
         if (!new_skips) {
           compiler_set_error(c, "Failed to allocate skip jumps array");
@@ -1371,7 +1381,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
 
       // Add skip jump to list (will be patched at the end)
       if (skip_count >= skip_capacity) {
-        size_t new_capacity = skip_capacity == 0 ? 4 : skip_capacity * 2;
+        size_t new_capacity = skip_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY
+                                                 : skip_capacity * 2;
         size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
         if (!new_skips) {
           compiler_set_error(c, "Failed to allocate skip jumps array");
@@ -1386,7 +1397,8 @@ static void compile_statement(Compiler *c, ASTNode *node) {
 
       // Add jump-if-false to list (should point to next else-if/else/end)
       if (jump_count + 1 > jump_capacity) {
-        size_t new_capacity = jump_capacity == 0 ? 4 : jump_capacity * 2;
+        size_t new_capacity = jump_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY
+                                                 : jump_capacity * 2;
         while (new_capacity < jump_count + 1) {
           new_capacity *= 2;
         }
@@ -2149,7 +2161,7 @@ Bytecode *compile(AST *ast, const char **out_err) {
   }
 
   // Initialize bytecode
-  c.bytecode->capacity = 256;
+  c.bytecode->capacity = BYTECODE_INITIAL_CAPACITY;
   c.bytecode->count = 0;
   c.bytecode->code = malloc(c.bytecode->capacity);
   if (!c.bytecode->code) {
@@ -2159,7 +2171,7 @@ Bytecode *compile(AST *ast, const char **out_err) {
     return NULL;
   }
 
-  c.bytecode->const_capacity = 32;
+  c.bytecode->const_capacity = CONSTANT_POOL_DEFAULT_CAPACITY;
   c.bytecode->const_count = 0;
   c.bytecode->constants =
       calloc(c.bytecode->const_capacity, sizeof(KronosValue *));
