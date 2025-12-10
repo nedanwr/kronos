@@ -27,6 +27,9 @@
 /** Maximum depth for printing nested structures to prevent stack overflow */
 #define VALUE_PRINT_MAX_DEPTH 64
 
+/** Maximum depth for comparing nested structures to prevent stack overflow */
+#define VALUE_EQUALS_MAX_DEPTH 64
+
 /** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 
@@ -750,27 +753,62 @@ bool value_is_truthy(KronosValue *val) {
 }
 
 /**
- * @brief Check if two values are equal
- *
- * Performs deep equality checking:
- * - Same pointer: always equal
- * - Different types: never equal
- * - Numbers: compared with epsilon tolerance for floating-point
- * - Strings: byte-by-byte comparison
- * - Lists: recursive element-by-element comparison
- * - Other types: pointer equality
+ * @brief Check if two values are equal (internal recursive version with depth limit)
  *
  * @param a First value
  * @param b Second value
- * @return true if equal, false otherwise
+ * @param depth Current recursion depth (to prevent stack overflow)
+ * @param visited_a Array of visited value pointers from 'a' (for cycle detection)
+ * @param visited_b Array of visited value pointers from 'b' (for cycle detection)
+ * @param visited_count Current count of visited values
+ * @param visited_capacity Capacity of visited arrays
+ * @return true if values are equal, false otherwise
  */
-bool value_equals(KronosValue *a, KronosValue *b) {
+static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
+                                   KronosValue **visited_a,
+                                   KronosValue **visited_b,
+                                   size_t *visited_count,
+                                   size_t *visited_capacity) {
   if (a == b)
     return true;
   if (!a || !b)
     return false;
   if (a->type != b->type)
     return false;
+
+  // Check depth limit
+  if (depth >= VALUE_EQUALS_MAX_DEPTH) {
+    // At max depth, use pointer equality as fallback
+    return a == b;
+  }
+
+  // Check for cycles (simple linear search - acceptable for limited depth)
+  for (size_t i = 0; i < *visited_count; i++) {
+    if (visited_a[i] == a && visited_b[i] == b) {
+      // Same pair already being compared - cycle detected, consider equal
+      return true;
+    }
+  }
+
+  // Add to visited set
+  if (*visited_count >= *visited_capacity) {
+    size_t new_capacity =
+        (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
+    KronosValue **new_visited_a =
+        realloc(visited_a, new_capacity * sizeof(KronosValue *));
+    KronosValue **new_visited_b =
+        realloc(visited_b, new_capacity * sizeof(KronosValue *));
+    if (new_visited_a && new_visited_b) {
+      visited_a = new_visited_a;
+      visited_b = new_visited_b;
+      *visited_capacity = new_capacity;
+    }
+  }
+  if (*visited_count < *visited_capacity) {
+    visited_a[*visited_count] = a;
+    visited_b[*visited_count] = b;
+    (*visited_count)++;
+  }
 
   switch (a->type) {
   case VAL_NUMBER:
@@ -787,7 +825,9 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     if (a->as.list.count != b->as.list.count)
       return false;
     for (size_t i = 0; i < a->as.list.count; i++) {
-      if (!value_equals(a->as.list.items[i], b->as.list.items[i]))
+      if (!value_equals_recursive(a->as.list.items[i], b->as.list.items[i],
+                                  depth + 1, visited_a, visited_b,
+                                  visited_count, visited_capacity))
         return false;
     }
     return true;
@@ -816,8 +856,12 @@ bool value_equals(KronosValue *a, KronosValue *b) {
         bool found = false;
         for (size_t j = 0; j < b->as.map.capacity; j++) {
           if (b_entries[j].key && !b_entries[j].is_tombstone &&
-              value_equals(a_entries[i].key, b_entries[j].key)) {
-            if (!value_equals(a_entries[i].value, b_entries[j].value))
+              value_equals_recursive(a_entries[i].key, b_entries[j].key,
+                                     depth + 1, visited_a, visited_b,
+                                     visited_count, visited_capacity)) {
+            if (!value_equals_recursive(a_entries[i].value, b_entries[j].value,
+                                        depth + 1, visited_a, visited_b,
+                                        visited_count, visited_capacity))
               return false;
             found = true;
             break;
@@ -832,6 +876,39 @@ bool value_equals(KronosValue *a, KronosValue *b) {
   default:
     return a == b; // Pointer equality for complex types
   }
+}
+
+/**
+ * @brief Check if two values are equal
+ *
+ * Performs deep equality checking:
+ * - Same pointer: always equal
+ * - Different types: never equal
+ * - Numbers: compared with epsilon tolerance for floating-point
+ * - Strings: byte-by-byte comparison
+ * - Lists: recursive element-by-element comparison
+ * - Maps: recursive key-value comparison
+ * - Other types: pointer equality
+ *
+ * Uses depth limiting and cycle detection to prevent stack overflow and
+ * infinite recursion from deeply nested or circular structures.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return true if equal, false otherwise
+ */
+bool value_equals(KronosValue *a, KronosValue *b) {
+  KronosValue **visited_a = NULL;
+  KronosValue **visited_b = NULL;
+  size_t visited_count = 0;
+  size_t visited_capacity = 0;
+
+  bool result = value_equals_recursive(a, b, 0, visited_a, visited_b,
+                                       &visited_count, &visited_capacity);
+
+  free(visited_a);
+  free(visited_b);
+  return result;
 }
 
 /**
