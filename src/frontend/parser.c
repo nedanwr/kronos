@@ -72,6 +72,131 @@ typedef struct {
 static void parser_set_error(Parser *p, const char *message);
 
 /**
+ * @brief Convert token type to human-readable string
+ *
+ * @param type Token type enum value
+ * @return Human-readable string name for the token type
+ */
+static const char *token_type_name(TokenType type) {
+  switch (type) {
+  case TOK_NUMBER:
+    return "NUMBER";
+  case TOK_STRING:
+    return "STRING";
+  case TOK_FSTRING:
+    return "FSTRING";
+  case TOK_SET:
+    return "SET";
+  case TOK_LET:
+    return "LET";
+  case TOK_TO:
+    return "TO";
+  case TOK_AS:
+    return "AS";
+  case TOK_IF:
+    return "IF";
+  case TOK_ELSE:
+    return "ELSE";
+  case TOK_ELSE_IF:
+    return "ELSE_IF";
+  case TOK_FOR:
+    return "FOR";
+  case TOK_WHILE:
+    return "WHILE";
+  case TOK_BREAK:
+    return "BREAK";
+  case TOK_CONTINUE:
+    return "CONTINUE";
+  case TOK_IN:
+    return "IN";
+  case TOK_RANGE:
+    return "RANGE";
+  case TOK_LIST:
+    return "LIST";
+  case TOK_MAP:
+    return "MAP";
+  case TOK_AT:
+    return "AT";
+  case TOK_FROM:
+    return "FROM";
+  case TOK_END:
+    return "END";
+  case TOK_FUNCTION:
+    return "FUNCTION";
+  case TOK_WITH:
+    return "WITH";
+  case TOK_CALL:
+    return "CALL";
+  case TOK_RETURN:
+    return "RETURN";
+  case TOK_IMPORT:
+    return "IMPORT";
+  case TOK_TRUE:
+    return "TRUE";
+  case TOK_FALSE:
+    return "FALSE";
+  case TOK_NULL:
+    return "NULL";
+  case TOK_UNDEFINED:
+    return "UNDEFINED";
+  case TOK_IS:
+    return "IS";
+  case TOK_EQUAL:
+    return "EQUAL";
+  case TOK_NOT:
+    return "NOT";
+  case TOK_GREATER:
+    return "GREATER";
+  case TOK_LESS:
+    return "LESS";
+  case TOK_THAN:
+    return "THAN";
+  case TOK_AND:
+    return "AND";
+  case TOK_OR:
+    return "OR";
+  case TOK_PRINT:
+    return "PRINT";
+  case TOK_PLUS:
+    return "PLUS";
+  case TOK_MINUS:
+    return "MINUS";
+  case TOK_TIMES:
+    return "TIMES";
+  case TOK_DIVIDED:
+    return "DIVIDED";
+  case TOK_BY:
+    return "BY";
+  case TOK_MOD:
+    return "MOD";
+  case TOK_DELETE:
+    return "DELETE";
+  case TOK_TRY:
+    return "TRY";
+  case TOK_CATCH:
+    return "CATCH";
+  case TOK_FINALLY:
+    return "FINALLY";
+  case TOK_RAISE:
+    return "RAISE";
+  case TOK_NAME:
+    return "NAME";
+  case TOK_COLON:
+    return "COLON";
+  case TOK_COMMA:
+    return "COMMA";
+  case TOK_NEWLINE:
+    return "NEWLINE";
+  case TOK_INDENT:
+    return "INDENT";
+  case TOK_EOF:
+    return "EOF";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+/**
  * @brief Check and increment recursion depth
  *
  * @param p Parser state
@@ -195,8 +320,8 @@ static Token *consume(Parser *p, TokenType expected) {
   Token *tok = &p->tokens->tokens[p->pos];
   if (tok->type != expected) {
     char msg[128];
-    snprintf(msg, sizeof(msg), "Expected token type %d, got %d", expected,
-             tok->type);
+    snprintf(msg, sizeof(msg), "Expected token type %s, got %s",
+             token_type_name(expected), token_type_name(tok->type));
     parser_set_error(p, msg);
     return NULL;
   }
@@ -3114,8 +3239,8 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
           char msg[256];
           snprintf(msg, sizeof(msg),
                    "Parse error: failed to parse statement starting with token "
-                   "type %d",
-                   error_tok->type);
+                   "type %s",
+                   token_type_name(error_tok->type));
           parser_set_error(&p, msg);
         } else {
           parser_set_error(&p, "Parse error: failed to parse statement "
