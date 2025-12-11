@@ -235,8 +235,9 @@ static void decrement_recursion_depth(Parser *p) {
  * @param message Error message (will be copied)
  */
 static void parser_set_error(Parser *p, const char *message) {
-  if (!p || !message)
+  if (!p || !message) {
     return;
+  }
 
   // If error output is provided, use structured error reporting
   if (p->error_out && *p->error_out == NULL) {
@@ -265,8 +266,9 @@ static void parser_set_error(Parser *p, const char *message) {
  * @param err ParseError to free (may be NULL)
  */
 void parse_error_free(ParseError *err) {
-  if (!err)
+  if (!err) {
     return;
+  }
   free(err->message);
   free(err);
 }
@@ -306,15 +308,17 @@ static Token *peek(Parser *p, int offset) {
       return NULL;
     }
     size_t idx = p->pos - abs_offset;
-    if (idx >= p->tokens->count)
+    if (idx >= p->tokens->count) {
       return NULL;
+    }
     return &p->tokens->tokens[idx];
   }
 
   // Positive offset - safe to add
   size_t idx = p->pos + (size_t)offset;
-  if (idx >= p->tokens->count)
+  if (idx >= p->tokens->count) {
     return NULL;
+  }
   return &p->tokens->tokens[idx];
 }
 
@@ -359,8 +363,9 @@ static Token *consume(Parser *p, TokenType expected) {
  * @return Token pointer, or NULL if at end of input
  */
 static Token *consume_any(Parser *p) {
-  if (p->pos >= p->tokens->count)
+  if (p->pos >= p->tokens->count) {
     return NULL;
+  }
   return &p->tokens->tokens[p->pos++];
 }
 
@@ -448,8 +453,9 @@ static bool fstring_add_part(ASTNode ***parts, size_t *part_count,
 // Create AST node helpers
 static ASTNode *ast_node_new(ASTNodeType type) {
   ASTNode *node = calloc(1, sizeof(ASTNode));
-  if (!node)
+  if (!node) {
     return NULL;
+  }
   node->type = type;
   return node;
 }
@@ -469,8 +475,9 @@ static ASTNode *fstring_create_string_part(const char *content, size_t start,
                                            size_t end) {
   size_t str_len = end - start;
   ASTNode *str_node = ast_node_new_checked(AST_STRING);
-  if (!str_node)
+  if (!str_node) {
     return NULL;
+  }
 
   str_node->as.string.value = malloc(str_len + 1);
   if (!str_node->as.string.value) {
@@ -484,22 +491,33 @@ static ASTNode *fstring_create_string_part(const char *content, size_t start,
 }
 
 // Helper function for parse_fstring: parse expression from f-string content
+//
+// NOTE: This implementation re-tokenizes the expression substring, which is
+// inefficient. A more optimal approach would track source positions in tokens
+// and parse inline without re-tokenization. However, this would require
+// significant architectural changes (e.g., position tracking in tokens,
+// ability to parse substrings of the token stream). The current approach
+// works correctly and is acceptable for most use cases.
 static ASTNode *fstring_parse_expression(const char *content, size_t expr_start,
                                          size_t expr_end) {
   // Extract expression string
   size_t expr_len = expr_end - expr_start;
   char *expr_str = malloc(expr_len + 1);
-  if (!expr_str)
+  if (!expr_str) {
     return NULL;
+  }
 
   memcpy(expr_str, content + expr_start, expr_len);
   expr_str[expr_len] = '\0';
 
   // Tokenize and parse the expression
+  // TODO: Optimize by parsing inline without re-tokenization (requires
+  //       source position tracking in tokens)
   TokenArray *expr_tokens = tokenize(expr_str, NULL);
   free(expr_str);
-  if (!expr_tokens)
+  if (!expr_tokens) {
     return NULL;
+  }
 
   // Create a temporary parser for the expression
   Parser expr_parser = {expr_tokens, 0, 0, NULL};
@@ -584,8 +602,9 @@ static size_t fstring_find_matching_brace(const char *content,
  * @param part_count Number of parts in the array
  */
 static void fstring_cleanup_parts(ASTNode **parts, size_t part_count) {
-  if (!parts)
+  if (!parts) {
     return;
+  }
   for (size_t i = 0; i < part_count; i++) {
     ast_node_free(parts[i]);
   }
@@ -641,14 +660,16 @@ static bool fstring_add_part(ASTNode ***parts, size_t *part_count,
  */
 static ASTNode *parse_value(Parser *p) {
   Token *tok = peek(p, 0);
-  if (!tok)
+  if (!tok) {
     return NULL;
+  }
 
   if (tok->type == TOK_NUMBER) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_NUMBER);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
 
     // Use strtod() with proper error checking instead of atof()
     errno = 0; // Clear errno before conversion
@@ -685,8 +706,9 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_TRUE) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_BOOL);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
     node->as.boolean = true;
     return node;
   }
@@ -694,8 +716,9 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_FALSE) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_BOOL);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
     node->as.boolean = false;
     return node;
   }
@@ -703,8 +726,9 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_NULL || tok->type == TOK_UNDEFINED) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_NULL);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
     return node;
   }
 
@@ -712,8 +736,9 @@ static ASTNode *parse_value(Parser *p) {
     consume_any(p);
     // Tokenizer already strips quotes, so tok->text contains only the content
     ASTNode *node = ast_node_new_checked(AST_STRING);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
     size_t len = tok->length;
     node->as.string.value = malloc(len + 1);
     if (!node->as.string.value) {
@@ -734,8 +759,9 @@ static ASTNode *parse_value(Parser *p) {
   if (tok->type == TOK_NAME) {
     consume_any(p);
     ASTNode *node = ast_node_new_checked(AST_VAR);
-    if (!node)
+    if (!node) {
       return NULL;
+    }
     char *var_name = strdup(tok->text);
     if (!var_name) {
       fprintf(stderr, "Memory allocation failed for variable name\n");
@@ -814,20 +840,23 @@ static int get_precedence(TokenType type) {
 static bool match_comparison_operator(Parser *p, BinOp *out_op,
                                       size_t *tokens_to_consume) {
   Token *current = peek(p, 0);
-  if (!current || current->type != TOK_IS)
+  if (!current || current->type != TOK_IS) {
     return false;
+  }
 
   Token *next = peek(p, 1);
-  if (!next)
+  if (!next) {
     return false;
+  }
 
   size_t consumed = 0;
   BinOp op = BINOP_EQ;
 
   if (next->type == TOK_NOT) {
     Token *after_not = peek(p, 2);
-    if (!after_not || after_not->type != TOK_EQUAL)
+    if (!after_not || after_not->type != TOK_EQUAL) {
       return false;
+    }
     op = BINOP_NEQ;
     consumed = 3; // is not equal
   } else if (next->type == TOK_EQUAL) {
@@ -861,10 +890,12 @@ static bool match_comparison_operator(Parser *p, BinOp *out_op,
     consumed++;
   }
 
-  if (tokens_to_consume)
+  if (tokens_to_consume) {
     *tokens_to_consume = consumed;
-  if (out_op)
+  }
+  if (out_op) {
     *out_op = op;
+  }
   return true;
 }
 
@@ -891,11 +922,13 @@ static bool list_grow_elements(ASTNode ***elements, size_t *capacity) {
  * @param element_count Number of elements
  */
 static void list_cleanup_elements(ASTNode **elements, size_t element_count) {
-  if (!elements)
+  if (!elements) {
     return;
+  }
   for (size_t i = 0; i < element_count; i++) {
-    if (elements[i])
+    if (elements[i]) {
       ast_node_free(elements[i]);
+    }
   }
   free(elements);
 }
@@ -1026,8 +1059,9 @@ static ASTNode *parse_range_literal(Parser *p) {
   if (!node) {
     ast_node_free(start);
     ast_node_free(end);
-    if (step)
+    if (step) {
       ast_node_free(step);
+    }
     return NULL;
   }
   node->as.range.start = start;
@@ -1051,8 +1085,9 @@ static ASTNode *map_parse_key(Parser *p) {
     // Convert identifier to string literal
     consume_any(p); // consume identifier
     ASTNode *key = ast_node_new_checked(AST_STRING);
-    if (!key)
+    if (!key) {
       return NULL;
+    }
     key->as.string.value = strdup(key_tok->text);
     if (!key->as.string.value) {
       free(key);
@@ -1103,13 +1138,16 @@ static bool map_grow_entries(ASTNode ***keys, ASTNode ***values,
  */
 static void map_cleanup_entries(ASTNode **keys, ASTNode **values,
                                 size_t entry_count) {
-  if (!keys || !values)
+  if (!keys || !values) {
     return;
+  }
   for (size_t i = 0; i < entry_count; i++) {
-    if (keys[i])
+    if (keys[i]) {
       ast_node_free(keys[i]);
-    if (values[i])
+    }
+    if (values[i]) {
       ast_node_free(values[i]);
+    }
   }
   free(keys);
   free(values);
@@ -1242,8 +1280,9 @@ static ASTNode *parse_map_literal(Parser *p) {
  */
 static ASTNode *parse_fstring(Parser *p) {
   Token *tok = consume(p, TOK_FSTRING);
-  if (!tok)
+  if (!tok) {
     return NULL;
+  }
 
   const char *content = tok->text;
   size_t content_len = tok->length;
@@ -1340,14 +1379,16 @@ static ASTNode *parse_fstring(Parser *p) {
  */
 static ASTNode *parse_primary(Parser *p) {
   ASTNode *expr = parse_value(p);
-  if (!expr)
+  if (!expr) {
     return NULL;
+  }
 
   // Handle postfix operations: at, from ... to
   while (true) {
     Token *tok = peek(p, 0);
-    if (!tok)
+    if (!tok) {
       break;
+    }
 
     if (tok->type == TOK_AT) {
       // Indexing: expr at index
@@ -1401,8 +1442,9 @@ static ASTNode *parse_primary(Parser *p) {
       if (!slice_node) {
         ast_node_free(expr);
         ast_node_free(start);
-        if (end)
+        if (end) {
           ast_node_free(end);
+        }
         return NULL;
       }
       slice_node->as.slice.list_expr = expr;
@@ -1507,8 +1549,9 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
   while (1) {
     // Peek at the next token to check if it's a binary operator
     Token *tok = peek(p, 0);
-    if (!tok)
+    if (!tok) {
       break;
+    }
 
     // Check if it's a binary operator and get its precedence
     int prec = 0;
@@ -1719,12 +1762,14 @@ static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name) {
  */
 static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
                                          bool is_mutable) {
-  if (!consume(p, TOK_TO))
+  if (!consume(p, TOK_TO)) {
     return NULL;
+  }
 
   ASTNode *value = parse_expression(p);
-  if (!value)
+  if (!value) {
     return NULL;
+  }
 
   // Optional type annotation: as <type>
   char *type_name = NULL;
@@ -1796,8 +1841,9 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   }
 
   Token *name = consume(p, TOK_NAME);
-  if (!name)
+  if (!name) {
     return NULL;
+  }
 
   // Check if this is an index assignment: let var at index to value
   Token *at_token = peek(p, 0);
@@ -1814,15 +1860,18 @@ static ASTNode *parse_delete(Parser *p, int indent) {
   consume(p, TOK_DELETE);
 
   Token *name = consume(p, TOK_NAME);
-  if (!name)
+  if (!name) {
     return NULL;
+  }
 
-  if (!consume(p, TOK_AT))
+  if (!consume(p, TOK_AT)) {
     return NULL;
+  }
 
   ASTNode *key = parse_expression(p);
-  if (!key)
+  if (!key) {
     return NULL;
+  }
 
   if (!consume(p, TOK_NEWLINE)) {
     ast_node_free(key);
@@ -2098,16 +2147,19 @@ static ASTNode *parse_try(Parser *p, int indent) {
   // Parse optional catch and finally blocks
   while (p->pos < p->tokens->count) {
     Token *tok = peek(p, 0);
-    if (!tok || tok->type != TOK_INDENT)
+    if (!tok || tok->type != TOK_INDENT) {
       break;
+    }
 
     int next_indent = tok->indent_level;
-    if (next_indent != indent)
+    if (next_indent != indent) {
       break;
+    }
 
     Token *next_tok = peek(p, 1);
-    if (!next_tok)
+    if (!next_tok) {
       break;
+    }
 
     if (next_tok->type == TOK_CATCH) {
       if (!try_parse_catch_block(p, indent, node, &catch_capacity)) {
@@ -2134,8 +2186,9 @@ static ASTNode *parse_print(Parser *p, int indent) {
   consume(p, TOK_PRINT);
 
   ASTNode *value = parse_expression(p);
-  if (!value)
+  if (!value) {
     return NULL;
+  }
 
   if (!consume(p, TOK_NEWLINE)) {
     ast_node_free(value);
@@ -2170,8 +2223,9 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
     return NULL;
   }
 
-  if (block_size)
+  if (block_size) {
     *block_size = 0;
+  }
 
   size_t capacity =
       INITIAL_ARRAY_CAPACITY * 2; // Larger initial capacity for blocks
@@ -2185,19 +2239,22 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
 
   while (p->pos < p->tokens->count) {
     Token *tok = peek(p, 0);
-    if (!tok || tok->type != TOK_INDENT)
+    if (!tok || tok->type != TOK_INDENT) {
       break;
+    }
 
     int next_indent = tok->indent_level;
-    if (next_indent <= parent_indent)
+    if (next_indent <= parent_indent) {
       break;
+    }
 
     // Parse statement (we'll implement a full parse_statement later)
     consume_any(p); // consume INDENT
 
     tok = peek(p, 0);
-    if (!tok)
+    if (!tok) {
       break;
+    }
 
     ASTNode *stmt = NULL;
     if (tok->type == TOK_SET || tok->type == TOK_LET) {
@@ -2236,8 +2293,9 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
         ast_node_free(block[i]);
       }
       free(block);
-      if (block_size)
+      if (block_size) {
         *block_size = 0;
+      }
       decrement_recursion_depth(p);
       return NULL;
     }
@@ -2248,16 +2306,18 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
         ast_node_free(block[i]);
       }
       free(block);
-      if (block_size)
+      if (block_size) {
         *block_size = 0;
+      }
       decrement_recursion_depth(p);
       return NULL;
     }
     block[count++] = stmt;
   }
 
-  if (block_size)
+  if (block_size) {
     *block_size = count;
+  }
   decrement_recursion_depth(p);
   return block;
 }
@@ -2369,8 +2429,9 @@ static ASTNode *parse_if(Parser *p, int indent) {
   consume(p, TOK_IF);
 
   ASTNode *condition = parse_condition(p);
-  if (!condition)
+  if (!condition) {
     return NULL;
+  }
 
   if (!consume(p, TOK_COLON)) {
     ast_node_free(condition);
@@ -2413,17 +2474,20 @@ static ASTNode *parse_if(Parser *p, int indent) {
   // Parse else-if chains
   while (p->pos < p->tokens->count) {
     Token *tok = peek(p, 0);
-    if (!tok || tok->type != TOK_INDENT)
+    if (!tok || tok->type != TOK_INDENT) {
       break;
+    }
 
     int next_indent = tok->indent_level;
-    if (next_indent != indent)
+    if (next_indent != indent) {
       break;
+    }
 
     // Check if next token is else
     Token *next_tok = peek(p, 1);
-    if (!next_tok)
+    if (!next_tok) {
       break;
+    }
 
     if (next_tok->type == TOK_ELSE) {
       // Check if it's else-if or just else
@@ -2468,8 +2532,9 @@ static bool for_parse_range_iteration(Parser *p, ASTNode **iterable,
   consume_any(p); // consume TOK_RANGE
 
   ASTNode *start = parse_expression(p);
-  if (!start)
+  if (!start) {
     return false;
+  }
 
   if (!consume(p, TOK_TO)) {
     ast_node_free(start);
@@ -2514,12 +2579,15 @@ static bool for_parse_range_iteration(Parser *p, ASTNode **iterable,
 static void for_cleanup_resources(ASTNode *iterable, ASTNode *end,
                                   ASTNode *step, ASTNode **block,
                                   size_t block_size) {
-  if (iterable)
+  if (iterable) {
     ast_node_free(iterable);
-  if (end)
+  }
+  if (end) {
     ast_node_free(end);
-  if (step)
+  }
+  if (step) {
     ast_node_free(step);
+  }
   if (block) {
     for (size_t i = 0; i < block_size; i++) {
       ast_node_free(block[i]);
@@ -2533,11 +2601,13 @@ static ASTNode *parse_for(Parser *p, int indent) {
   consume(p, TOK_FOR);
 
   Token *var = consume(p, TOK_NAME);
-  if (!var)
+  if (!var) {
     return NULL;
+  }
 
-  if (!consume(p, TOK_IN))
+  if (!consume(p, TOK_IN)) {
     return NULL;
+  }
 
   Token *next = peek(p, 0);
   if (!next) {
@@ -2559,8 +2629,9 @@ static ASTNode *parse_for(Parser *p, int indent) {
     // List iteration: for item in list_expr
     is_range = false;
     iterable = parse_expression(p);
-    if (!iterable)
+    if (!iterable) {
       return NULL;
+    }
   }
 
   if (!consume(p, TOK_COLON)) {
@@ -2607,8 +2678,9 @@ static ASTNode *parse_while(Parser *p, int indent) {
   consume(p, TOK_WHILE);
 
   ASTNode *condition = parse_condition(p);
-  if (!condition)
+  if (!condition) {
     return NULL;
+  }
 
   if (!consume(p, TOK_COLON)) {
     ast_node_free(condition);
@@ -2729,8 +2801,9 @@ static bool function_parse_parameters(Parser *p, char ***params,
  * @param param_count Number of parameters
  */
 static void function_cleanup_parameters(char **params, size_t param_count) {
-  if (!params)
+  if (!params) {
     return;
+  }
   for (size_t i = 0; i < param_count; i++) {
     free(params[i]);
   }
@@ -2742,8 +2815,9 @@ static ASTNode *parse_function(Parser *p, int indent) {
   consume(p, TOK_FUNCTION);
 
   Token *name = consume(p, TOK_NAME);
-  if (!name)
+  if (!name) {
     return NULL;
+  }
 
   // Parse parameters
   size_t param_capacity = 0;
@@ -2878,8 +2952,9 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
  * @param arg_count Number of arguments
  */
 static void call_cleanup_arguments(ASTNode **args, size_t arg_count) {
-  if (!args)
+  if (!args) {
     return;
+  }
   for (size_t i = 0; i < arg_count; i++) {
     ast_node_free(args[i]);
   }
@@ -2893,8 +2968,9 @@ static ASTNode *parse_call(Parser *p, int indent) {
   consume(p, TOK_CALL);
 
   Token *name = consume(p, TOK_NAME);
-  if (!name)
+  if (!name) {
     return NULL;
+  }
 
   // Parse arguments
   size_t arg_capacity = 0;
@@ -2938,8 +3014,9 @@ static ASTNode *parse_return(Parser *p, int indent) {
   consume(p, TOK_RETURN);
 
   ASTNode *value = parse_expression(p);
-  if (!value)
+  if (!value) {
     return NULL;
+  }
 
   if (!consume(p, TOK_NEWLINE)) {
     ast_node_free(value);
@@ -2976,11 +3053,13 @@ static ASTNode *parse_import(Parser *p, int indent) {
     consume(p, TOK_FROM);
 
     Token *module_tok = consume(p, TOK_NAME);
-    if (!module_tok)
+    if (!module_tok) {
       return NULL;
+    }
     module_name = strdup(module_tok->text);
-    if (!module_name)
+    if (!module_name) {
       return NULL;
+    }
 
     if (!consume(p, TOK_IMPORT)) {
       free(module_name);
@@ -3050,11 +3129,13 @@ static ASTNode *parse_import(Parser *p, int indent) {
     consume(p, TOK_IMPORT);
 
     Token *module_tok = consume(p, TOK_NAME);
-    if (!module_tok)
+    if (!module_tok) {
       return NULL;
+    }
     module_name = strdup(module_tok->text);
-    if (!module_name)
+    if (!module_name) {
       return NULL;
+    }
 
     // Check for "from" keyword
     Token *next = peek(p, 0);
@@ -3118,8 +3199,9 @@ static ASTNode *parse_break(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_BREAK);
-  if (!node)
+  if (!node) {
     return NULL;
+  }
   node->indent = indent;
 
   return node;
@@ -3134,8 +3216,9 @@ static ASTNode *parse_continue(Parser *p, int indent) {
   }
 
   ASTNode *node = ast_node_new_checked(AST_CONTINUE);
-  if (!node)
+  if (!node) {
     return NULL;
+  }
   node->indent = indent;
 
   return node;
@@ -3144,8 +3227,9 @@ static ASTNode *parse_continue(Parser *p, int indent) {
 // Parse statement
 static ASTNode *parse_statement(Parser *p) {
   Token *tok = peek(p, 0);
-  if (!tok)
+  if (!tok) {
     return NULL;
+  }
 
   int indent = 0;
   if (tok->type == TOK_INDENT) {
@@ -3154,8 +3238,9 @@ static ASTNode *parse_statement(Parser *p) {
     tok = peek(p, 0);
   }
 
-  if (!tok)
+  if (!tok) {
     return NULL;
+  }
 
   switch (tok->type) {
   case TOK_SET:
@@ -3204,14 +3289,16 @@ static ASTNode *parse_statement(Parser *p) {
  */
 AST *parse(TokenArray *tokens, ParseError **out_err) {
   // Initialize error output to NULL
-  if (out_err)
+  if (out_err) {
     *out_err = NULL;
+  }
 
   Parser p = {tokens, 0, 0, out_err};
 
   AST *ast = malloc(sizeof(AST));
-  if (!ast)
+  if (!ast) {
     return NULL;
+  }
 
   ast->capacity = INITIAL_ARRAY_CAPACITY * 4; // Larger initial capacity for AST
   ast->count = 0;
@@ -3225,8 +3312,9 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
 
   while (p.pos < tokens->count) {
     Token *tok = peek(&p, 0);
-    if (!tok || tok->type == TOK_EOF)
+    if (!tok || tok->type == TOK_EOF) {
       break;
+    }
 
     if (tok->type == TOK_NEWLINE) {
       consume_any(&p);
@@ -3295,8 +3383,9 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
  * @param node Node to free (safe to pass NULL)
  */
 void ast_node_free(ASTNode *node) {
-  if (!node)
+  if (!node) {
     return;
+  }
 
   switch (node->type) {
   case AST_STRING:
@@ -3353,10 +3442,12 @@ void ast_node_free(ASTNode *node) {
   case AST_FOR:
     free(node->as.for_stmt.var);
     ast_node_free(node->as.for_stmt.iterable);
-    if (node->as.for_stmt.end)
+    if (node->as.for_stmt.end) {
       ast_node_free(node->as.for_stmt.end);
-    if (node->as.for_stmt.step)
+    }
+    if (node->as.for_stmt.step) {
       ast_node_free(node->as.for_stmt.step);
+    }
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
       ast_node_free(node->as.for_stmt.block[i]);
     }
@@ -3489,8 +3580,9 @@ void ast_node_free(ASTNode *node) {
  * @param ast AST to free (safe to pass NULL)
  */
 void ast_free(AST *ast) {
-  if (!ast)
+  if (!ast) {
     return;
+  }
 
   for (size_t i = 0; i < ast->count; i++) {
     ast_node_free(ast->statements[i]);
@@ -3501,8 +3593,9 @@ void ast_free(AST *ast) {
 
 // Debug print AST
 void ast_print(AST *ast) {
-  if (!ast)
+  if (!ast) {
     return;
+  }
 
   printf("AST with %zu statements\n", ast->count);
   for (size_t i = 0; i < ast->count; i++) {
