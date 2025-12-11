@@ -310,6 +310,11 @@ static Token *peek(Parser *p, int offset) {
  * @param p Parser state
  * @param expected Expected token type
  * @return Token pointer on success, NULL on mismatch or end of input
+ *
+ * Note: The return value can be ignored when you only need to consume/validate
+ * the token type. Use (void)consume(...) to explicitly mark intentional
+ * ignoring. When you need the token's text or other properties, capture the
+ * return value.
  */
 static Token *consume(Parser *p, TokenType expected) {
   if (p->pos >= p->tokens->count) {
@@ -1766,9 +1771,9 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
 
   // Consume 'set' or 'let'
   if (first->type == TOK_SET) {
-    consume(p, TOK_SET);
+    (void)consume(p, TOK_SET); // Return value not needed, already verified type
   } else if (first->type == TOK_LET) {
-    consume(p, TOK_LET);
+    (void)consume(p, TOK_LET); // Return value not needed, already verified type
   } else {
     return NULL;
   }
