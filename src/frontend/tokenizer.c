@@ -170,6 +170,9 @@ static const char TOKEN_TEXT_COMMA[] = ",";
 static const char TOKEN_TEXT_MINUS[] = "minus";
 static const char TOKEN_TEXT_NEWLINE[] = "\n";
 
+// Token array initial capacity - starts small and grows as needed
+#define TOKEN_ARRAY_INITIAL_CAPACITY 32
+
 /**
  * @brief Check if a token text pointer points to a static string constant
  *
@@ -185,7 +188,7 @@ static bool is_static_token_text(const char *text) {
  * @brief Allocate and initialize a new token array
  *
  * Creates a dynamically-growing array to hold tokens during tokenization.
- * Starts with capacity 32 and grows as needed.
+ * Starts with capacity TOKEN_ARRAY_INITIAL_CAPACITY and grows as needed.
  *
  * @param out_err Optional pointer to receive error information
  * @return New token array, or NULL on allocation failure
@@ -198,7 +201,7 @@ static TokenArray *token_array_new(TokenizeError **out_err) {
     return NULL;
   }
 
-  arr->capacity = 32;
+  arr->capacity = TOKEN_ARRAY_INITIAL_CAPACITY;
   arr->count = 0;
   arr->tokens = malloc(sizeof(Token) * arr->capacity);
   if (!arr->tokens) {
