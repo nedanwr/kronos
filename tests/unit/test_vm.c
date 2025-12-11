@@ -12,14 +12,19 @@ static Bytecode *compile_string(const char *source) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize(source, &tok_err);
   if (tok_err != NULL || tokens == NULL) {
-    if (tok_err)
+    if (tok_err) {
+      // Log tokenization error for debugging
+      fprintf(stderr, "Tokenization error: %s at line %zu, col %zu\n",
+              tok_err->message, tok_err->line, tok_err->column);
       tokenize_error_free(tok_err);
+    }
     return NULL;
   }
 
   AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
   if (ast == NULL) {
+    fprintf(stderr, "Parsing failed for: %s\n", source);
     return NULL;
   }
 
@@ -28,6 +33,7 @@ static Bytecode *compile_string(const char *source) {
   ast_free(ast);
 
   if (err != NULL) {
+    fprintf(stderr, "Compilation error: %s\n", err);
     return NULL;
   }
 
