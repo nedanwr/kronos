@@ -488,3 +488,33 @@ TEST(tokenize_unknown_character) {
   ASSERT_STR_EQ(err->message, "Unknown character encountered");
   tokenize_error_free(err);
 }
+
+/**
+ * @brief Test tokenization of UTF-8 identifiers
+ *
+ * Verifies that identifiers containing UTF-8 Unicode characters
+ * are correctly tokenized.
+ */
+TEST(tokenize_utf8_identifier) {
+  TokenizeError *err = NULL;
+  // Test with common UTF-8 characters: é (é), ñ (ñ), 中文 (Chinese)
+  TokenArray *tokens = tokenize("café résumé", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 3);
+
+  // Skip INDENT token, find identifiers
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 1 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i].text, "café");
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 1].text, "résumé");
+
+  token_array_free(tokens);
+}

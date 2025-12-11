@@ -23,6 +23,121 @@
 #define TOKENIZER_TAB_WIDTH 8
 
 /**
+ * @brief Check if a byte is a valid UTF-8 continuation byte
+ *
+ * UTF-8 continuation bytes have pattern 10xxxxxx (0x80-0xBF)
+ *
+ * @param byte The byte to check
+ * @return true if this is a valid UTF-8 continuation byte
+ */
+static bool is_utf8_continuation_byte(unsigned char byte) {
+  return (byte >= 0x80 && byte < 0xC0);
+}
+
+/**
+ * @brief Get the length of a UTF-8 sequence starting at a given byte
+ *
+ * @param start_byte The first byte of the UTF-8 sequence
+ * @return Number of bytes in the sequence (1-4), or 0 if invalid
+ */
+static size_t utf8_sequence_length(unsigned char start_byte) {
+  if (start_byte < 0x80) {
+    return 1; // ASCII
+  } else if ((start_byte & 0xE0) == 0xC0) {
+    return 2; // 110xxxxx
+  } else if ((start_byte & 0xF0) == 0xE0) {
+    return 3; // 1110xxxx
+  } else if ((start_byte & 0xF8) == 0xF0) {
+    return 4; // 11110xxx
+  }
+  return 0; // Invalid
+}
+
+/**
+ * @brief Check if a character can start an identifier
+ *
+ * Identifiers can start with:
+ * - ASCII letters (a-z, A-Z)
+ * - Underscore (_)
+ * - Valid UTF-8 sequences (Unicode letters)
+ *
+ * @param line The line buffer
+ * @param col Current column position
+ * @param len Length of the line
+ * @return true if this position can start an identifier
+ */
+static bool can_start_identifier(const char *line, size_t col, size_t len) {
+  if (col >= len)
+    return false;
+
+  unsigned char byte = (unsigned char)line[col];
+
+  // ASCII letters and underscore
+  if (isalpha(byte) || byte == '_')
+    return true;
+
+  // Check for valid UTF-8 multi-byte sequence
+  if (byte >= 0x80) {
+    size_t seq_len = utf8_sequence_length(byte);
+    if (seq_len > 0 && col + seq_len <= len) {
+      // Validate continuation bytes
+      for (size_t i = 1; i < seq_len; i++) {
+        if (!is_utf8_continuation_byte((unsigned char)line[col + i])) {
+          return false;
+        }
+      }
+      // Accept any valid UTF-8 sequence as identifier start
+      // (Unicode letters, symbols, etc.)
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * @brief Check if a character can continue an identifier
+ *
+ * Identifiers can continue with:
+ * - ASCII letters and digits (a-z, A-Z, 0-9)
+ * - Underscore (_)
+ * - Dot (.) for module.function syntax
+ * - Valid UTF-8 sequences (Unicode letters, digits, etc.)
+ *
+ * @param line The line buffer
+ * @param col Current column position
+ * @param len Length of the line
+ * @return true if this position can continue an identifier
+ */
+static bool can_continue_identifier(const char *line, size_t col, size_t len) {
+  if (col >= len)
+    return false;
+
+  unsigned char byte = (unsigned char)line[col];
+
+  // ASCII alphanumeric, underscore, and dot
+  if (isalnum(byte) || byte == '_' || byte == '.')
+    return true;
+
+  // Check for valid UTF-8 multi-byte sequence
+  if (byte >= 0x80) {
+    size_t seq_len = utf8_sequence_length(byte);
+    if (seq_len > 0 && col + seq_len <= len) {
+      // Validate continuation bytes
+      for (size_t i = 1; i < seq_len; i++) {
+        if (!is_utf8_continuation_byte((unsigned char)line[col + i])) {
+          return false;
+        }
+      }
+      // Accept any valid UTF-8 sequence as identifier continuation
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Token type names for debugging output
  * Must match TokenType enum order exactly
  */
@@ -295,11 +410,34 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     // Tokenize identifiers and keywords
     // Identifiers can contain letters, digits, underscores, and dots
     // (dots are allowed for module.function syntax like math.sqrt)
-    if (isalpha(line[col]) || line[col] == '_') {
+    // Supports UTF-8 Unicode characters in identifiers
+    if (can_start_identifier(line, col, len)) {
       size_t start = col;
-      while (col < len &&
-             (isalnum(line[col]) || line[col] == '_' || line[col] == '.')) {
-        col++;
+      // Advance past the first character (may be multi-byte UTF-8)
+      unsigned char first_byte = (unsigned char)line[col];
+      if (first_byte < 0x80) {
+        col++; // ASCII
+      } else {
+        size_t seq_len = utf8_sequence_length(first_byte);
+        if (seq_len > 0 && col + seq_len <= len) {
+          col += seq_len;
+        } else {
+          col++; // Fallback: skip invalid byte
+        }
+      }
+      // Continue reading identifier characters
+      while (col < len && can_continue_identifier(line, col, len)) {
+        unsigned char byte = (unsigned char)line[col];
+        if (byte < 0x80) {
+          col++; // ASCII
+        } else {
+          size_t seq_len = utf8_sequence_length(byte);
+          if (seq_len > 0 && col + seq_len <= len) {
+            col += seq_len;
+          } else {
+            col++; // Fallback: skip invalid byte
+          }
+        }
       }
       size_t word_len = col - start;
       TokenType type = match_keyword(line + start, word_len);
