@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // Version information
 #define KRONOS_VERSION_MAJOR 0
@@ -283,23 +284,31 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 
   vm_clear_error(vm);
 
-  // Set current file path for relative imports
-  // Free previous path if it exists (safe to free NULL, but check for clarity)
-  if (vm->current_file_path) {
-    free(vm->current_file_path);
-    vm->current_file_path = NULL;
-  }
-  vm->current_file_path = strdup(filepath);
-  if (!vm->current_file_path) {
-    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set current file path");
-  }
-
-  // Open file for reading
+  // Open file for reading (need to open first to canonicalize path)
   FILE *file = fopen(filepath, "r");
   if (!file) {
     return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open file: %s",
                      filepath);
   }
+
+  // Canonicalize the file path (resolve . and .. components, symlinks, etc.)
+  // This ensures consistent paths for relative imports
+  char *canonical_path = realpath(filepath, NULL);
+  if (!canonical_path) {
+    // realpath failed (e.g., file was deleted between open and realpath)
+    // Fall back to original path, but this shouldn't happen in normal usage
+    fclose(file);
+    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to canonicalize file path: %s",
+                     filepath);
+  }
+
+  // Set current file path for relative imports (use canonicalized path)
+  // Free previous path if it exists (safe to free NULL, but check for clarity)
+  if (vm->current_file_path) {
+    free(vm->current_file_path);
+    vm->current_file_path = NULL;
+  }
+  vm->current_file_path = canonical_path; // realpath already allocated this
 
   // Determine file size by seeking to end
   if (fseek(file, 0, SEEK_END) != 0) {
