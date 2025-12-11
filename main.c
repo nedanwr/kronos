@@ -315,6 +315,25 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
   source[read_size] = '\0';
   fclose(file);
 
+  // Strip shebang line if present (e.g., #!/usr/bin/env kronos)
+  // Shebang must be the first line and start with #!
+  if (read_size >= 2 && source[0] == '#' && source[1] == '!') {
+    // Find the end of the shebang line (first newline or end of string)
+    char *shebang_end = strchr(source, '\n');
+    if (shebang_end) {
+      // Skip the shebang line including the newline
+      size_t shebang_len = (size_t)(shebang_end - source) + 1;
+      size_t remaining_len = read_size - shebang_len;
+
+      // Move the remaining content to the start of the buffer
+      memmove(source, source + shebang_len, remaining_len);
+      source[remaining_len] = '\0';
+    } else {
+      // No newline found - entire file is shebang, set to empty string
+      source[0] = '\0';
+    }
+  }
+
   // Execute the source code
   int result = kronos_run_string(vm, source);
   free(source);
