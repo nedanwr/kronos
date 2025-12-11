@@ -5,6 +5,7 @@ Example programs demonstrating Kronos language features.
 ## Quick Start
 
 Run any example:
+
 ```bash
 ./kronos examples/hello.kr
 ```
@@ -12,35 +13,46 @@ Run any example:
 ## Examples by Category
 
 ### Basic
+
 - **hello.kr** - Hello world and basic printing
 - **variables.kr** - Mutable/immutable variables, types, booleans, null
 - **arithmetic.kr** - All arithmetic operations
 
 ### Control Flow
+
 - **conditionals.kr** - If statements and comparisons
 - **loops.kr** - For and while loops
 - **control_flow.kr** - Else-if, break, continue, range steps, imports
 
 ### Functions
+
 - **functions_simple.kr** - Basic function definitions and calls
 - **functions.kr** - Comprehensive function examples with scoping
 
 ### Data Structures
+
 - **lists.kr** - List literals, indexing, slicing, and iteration
 - **maps.kr** - Map literals, key-value access, and different key types
 - **range_objects.kr** - Range objects with indexing and iteration
 
 ### File Operations
+
 - **file_operations.kr** - File I/O (read_file, write_file, read_lines, file_exists, list_files) and path operations (join_path, dirname, basename)
 
 ### Regular Expressions
+
 - **regex_usage.kr** - Pattern matching with regex module (match, search, findall)
 
 ### Advanced
+
 - **builtins.kr** - Built-in constants (Pi) and math functions
 - **syntax_showcase.kr** - Complete feature demonstration
 - **fizzbuzz.kr** - FizzBuzz implementation
-- **file_operations.kr** - File I/O and path operations
+- **exceptions.kr** - Exception handling with try/catch blocks
+- **type_conversion.kr** - Type conversion functions (to_number, to_string, to_bool)
+- **module_usage.kr** - Importing and using modules
+- **data_processing.kr** - Practical data manipulation examples
+- **config_reader.kr** - Reading and parsing configuration files
 
 ## Learning Path
 
