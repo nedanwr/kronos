@@ -5,6 +5,9 @@
 # 2. As Number (Calculated): [number value]
 # 3. Let's try math (num + 1): [number + 1]
 
+# Create the test file first
+call write_file with "huge.txt", "12345678901234567890"
+
 set text to call read_file with "huge.txt"
 print "1. As Text (String):"
 print text

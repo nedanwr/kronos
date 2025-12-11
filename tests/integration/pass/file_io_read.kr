@@ -2,4 +2,7 @@
 # Tests basic read_file functionality
 # Expected output: [content of data.txt]
 
+# Create the test file first
+call write_file with "data.txt", "test data content"
+
 print call read_file with "data.txt"
