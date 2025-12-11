@@ -155,15 +155,18 @@ static TokenType match_keyword(const char *text, size_t len) {
  * @param arr Token array to append tokens to
  * @param line The line to tokenize (should not include leading whitespace)
  * @param indent Indentation level in spaces (already calculated)
+ * @param line_number 1-based line number for this line
  * @return true on success, false on error (e.g., unterminated string)
  */
-static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
+static bool tokenize_line(TokenArray *arr, const char *line, int indent,
+                          size_t line_number) {
   size_t len = strlen(line);
   size_t col = 0;
 
   // Add indent token if line is not empty
+  // Column is 1-based, so indent token starts at column 1
   if (len > 0) {
-    Token tok = {TOK_INDENT, NULL, 0, indent};
+    Token tok = {TOK_INDENT, NULL, 0, indent, line_number, 1};
     if (!token_array_add(arr, tok))
       return false;
   }
@@ -203,7 +206,9 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
           col++;
         }
       }
-      Token tok = {TOK_NUMBER, NULL, col - start, 0};
+      // Column is 1-based: indent (spaces) + position in line + 1
+      size_t token_col = indent + start + 1;
+      Token tok = {TOK_NUMBER, NULL, col - start, 0, line_number, token_col};
       char *text_buf = malloc(tok.length + 1);
       if (!text_buf) {
         fprintf(stderr, "Failed to allocate memory for number literal\n");
@@ -257,7 +262,16 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       }
 
       size_t content_len = cursor - content_start;
-      Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING, NULL, content_len, 0};
+      // Column is 1-based: indent + position in line + 1
+      // For f-strings, account for the 'f' prefix
+      size_t token_start_col = is_fstring ? col - 1 : col;
+      size_t token_col = indent + token_start_col + 1;
+      Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING,
+                   NULL,
+                   content_len,
+                   0,
+                   line_number,
+                   token_col};
       char *text_buf = malloc(content_len + 1);
       if (!text_buf) {
         fprintf(stderr, "Failed to allocate memory for string literal\n");
@@ -285,7 +299,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       }
       size_t word_len = col - start;
       TokenType type = match_keyword(line + start, word_len);
-      Token tok = {type, NULL, word_len, 0};
+      size_t token_col = indent + start + 1;
+      Token tok = {type, NULL, word_len, 0, line_number, token_col};
       char *text_buf = malloc(tok.length + 1);
       if (!text_buf) {
         fprintf(stderr, "Failed to allocate memory for identifier token\n");
@@ -304,7 +319,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
     // Tokenize single-character punctuation
     // Colon is used for if/for/while statement headers
     if (line[col] == ':') {
-      Token tok = {TOK_COLON, NULL, 1, 0};
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_COLON, NULL, 1, 0, line_number, token_col};
       tok.text = strdup(":");
       if (!tok.text) {
         fprintf(stderr, "Failed to allocate colon token\n");
@@ -319,7 +335,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
     }
 
     if (line[col] == ',') {
-      Token tok = {TOK_COMMA, NULL, 1, 0};
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_COMMA, NULL, 1, 0, line_number, token_col};
       tok.text = strdup(",");
       if (!tok.text) {
         fprintf(stderr, "Failed to allocate comma token\n");
@@ -336,7 +353,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
     // Handle '-' as operator token when not part of a number
     // (for unary negation support)
     if (line[col] == '-') {
-      Token tok = {TOK_MINUS, NULL, 1, 0};
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_MINUS, NULL, 1, 0, line_number, token_col};
       tok.text = strdup("minus");
       if (!tok.text) {
         fprintf(stderr, "Failed to allocate minus token\n");
@@ -363,7 +381,9 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent) {
       fprintf(stderr, "Failed to allocate newline token text\n");
       return false;
     }
-    Token tok = {TOK_NEWLINE, newline_text, 1, 0};
+    // Newline is at the end of the line
+    size_t token_col = indent + len + 1;
+    Token tok = {TOK_NEWLINE, newline_text, 1, 0, line_number, token_col};
     if (!token_array_add(arr, tok)) {
       free(newline_text);
       return false;
@@ -526,7 +546,7 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
       strncpy(line, content_start, content_len);
       line[content_len] = '\0';
 
-      if (!tokenize_line(arr, line, indent)) {
+      if (!tokenize_line(arr, line, indent, line_number)) {
         tokenizer_report_error(
             out_err, "Failed to tokenize line (out of memory)", line_number, 1);
         free(line);
@@ -544,7 +564,9 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
   }
 
   // Add end-of-file token to mark completion
-  Token eof = {TOK_EOF, NULL, 0, 0};
+  // EOF is at the end of the last line (or line 1 if file is empty)
+  size_t eof_line = line_number > 1 ? line_number - 1 : 1;
+  Token eof = {TOK_EOF, NULL, 0, 0, eof_line, 1};
   if (!token_array_add(arr, eof)) {
     tokenizer_report_error(
         out_err, "Failed to append EOF token (out of memory)", line_number, 1);

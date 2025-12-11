@@ -458,7 +458,7 @@ static void list_cleanup_elements(ASTNode **elements, size_t element_count);
 // Helper functions for parse_assignment
 static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name);
 static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
-                                         bool is_mutable);
+                                         bool is_mutable, Token *start_tok);
 
 // Helper functions for parse_function
 static bool function_parse_parameters(Parser *p, char ***params,
@@ -494,7 +494,22 @@ static ASTNode *ast_node_new(ASTNodeType type) {
     return NULL;
   }
   node->type = type;
+  node->line = 0;   // Unknown by default
+  node->column = 0; // Unknown by default
   return node;
+}
+
+/**
+ * @brief Set line and column information on an AST node from a token
+ *
+ * @param node AST node to update
+ * @param token Token to get line/column from (may be NULL)
+ */
+static void ast_node_set_position(ASTNode *node, const Token *token) {
+  if (node && token) {
+    node->line = token->line;
+    node->column = token->column;
+  }
 }
 
 static ASTNode *ast_node_new_checked(ASTNodeType type) {
@@ -716,6 +731,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
 
     // Use strtod() with proper error checking instead of atof()
     errno = 0; // Clear errno before conversion
@@ -755,6 +771,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
     node->as.boolean = true;
     return node;
   }
@@ -765,6 +782,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
     node->as.boolean = false;
     return node;
   }
@@ -775,6 +793,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
     return node;
   }
 
@@ -785,6 +804,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
     size_t len = tok->length;
     node->as.string.value = malloc(len + 1);
     if (!node->as.string.value) {
@@ -808,6 +828,7 @@ static ASTNode *parse_value(Parser *p) {
     if (!node) {
       return NULL;
     }
+    ast_node_set_position(node, tok);
     char *var_name = strdup(tok->text);
     if (!var_name) {
       fprintf(stderr, "Memory allocation failed for variable name\n");
@@ -998,7 +1019,10 @@ static void list_cleanup_elements(ASTNode **elements, size_t element_count) {
  * @return AST node for the list, or NULL on error
  */
 static ASTNode *parse_list_literal(Parser *p) {
-  consume(p, TOK_LIST);
+  Token *list_tok = consume(p, TOK_LIST);
+  if (!list_tok) {
+    return NULL;
+  }
 
   ASTNode **elements = NULL;
   size_t element_count = 0;
@@ -1061,20 +1085,12 @@ static ASTNode *parse_list_literal(Parser *p) {
     list_cleanup_elements(elements, element_count);
     return NULL;
   }
+  ast_node_set_position(node, list_tok);
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
   return node;
 }
 
-/**
- * @brief Parse a range literal
- *
- * Handles: "range start to end" or "range start to end by step".
- * The step is optional and defaults to 1.0.
- *
- * @param p Parser state
- * @return AST node for the range, or NULL on error
- */
 /**
  * @brief Parse a range literal
  *
@@ -1085,7 +1101,10 @@ static ASTNode *parse_list_literal(Parser *p) {
  * @return AST node for the range, or NULL on error
  */
 static ASTNode *parse_range_literal(Parser *p) {
-  consume(p, TOK_RANGE); // consume "range"
+  Token *range_tok = consume(p, TOK_RANGE);
+  if (!range_tok) {
+    return NULL;
+  }
 
   // Parse start expression
   ASTNode *start = parse_expression(p);
@@ -1128,6 +1147,7 @@ static ASTNode *parse_range_literal(Parser *p) {
     }
     return NULL;
   }
+  ast_node_set_position(node, range_tok);
   node->as.range.start = start;
   node->as.range.end = end;
   node->as.range.step = step; // NULL means step=1
@@ -1220,15 +1240,6 @@ static void map_cleanup_entries(ASTNode **keys, ASTNode **values,
 /**
  * @brief Parse a map literal
  *
- * Handles: "map key: value, key2: value2" or "map" (empty map).
- * Entries are comma-separated key-value pairs with colon separator.
- *
- * @param p Parser state
- * @return AST node for the map, or NULL on error
- */
-/**
- * @brief Parse a map literal
- *
  * Parses: {key1: value1, key2: value2, ...}
  * Keys can be identifiers (converted to strings) or expressions.
  * Returns an empty map if no entries are present.
@@ -1237,7 +1248,10 @@ static void map_cleanup_entries(ASTNode **keys, ASTNode **values,
  * @return AST node for the map, or NULL on error
  */
 static ASTNode *parse_map_literal(Parser *p) {
-  consume(p, TOK_MAP);
+  Token *map_tok = consume(p, TOK_MAP);
+  if (!map_tok) {
+    return NULL;
+  }
 
   ASTNode **keys = NULL;
   ASTNode **values = NULL;
@@ -1264,6 +1278,7 @@ static ASTNode *parse_map_literal(Parser *p) {
       map_cleanup_entries(keys, values, entry_count);
       return NULL;
     }
+    ast_node_set_position(node, map_tok);
     node->as.map.keys = keys;
     node->as.map.values = values;
     node->as.map.entry_count = 0;
@@ -1336,6 +1351,7 @@ static ASTNode *parse_map_literal(Parser *p) {
     map_cleanup_entries(keys, values, entry_count);
     return NULL;
   }
+  ast_node_set_position(node, map_tok);
   node->as.map.keys = keys;
   node->as.map.values = values;
   node->as.map.entry_count = entry_count;
@@ -1436,6 +1452,7 @@ static ASTNode *parse_fstring(Parser *p) {
     fstring_cleanup_parts(parts, part_count);
     return NULL;
   }
+  ast_node_set_position(node, tok);
   node->as.fstring.parts = parts;
   node->as.fstring.part_count = part_count;
   return node;
@@ -1479,6 +1496,8 @@ static ASTNode *parse_primary(Parser *p) {
         ast_node_free(index);
         return NULL;
       }
+      // Use the expression's position (it starts before the "at" keyword)
+      ast_node_set_position(index_node, tok);
       index_node->as.index.list_expr = expr;
       index_node->as.index.index = index;
       expr = index_node;
@@ -1579,6 +1598,8 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       decrement_recursion_depth(p);
       return NULL;
     }
+    // Use the "not" token's position
+    ast_node_set_position(node, tok);
     node->as.binop.left = operand; // For unary, we'll use left operand
     node->as.binop.op = BINOP_NOT;
     node->as.binop.right = NULL; // NULL indicates unary operation
@@ -1607,6 +1628,12 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
         ast_node_free(operand);
         decrement_recursion_depth(p);
         return NULL;
+      }
+      // Use the operand's position (minus sign is part of the number literal)
+      if (operand->line > 0) {
+        ast_node_set_position(node, NULL); // Will use operand's position
+        node->line = operand->line;
+        node->column = operand->column;
       }
       node->as.binop.left = operand;
       node->as.binop.op = BINOP_NEG; // Use a new unary operator
@@ -1730,6 +1757,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
       decrement_recursion_depth(p);
       return NULL;
     }
+    // Use the left operand's position (the operator comes after it)
+    if (left && left->line > 0) {
+      node->line = left->line;
+      node->column = left->column;
+    }
     node->as.binop.left = left;
     node->as.binop.op = op;
     node->as.binop.right = right;
@@ -1796,6 +1828,7 @@ static ASTNode *parse_condition(Parser *p) {
  * @return AST node for index assignment, or NULL on error
  */
 static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name) {
+  Token *start_tok = name; // Use the name token as the starting position
   consume(p, TOK_AT);
 
   ASTNode *index = parse_expression(p);
@@ -1826,6 +1859,7 @@ static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name) {
     ast_node_free(value);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
 
   // Create a variable AST node for the target
@@ -1863,7 +1897,7 @@ static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name) {
  * @return AST node for assignment, or NULL on error
  */
 static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
-                                         bool is_mutable) {
+                                         bool is_mutable, Token *start_tok) {
   if (!consume(p, TOK_TO)) {
     return NULL;
   }
@@ -1904,6 +1938,7 @@ static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
     free(type_name);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.assign.name = strdup(name->text);
   if (!node->as.assign.name) {
@@ -1943,13 +1978,17 @@ static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
 static ASTNode *parse_assignment(Parser *p, int indent) {
   Token *first = peek(p, 0);
   bool is_mutable = (first->type == TOK_LET);
+  Token *start_tok = NULL;
 
   // Consume 'set' or 'let'
   if (first->type == TOK_SET) {
-    (void)consume(p, TOK_SET); // Return value not needed, already verified type
+    start_tok = consume(p, TOK_SET);
   } else if (first->type == TOK_LET) {
-    (void)consume(p, TOK_LET); // Return value not needed, already verified type
+    start_tok = consume(p, TOK_LET);
   } else {
+    return NULL;
+  }
+  if (!start_tok) {
     return NULL;
   }
 
@@ -1965,7 +2004,7 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   }
 
   // Regular assignment: set/let var to value
-  return assignment_parse_regular(p, indent, name, is_mutable);
+  return assignment_parse_regular(p, indent, name, is_mutable, start_tok);
 }
 
 /**
@@ -1979,7 +2018,10 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
  * @return AST node for the delete statement, or NULL on error
  */
 static ASTNode *parse_delete(Parser *p, int indent) {
-  consume(p, TOK_DELETE);
+  Token *start_tok = consume(p, TOK_DELETE);
+  if (!start_tok) {
+    return NULL;
+  }
 
   Token *name = consume(p, TOK_NAME);
   if (!name) {
@@ -2037,7 +2079,10 @@ static ASTNode *parse_delete(Parser *p, int indent) {
  * @return AST node for the raise statement, or NULL on error
  */
 static ASTNode *parse_raise(Parser *p, int indent) {
-  consume(p, TOK_RAISE);
+  Token *start_tok = consume(p, TOK_RAISE);
+  if (!start_tok) {
+    return NULL;
+  }
 
   char *error_type = NULL;
   ASTNode *message = NULL;
@@ -2090,6 +2135,7 @@ static ASTNode *parse_raise(Parser *p, int indent) {
     ast_node_free(message);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.raise_stmt.error_type = error_type;
   node->as.raise_stmt.message = message;
@@ -2243,7 +2289,10 @@ static bool try_parse_finally_block(Parser *p, int indent, ASTNode *try_node) {
  * @return AST node for the try statement, or NULL on error
  */
 static ASTNode *parse_try(Parser *p, int indent) {
-  consume(p, TOK_TRY);
+  Token *start_tok = consume(p, TOK_TRY);
+  if (!start_tok) {
+    return NULL;
+  }
 
   if (!consume(p, TOK_COLON)) {
     return NULL;
@@ -2269,6 +2318,7 @@ static ASTNode *parse_try(Parser *p, int indent) {
     free(try_block);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.try_stmt.try_block = try_block;
   node->as.try_stmt.try_block_size = try_block_size;
@@ -2333,7 +2383,10 @@ static ASTNode *parse_try(Parser *p, int indent) {
  * @return AST node for the print statement, or NULL on error
  */
 static ASTNode *parse_print(Parser *p, int indent) {
-  consume(p, TOK_PRINT);
+  Token *start_tok = consume(p, TOK_PRINT);
+  if (!start_tok) {
+    return NULL;
+  }
 
   ASTNode *value = parse_expression(p);
   if (!value) {
@@ -2350,6 +2403,7 @@ static ASTNode *parse_print(Parser *p, int indent) {
     ast_node_free(value);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.print.value = value;
 
@@ -2585,7 +2639,10 @@ static bool if_parse_else(Parser *p, int indent, ASTNode *if_node) {
  * @return AST node for the if statement, or NULL on error
  */
 static ASTNode *parse_if(Parser *p, int indent) {
-  consume(p, TOK_IF);
+  Token *start_tok = consume(p, TOK_IF);
+  if (!start_tok) {
+    return NULL;
+  }
 
   ASTNode *condition = parse_condition(p);
   if (!condition) {
@@ -2619,6 +2676,7 @@ static ASTNode *parse_if(Parser *p, int indent) {
     free(block);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.if_stmt.condition = condition;
   node->as.if_stmt.block = block;
@@ -2766,7 +2824,10 @@ static void for_cleanup_resources(ASTNode *iterable, ASTNode *end,
  * @return AST node for the for statement, or NULL on error
  */
 static ASTNode *parse_for(Parser *p, int indent) {
-  consume(p, TOK_FOR);
+  Token *start_tok = consume(p, TOK_FOR);
+  if (!start_tok) {
+    return NULL;
+  }
 
   Token *var = consume(p, TOK_NAME);
   if (!var) {
@@ -2824,6 +2885,7 @@ static ASTNode *parse_for(Parser *p, int indent) {
     for_cleanup_resources(iterable, end, step, block, block_size);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.for_stmt.var = strdup(var->text);
   if (!node->as.for_stmt.var) {
@@ -2852,7 +2914,10 @@ static ASTNode *parse_for(Parser *p, int indent) {
  * @return AST node for the while statement, or NULL on error
  */
 static ASTNode *parse_while(Parser *p, int indent) {
-  consume(p, TOK_WHILE);
+  Token *start_tok = consume(p, TOK_WHILE);
+  if (!start_tok) {
+    return NULL;
+  }
 
   ASTNode *condition = parse_condition(p);
   if (!condition) {
@@ -2886,6 +2951,7 @@ static ASTNode *parse_while(Parser *p, int indent) {
     free(block);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.while_stmt.condition = condition;
   node->as.while_stmt.block = block;
@@ -2998,7 +3064,10 @@ static void function_cleanup_parameters(char **params, size_t param_count) {
  * @return AST node for the function definition, or NULL on error
  */
 static ASTNode *parse_function(Parser *p, int indent) {
-  consume(p, TOK_FUNCTION);
+  Token *start_tok = consume(p, TOK_FUNCTION);
+  if (!start_tok) {
+    return NULL;
+  }
 
   Token *name = consume(p, TOK_NAME);
   if (!name) {
@@ -3042,6 +3111,7 @@ static ASTNode *parse_function(Parser *p, int indent) {
     }
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.function.name = strdup(name->text);
   if (!node->as.function.name) {
@@ -3159,7 +3229,10 @@ static void call_cleanup_arguments(ASTNode **args, size_t arg_count) {
  * @return AST node for the function call, or NULL on error
  */
 static ASTNode *parse_call(Parser *p, int indent) {
-  consume(p, TOK_CALL);
+  Token *start_tok = consume(p, TOK_CALL);
+  if (!start_tok) {
+    return NULL;
+  }
 
   Token *name = consume(p, TOK_NAME);
   if (!name) {
@@ -3187,6 +3260,7 @@ static ASTNode *parse_call(Parser *p, int indent) {
     call_cleanup_arguments(args, arg_count);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.call.name = strdup(name->text);
   if (!node->as.call.name) {
@@ -3214,7 +3288,10 @@ static ASTNode *parse_call(Parser *p, int indent) {
  * @return AST node for the return statement, or NULL on error
  */
 static ASTNode *parse_return(Parser *p, int indent) {
-  consume(p, TOK_RETURN);
+  Token *start_tok = consume(p, TOK_RETURN);
+  if (!start_tok) {
+    return NULL;
+  }
 
   ASTNode *value = parse_expression(p);
   if (!value) {
@@ -3231,6 +3308,7 @@ static ASTNode *parse_return(Parser *p, int indent) {
     ast_node_free(value);
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.return_stmt.value = value;
 
@@ -3250,7 +3328,11 @@ static ASTNode *parse_return(Parser *p, int indent) {
  * @return AST node for the import statement, or NULL on error
  */
 static ASTNode *parse_import(Parser *p, int indent) {
-  Token *first = peek(p, 0);
+  Token *start_tok = peek(p, 0);
+  if (!start_tok) {
+    return NULL;
+  }
+  Token *first = start_tok;
   bool is_from_import = (first->type == TOK_FROM);
 
   char *module_name = NULL;
@@ -3390,6 +3472,7 @@ static ASTNode *parse_import(Parser *p, int indent) {
     }
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.import.module_name = module_name;
   node->as.import.file_path = file_path;
@@ -3411,7 +3494,10 @@ static ASTNode *parse_import(Parser *p, int indent) {
  * @return AST node for the break statement, or NULL on error
  */
 static ASTNode *parse_break(Parser *p, int indent) {
-  consume(p, TOK_BREAK);
+  Token *start_tok = consume(p, TOK_BREAK);
+  if (!start_tok) {
+    return NULL;
+  }
 
   if (!consume(p, TOK_NEWLINE)) {
     return NULL;
@@ -3421,6 +3507,7 @@ static ASTNode *parse_break(Parser *p, int indent) {
   if (!node) {
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
 
   return node;
@@ -3437,7 +3524,10 @@ static ASTNode *parse_break(Parser *p, int indent) {
  * @return AST node for the continue statement, or NULL on error
  */
 static ASTNode *parse_continue(Parser *p, int indent) {
-  consume(p, TOK_CONTINUE);
+  Token *start_tok = consume(p, TOK_CONTINUE);
+  if (!start_tok) {
+    return NULL;
+  }
 
   if (!consume(p, TOK_NEWLINE)) {
     return NULL;
@@ -3447,6 +3537,7 @@ static ASTNode *parse_continue(Parser *p, int indent) {
   if (!node) {
     return NULL;
   }
+  ast_node_set_position(node, start_tok);
   node->indent = indent;
 
   return node;

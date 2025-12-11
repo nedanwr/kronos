@@ -59,6 +59,8 @@ typedef enum {
 struct ASTNode {
   ASTNodeType type;
   int indent;
+  size_t line;   // 1-based line number where this node starts (0 if unknown)
+  size_t column; // 1-based column number where this node starts (0 if unknown)
   union {
     // Literals
     double number;

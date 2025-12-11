@@ -78,6 +78,8 @@ typedef struct {
              // automatically. The pointer becomes invalid after freeing.
   size_t length;
   int indent_level; // For INDENT tokens
+  size_t line;   // 1-based line number where this token starts (0 if unknown)
+  size_t column; // 1-based column number where this token starts (0 if unknown)
 } Token;
 
 typedef struct {
