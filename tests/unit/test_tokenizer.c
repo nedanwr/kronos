@@ -281,6 +281,80 @@ TEST(tokenize_map_keyword) {
 }
 
 /**
+ * @brief Test tokenization of single-line comments
+ *
+ * Verifies that comments starting with # are correctly ignored.
+ */
+TEST(tokenize_single_line_comment) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("# This is a comment", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  // Should only have INDENT token (if any) and EOF, no other tokens
+  ASSERT_TRUE(tokens->count <= 2);
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test tokenization of inline comments
+ *
+ * Verifies that comments after code on the same line are correctly ignored.
+ */
+TEST(tokenize_inline_comment) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set x to 5 # This is a comment", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 4);
+
+  // Skip INDENT token, check that we have SET, NAME, TO, NUMBER tokens
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 3 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_SET);
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 1].text, "x");
+  ASSERT_INT_EQ(tokens->tokens[i + 2].type, TOK_TO);
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_NUMBER);
+  // Comment should be ignored, so no additional tokens before NEWLINE/EOF
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test that # inside strings is not treated as a comment
+ *
+ * Verifies that # characters inside string literals are preserved.
+ */
+TEST(tokenize_comment_inside_string) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set msg to \"Hello # world\"", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 4);
+
+  // Skip INDENT token, find STRING token
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 3 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_STRING);
+  // String should contain the # character
+  ASSERT_TRUE(strstr(tokens->tokens[i + 3].text, "#") != NULL);
+
+  token_array_free(tokens);
+}
+
+/**
  * @brief Test tokenization of variable names (identifiers)
  *
  * Verifies that identifiers starting with letters or underscores

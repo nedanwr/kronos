@@ -408,9 +408,22 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
   size_t len = strlen(line);
   size_t col = 0;
 
-  // Add indent token if line is not empty
+  // Skip leading whitespace to check if line is effectively empty
+  size_t first_non_whitespace = 0;
+  while (first_non_whitespace < len && (line[first_non_whitespace] == ' ' ||
+                                        line[first_non_whitespace] == '\t')) {
+    first_non_whitespace++;
+  }
+
+  // Check if line is effectively empty (only whitespace) or is a comment-only
+  // line
+  bool is_effectively_empty = (first_non_whitespace >= len);
+  bool is_comment_only =
+      (first_non_whitespace < len && line[first_non_whitespace] == '#');
+
+  // Add indent token if line is not empty and not comment-only
   // Column is 1-based, so indent token starts at column 1
-  if (len > 0) {
+  if (len > 0 && !is_effectively_empty && !is_comment_only) {
     Token tok = {TOK_INDENT, NULL, 0, indent, line_number, 1};
     if (!token_array_add(arr, tok, out_err, line_number, 1))
       return false;
@@ -424,6 +437,13 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
 
     if (col >= len)
       break;
+
+    // Handle comments: # starts a comment that continues to end of line
+    if (line[col] == '#') {
+      // Skip everything from # to end of line
+      col = len;
+      break;
+    }
 
     // Tokenize numbers (integers and floating-point)
     // Supports: 42, 3.14, 0.5, -42, +42, -3.14, etc.
@@ -771,8 +791,9 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
   }
 
   // Add newline token to mark end of line (if line had content)
-  // Empty lines don't get newline tokens to avoid clutter
-  if (len > 0) {
+  // Empty lines and comment-only lines don't get newline tokens to avoid
+  // clutter
+  if (len > 0 && !is_effectively_empty && !is_comment_only) {
     char *newline_text = strdup("\n");
     if (!newline_text) {
       size_t token_col = indent + len + 1;
