@@ -536,6 +536,9 @@ static bool handle_exception_if_any(KronosVM *vm) {
   return true; // Exception handled, continue execution from handler
 }
 
+// Forward declaration
+static size_t hash_global_name(const char *str);
+
 /**
  * @brief Create a new virtual machine instance
  *
@@ -615,6 +618,18 @@ KronosVM *vm_new(void) {
     vm->globals[vm->global_count].is_mutable = false; // Immutable!
     vm->globals[vm->global_count].type_name = type_copy;
     // No value_retain needed - globals array owns the single reference
+
+    // Add to hash table for O(1) lookup (same as vm_set_global)
+    size_t hash_index = hash_global_name("Pi");
+    for (size_t i = 0; i < GLOBALS_MAX; i++) {
+      size_t idx = (hash_index + i) % GLOBALS_MAX;
+      if (!vm->global_hash[idx]) {
+        // Found empty slot
+        vm->global_hash[idx] = &vm->globals[vm->global_count];
+        break;
+      }
+    }
+
     vm->global_count++;
   }
 
@@ -3972,7 +3987,8 @@ static int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
 
     // Grow list if needed
     if (result->as.list.count >= result->as.list.capacity) {
-      size_t new_cap = result->as.list.capacity * 2;
+      size_t old_cap = result->as.list.capacity;
+      size_t new_cap = old_cap * 2;
       KronosValue **new_items =
           realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
       if (!new_items) {
@@ -3984,6 +4000,9 @@ static int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
       }
       result->as.list.items = new_items;
       result->as.list.capacity = new_cap;
+      // Initialize new slots to NULL (realloc doesn't zero new memory)
+      memset(&new_items[old_cap], 0,
+             (new_cap - old_cap) * sizeof(KronosValue *));
     }
 
     value_retain(name_val);
@@ -6318,6 +6337,16 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     int result = dispatch_table[instruction](vm);
     if (result != 0) {
       return result;
+    }
+
+    // Check if we just executed OP_RETURN_VAL for a module function call
+    // If so, break out of the loop to avoid reading past the function bytecode
+    if (instruction == OP_RETURN_VAL && vm->call_stack_size > 0) {
+      CallFrame *frame = &vm->call_stack[vm->call_stack_size - 1];
+      if (frame->return_ip == NULL && frame->return_bytecode == NULL) {
+        // Module function returned - exit the loop
+        break;
+      }
     }
 
     // Check if handler set an error but returned 0 (e.g., OP_THROW)
