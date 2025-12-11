@@ -294,6 +294,11 @@ This document outlines the planned features and release schedule for Kronos.
   - Dead code elimination
   - Inline caching for method calls
   - Profile-guided optimization
+  - **F-string Expression Parsing Optimization** - Parse embedded expressions inline
+    - Currently f-strings re-tokenize embedded expressions, which is inefficient
+    - Optimize by tracking source positions in tokens and parsing inline
+    - Requires architectural changes: position tracking, substring parsing capability
+    - Will eliminate redundant tokenization for f-string expressions
 
 - **Standard Library Modules**
 
