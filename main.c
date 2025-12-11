@@ -56,6 +56,29 @@ static void print_version(void) {
 }
 
 /**
+ * @brief Print error message with consistent formatting
+ *
+ * All errors are prefixed with "Error: " for consistency.
+ *
+ * @param message Error message to print (must not be NULL)
+ */
+static void print_error(const char *message) {
+  fprintf(stderr, "Error: %s\n", message);
+}
+
+/**
+ * @brief Print error message with file context
+ *
+ * Used when an error occurs while processing a specific file.
+ *
+ * @param filepath Path to the file where error occurred
+ * @param message Error message to print
+ */
+static void print_error_with_file(const char *filepath, const char *message) {
+  fprintf(stderr, "Error in %s: %s\n", filepath, message);
+}
+
+/**
  * @brief Create a new Kronos VM instance
  *
  * Initializes the runtime system and creates a new virtual machine ready
@@ -354,7 +377,7 @@ void kronos_repl(void) {
 
   KronosVM *vm = kronos_vm_new();
   if (!vm) {
-    fprintf(stderr, "Failed to create VM\n");
+    print_error("Failed to create VM");
     return;
   }
 
@@ -384,7 +407,7 @@ void kronos_repl(void) {
     if (kronos_run_string(vm, line) < 0) {
       const char *err = kronos_get_last_error(vm);
       if (err && *err) {
-        fprintf(stderr, "Error: %s\n", err);
+        print_error(err);
       }
     }
 
@@ -455,7 +478,7 @@ int main(int argc, char **argv) {
   // File execution mode: execute each specified file
   KronosVM *vm = kronos_vm_new();
   if (!vm) {
-    fprintf(stderr, "Failed to create VM\n");
+    print_error("Failed to create VM");
     return 1;
   }
 
@@ -465,7 +488,7 @@ int main(int argc, char **argv) {
     if (result < 0) {
       const char *err = kronos_get_last_error(vm);
       if (err && *err) {
-        fprintf(stderr, "Error in %s: %s\n", argv[i], err);
+        print_error_with_file(argv[i], err);
       }
       exit_code = 1;
     }
