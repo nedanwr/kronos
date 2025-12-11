@@ -1,0 +1,77 @@
+# Type Conversion Example
+# Demonstrates converting between different types
+
+print "=== Type Conversion Example ==="
+print ""
+
+# 1. String to Number
+print "1. String to Number Conversion:"
+set num_str to "42"
+set num_val to call to_number with num_str
+print f"   '{num_str}' -> {num_val}"
+
+set float_str to "3.14159"
+set float_val to call to_number with float_str
+print f"   '{float_str}' -> {float_val}"
+
+# Number with newline (edge case)
+set num_with_newline to "123\n"
+set num_clean to call to_number with num_with_newline
+print f"   '123\\n' -> {num_clean}"
+print ""
+
+# 2. Number to String
+print "2. Number to String Conversion:"
+set num to 42
+set num_as_str to call to_string with num
+print f"   {num} -> '{num_as_str}'"
+
+set pi_val to 3.14159
+set pi_as_str to call to_string with pi_val
+print f"   {pi_val} -> '{pi_as_str}'"
+print ""
+
+# 3. Boolean Conversion
+print "3. Boolean Conversion:"
+set truthy_str to "true"
+set truthy_bool to call to_bool with truthy_str
+print f"   '{truthy_str}' -> {truthy_bool}"
+
+set falsy_str to "false"
+set falsy_bool to call to_bool with falsy_str
+print f"   '{falsy_str}' -> {falsy_bool}"
+
+set num_truthy to call to_bool with 42
+set num_falsy to call to_bool with 0
+print f"   42 -> {num_truthy}"
+print f"   0 -> {num_falsy}"
+
+set null_falsy to call to_bool with null
+print f"   null -> {null_falsy}"
+print ""
+
+# 4. Type to String
+print "4. Converting Various Types to String:"
+set bool_str to call to_string with true
+print f"   true -> '{bool_str}'"
+
+set false_str to call to_string with false
+print f"   false -> '{false_str}'"
+
+set null_str to call to_string with null
+print f"   null -> '{null_str}'"
+print ""
+
+# 5. Practical Use Case: Reading Numbers from File
+print "5. Practical Use: Reading Numbers from File:"
+call write_file with "numbers.txt", "42\n3.14\n100"
+set lines to call read_lines with "numbers.txt"
+set line_count to call len with lines
+for i in range 0 to line_count minus 1:
+    let line to lines at i
+    let converted to call to_number with line
+    let doubled_val to converted times 2
+    print f"   {line} -> {converted} -> doubled: {doubled_val}"
+print ""
+
+print "=== Example Complete ==="
