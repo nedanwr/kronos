@@ -3832,14 +3832,457 @@ void ast_free(AST *ast) {
   free(ast);
 }
 
-// Debug print AST
-void ast_print(AST *ast) {
-  if (!ast) {
+/**
+ * @brief Get a human-readable name for an AST node type
+ *
+ * @param type AST node type
+ * @return Human-readable string name
+ */
+static const char *ast_node_type_name(ASTNodeType type) {
+  switch (type) {
+  case AST_ASSIGN:
+    return "ASSIGN";
+  case AST_PRINT:
+    return "PRINT";
+  case AST_IF:
+    return "IF";
+  case AST_FOR:
+    return "FOR";
+  case AST_WHILE:
+    return "WHILE";
+  case AST_BREAK:
+    return "BREAK";
+  case AST_CONTINUE:
+    return "CONTINUE";
+  case AST_FUNCTION:
+    return "FUNCTION";
+  case AST_CALL:
+    return "CALL";
+  case AST_RETURN:
+    return "RETURN";
+  case AST_IMPORT:
+    return "IMPORT";
+  case AST_NUMBER:
+    return "NUMBER";
+  case AST_STRING:
+    return "STRING";
+  case AST_FSTRING:
+    return "FSTRING";
+  case AST_BOOL:
+    return "BOOL";
+  case AST_NULL:
+    return "NULL";
+  case AST_VAR:
+    return "VAR";
+  case AST_BINOP:
+    return "BINOP";
+  case AST_LIST:
+    return "LIST";
+  case AST_RANGE:
+    return "RANGE";
+  case AST_MAP:
+    return "MAP";
+  case AST_INDEX:
+    return "INDEX";
+  case AST_SLICE:
+    return "SLICE";
+  case AST_ASSIGN_INDEX:
+    return "ASSIGN_INDEX";
+  case AST_DELETE:
+    return "DELETE";
+  case AST_TRY:
+    return "TRY";
+  case AST_RAISE:
+    return "RAISE";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+/**
+ * @brief Get a human-readable name for a binary operator
+ *
+ * @param op Binary operator
+ * @return Human-readable string representation
+ */
+static const char *binop_name(BinOp op) {
+  switch (op) {
+  case BINOP_ADD:
+    return "+";
+  case BINOP_SUB:
+    return "-";
+  case BINOP_MUL:
+    return "*";
+  case BINOP_DIV:
+    return "/";
+  case BINOP_MOD:
+    return "%";
+  case BINOP_EQ:
+    return "==";
+  case BINOP_NEQ:
+    return "!=";
+  case BINOP_GT:
+    return ">";
+  case BINOP_LT:
+    return "<";
+  case BINOP_GTE:
+    return ">=";
+  case BINOP_LTE:
+    return "<=";
+  case BINOP_AND:
+    return "&&";
+  case BINOP_OR:
+    return "||";
+  case BINOP_NOT:
+    return "!";
+  case BINOP_NEG:
+    return "-";
+  default:
+    return "?";
+  }
+}
+
+/**
+ * @brief Print indentation for pretty-printing
+ *
+ * @param indent Number of indentation levels
+ */
+static void print_indent(int indent) {
+  for (int i = 0; i < indent; i++) {
+    printf("  ");
+  }
+}
+
+/**
+ * @brief Recursively print an AST node with indentation
+ *
+ * @param node AST node to print (may be NULL)
+ * @param indent Indentation level
+ */
+static void ast_node_print_recursive(ASTNode *node, int indent) {
+  if (!node) {
+    print_indent(indent);
+    printf("NULL\n");
     return;
   }
 
-  printf("AST with %zu statements\n", ast->count);
+  print_indent(indent);
+  printf("%s", ast_node_type_name(node->type));
+
+  switch (node->type) {
+  case AST_NUMBER:
+    printf(": %g\n", node->as.number);
+    break;
+  case AST_STRING:
+    printf(": \"%s\"\n",
+           node->as.string.value ? node->as.string.value : "(null)");
+    break;
+  case AST_BOOL:
+    printf(": %s\n", node->as.boolean ? "true" : "false");
+    break;
+  case AST_NULL:
+    printf("\n");
+    break;
+  case AST_VAR:
+    printf(": %s\n", node->as.var_name ? node->as.var_name : "(null)");
+    break;
+  case AST_ASSIGN:
+    printf(": %s %s = ", node->as.assign.is_mutable ? "let" : "set",
+           node->as.assign.name ? node->as.assign.name : "(null)");
+    if (node->as.assign.type_name) {
+      printf("(as %s) ", node->as.assign.type_name);
+    }
+    printf("\n");
+    ast_node_print_recursive(node->as.assign.value, indent + 1);
+    break;
+  case AST_PRINT:
+    printf("\n");
+    ast_node_print_recursive(node->as.print.value, indent + 1);
+    break;
+  case AST_BINOP:
+    printf(": %s\n", binop_name(node->as.binop.op));
+    ast_node_print_recursive(node->as.binop.left, indent + 1);
+    ast_node_print_recursive(node->as.binop.right, indent + 1);
+    break;
+  case AST_IF:
+    printf("\n");
+    print_indent(indent + 1);
+    printf("condition:\n");
+    ast_node_print_recursive(node->as.if_stmt.condition, indent + 2);
+    print_indent(indent + 1);
+    printf("then:\n");
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      ast_node_print_recursive(node->as.if_stmt.block[i], indent + 2);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      print_indent(indent + 1);
+      printf("else-if:\n");
+      ast_node_print_recursive(node->as.if_stmt.else_if_conditions[i],
+                               indent + 2);
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        ast_node_print_recursive(node->as.if_stmt.else_if_blocks[i][j],
+                                 indent + 2);
+      }
+    }
+    if (node->as.if_stmt.else_block) {
+      print_indent(indent + 1);
+      printf("else:\n");
+      for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+        ast_node_print_recursive(node->as.if_stmt.else_block[i], indent + 2);
+      }
+    }
+    break;
+  case AST_FOR:
+    printf(": %s in ",
+           node->as.for_stmt.var ? node->as.for_stmt.var : "(null)");
+    if (node->as.for_stmt.is_range) {
+      printf("range\n");
+      ast_node_print_recursive(node->as.for_stmt.iterable, indent + 1);
+      if (node->as.for_stmt.end) {
+        ast_node_print_recursive(node->as.for_stmt.end, indent + 1);
+      }
+      if (node->as.for_stmt.step) {
+        ast_node_print_recursive(node->as.for_stmt.step, indent + 1);
+      }
+    } else {
+      printf("\n");
+      ast_node_print_recursive(node->as.for_stmt.iterable, indent + 1);
+    }
+    print_indent(indent + 1);
+    printf("body:\n");
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      ast_node_print_recursive(node->as.for_stmt.block[i], indent + 2);
+    }
+    break;
+  case AST_WHILE:
+    printf("\n");
+    print_indent(indent + 1);
+    printf("condition:\n");
+    ast_node_print_recursive(node->as.while_stmt.condition, indent + 2);
+    print_indent(indent + 1);
+    printf("body:\n");
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      ast_node_print_recursive(node->as.while_stmt.block[i], indent + 2);
+    }
+    break;
+  case AST_FUNCTION:
+    printf(": %s", node->as.function.name ? node->as.function.name : "(null)");
+    if (node->as.function.param_count > 0) {
+      printf("(");
+      for (size_t i = 0; i < node->as.function.param_count; i++) {
+        if (i > 0) {
+          printf(", ");
+        }
+        printf("%s", node->as.function.params[i] ? node->as.function.params[i]
+                                                 : "(null)");
+      }
+      printf(")");
+    }
+    printf("\n");
+    print_indent(indent + 1);
+    printf("body:\n");
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      ast_node_print_recursive(node->as.function.block[i], indent + 2);
+    }
+    break;
+  case AST_CALL:
+    printf(": %s", node->as.call.name ? node->as.call.name : "(null)");
+    if (node->as.call.arg_count > 0) {
+      printf("(\n");
+      for (size_t i = 0; i < node->as.call.arg_count; i++) {
+        if (i > 0) {
+          print_indent(indent + 1);
+          printf(",\n");
+        }
+        print_indent(indent + 2);
+        ast_node_print_recursive(node->as.call.args[i], indent + 2);
+      }
+      print_indent(indent + 1);
+      printf(")\n");
+    } else {
+      printf("()\n");
+    }
+    break;
+  case AST_RETURN:
+    printf("\n");
+    ast_node_print_recursive(node->as.return_stmt.value, indent + 1);
+    break;
+  case AST_IMPORT:
+    printf(": ");
+    if (node->as.import.is_from_import) {
+      printf("from %s import ", node->as.import.module_name
+                                    ? node->as.import.module_name
+                                    : "(null)");
+      if (node->as.import.imported_names) {
+        for (size_t i = 0; i < node->as.import.imported_count; i++) {
+          if (i > 0) {
+            printf(", ");
+          }
+          printf("%s", node->as.import.imported_names[i]
+                           ? node->as.import.imported_names[i]
+                           : "(null)");
+        }
+      }
+    } else {
+      printf("import %s", node->as.import.module_name
+                              ? node->as.import.module_name
+                              : "(null)");
+      if (node->as.import.file_path) {
+        printf(" from \"%s\"", node->as.import.file_path);
+      }
+    }
+    printf("\n");
+    break;
+  case AST_BREAK:
+  case AST_CONTINUE:
+    printf("\n");
+    break;
+  case AST_LIST:
+    printf(": [");
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      if (i > 0) {
+        printf(", ");
+      }
+      // Print element inline for lists
+      ast_node_print_recursive(node->as.list.elements[i], 0);
+    }
+    printf("]\n");
+    break;
+  case AST_RANGE:
+    printf(": range ");
+    ast_node_print_recursive(node->as.range.start, 0);
+    printf(" to ");
+    ast_node_print_recursive(node->as.range.end, 0);
+    if (node->as.range.step) {
+      printf(" by ");
+      ast_node_print_recursive(node->as.range.step, 0);
+    }
+    printf("\n");
+    break;
+  case AST_MAP:
+    printf(": {");
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      if (i > 0) {
+        printf(", ");
+      }
+      ast_node_print_recursive(node->as.map.keys[i], 0);
+      printf(": ");
+      ast_node_print_recursive(node->as.map.values[i], 0);
+    }
+    printf("}\n");
+    break;
+  case AST_INDEX:
+    printf("\n");
+    ast_node_print_recursive(node->as.index.list_expr, indent + 1);
+    print_indent(indent + 1);
+    printf("at index:\n");
+    ast_node_print_recursive(node->as.index.index, indent + 2);
+    break;
+  case AST_SLICE:
+    printf("\n");
+    ast_node_print_recursive(node->as.slice.list_expr, indent + 1);
+    print_indent(indent + 1);
+    printf("from ");
+    if (node->as.slice.start) {
+      ast_node_print_recursive(node->as.slice.start, 0);
+    } else {
+      printf("start");
+    }
+    printf(" to ");
+    if (node->as.slice.end) {
+      ast_node_print_recursive(node->as.slice.end, 0);
+    } else {
+      printf("end");
+    }
+    printf("\n");
+    break;
+  case AST_ASSIGN_INDEX:
+    printf("\n");
+    ast_node_print_recursive(node->as.assign_index.target, indent + 1);
+    print_indent(indent + 1);
+    printf("at index:\n");
+    ast_node_print_recursive(node->as.assign_index.index, indent + 2);
+    print_indent(indent + 1);
+    printf("= ");
+    ast_node_print_recursive(node->as.assign_index.value, indent + 2);
+    break;
+  case AST_DELETE:
+    printf("\n");
+    ast_node_print_recursive(node->as.delete_stmt.target, indent + 1);
+    print_indent(indent + 1);
+    printf("at key:\n");
+    ast_node_print_recursive(node->as.delete_stmt.key, indent + 2);
+    break;
+  case AST_TRY:
+    printf("\n");
+    print_indent(indent + 1);
+    printf("try:\n");
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      ast_node_print_recursive(node->as.try_stmt.try_block[i], indent + 2);
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      print_indent(indent + 1);
+      printf("catch");
+      if (node->as.try_stmt.catch_blocks[i].error_type) {
+        printf(" %s", node->as.try_stmt.catch_blocks[i].error_type);
+      }
+      if (node->as.try_stmt.catch_blocks[i].catch_var) {
+        printf(" as %s", node->as.try_stmt.catch_blocks[i].catch_var);
+      }
+      printf(":\n");
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        ast_node_print_recursive(
+            node->as.try_stmt.catch_blocks[i].catch_block[j], indent + 2);
+      }
+    }
+    if (node->as.try_stmt.finally_block) {
+      print_indent(indent + 1);
+      printf("finally:\n");
+      for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+        ast_node_print_recursive(node->as.try_stmt.finally_block[i],
+                                 indent + 2);
+      }
+    }
+    break;
+  case AST_RAISE:
+    printf(": ");
+    if (node->as.raise_stmt.error_type) {
+      printf("%s ", node->as.raise_stmt.error_type);
+    }
+    printf("\n");
+    ast_node_print_recursive(node->as.raise_stmt.message, indent + 1);
+    break;
+  case AST_FSTRING:
+    printf(": f\"");
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      ast_node_print_recursive(node->as.fstring.parts[i], 0);
+    }
+    printf("\"\n");
+    break;
+  default:
+    printf(": (unhandled type)\n");
+    break;
+  }
+}
+
+/**
+ * @brief Debug print AST with recursive pretty-printing
+ *
+ * Prints the AST in a human-readable format with indentation showing
+ * the structure of statements and expressions.
+ *
+ * @param ast AST to print (safe to pass NULL)
+ */
+void ast_print(AST *ast) {
+  if (!ast) {
+    printf("AST: NULL\n");
+    return;
+  }
+
+  printf("AST with %zu statement(s):\n", ast->count);
   for (size_t i = 0; i < ast->count; i++) {
-    printf("Statement %zu: type=%d\n", i, ast->statements[i]->type);
+    printf("Statement %zu:\n", i);
+    ast_node_print_recursive(ast->statements[i], 1);
   }
 }
