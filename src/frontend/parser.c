@@ -279,6 +279,23 @@ void parse_error_free(ParseError *err) {
  * looking back)
  * @return Token pointer, or NULL if out of bounds
  */
+/**
+ * @brief Peek at a token at a relative offset from current position
+ *
+ * Returns a token at the specified offset from the current parser position
+ * without advancing the parser. Supports both positive (forward) and negative
+ * (backward) offsets.
+ *
+ * @param p Parser state
+ * @param offset Offset from current position:
+ *               - Positive: look ahead (e.g., 0 = current, 1 = next)
+ *               - Negative: look behind (e.g., -1 = previous token)
+ *               - Large offsets (beyond array bounds) return NULL
+ * @return Pointer to Token at offset, or NULL if:
+ *         - Offset is out of bounds (too far ahead or behind)
+ *         - Parser is at end of input
+ *         - Negative offset would underflow (looking too far back)
+ */
 static Token *peek(Parser *p, int offset) {
   // Handle negative offsets to prevent unsigned underflow
   if (offset < 0) {
