@@ -4661,6 +4661,18 @@ static int handle_op_call_func(KronosVM *vm) {
   }
   free(args);
 
+  // Validate function bytecode before switching to it
+  if (!func->bytecode.code) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Function bytecode is NULL (internal error)");
+  }
+
   // Switch to function bytecode
   vm->bytecode = &func->bytecode;
   vm->ip = func->bytecode.code;
@@ -5716,6 +5728,12 @@ static int handle_op_import(KronosVM *vm) {
 }
 
 static int handle_op_define_func(KronosVM *vm) {
+  // Validate bytecode is available
+  if (!vm->bytecode || !vm->bytecode->code) {
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Cannot define function: bytecode is NULL");
+  }
+
   // Read function name
   KronosValue *name_val = read_constant(vm);
   if (!name_val) {
@@ -5831,6 +5849,17 @@ static int handle_op_define_func(KronosVM *vm) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
+  // Validate vm->ip is still within bounds before calculating body_end_ptr
+  if (vm->ip < vm->bytecode->code ||
+      vm->ip >= vm->bytecode->code + vm->bytecode->count) {
+    function_free(func);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Instruction pointer out of bounds when defining function "
+                     "(ip offset: %zu, bytecode size: %zu)",
+                     (size_t)(vm->ip - vm->bytecode->code),
+                     vm->bytecode->count);
+  }
+
   // Calculate body end (before the jump we just read)
   uint8_t *body_end_ptr = vm->ip + skip_offset;
 
@@ -5840,8 +5869,9 @@ static int handle_op_define_func(KronosVM *vm) {
     function_free(func);
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Function body extends beyond bytecode bounds "
-                     "(offset: %u, bytecode size: %zu)",
-                     skip_offset, vm->bytecode->count);
+                     "(offset: %u, bytecode size: %zu, ip offset: %zu)",
+                     skip_offset, vm->bytecode->count,
+                     (size_t)(vm->ip - vm->bytecode->code));
   }
 
   // Copy function body bytecode
@@ -5855,37 +5885,78 @@ static int handle_op_define_func(KronosVM *vm) {
   }
 
   size_t bytecode_size = body_end_ptr - vm->ip;
-  func->bytecode.code = malloc(bytecode_size);
-  if (!func->bytecode.code) {
-    // Allocation failure: clean up func (name, params, etc.) and return
-    // error
+
+  // Additional validation: ensure we're not copying beyond bytecode bounds
+  if (vm->ip + bytecode_size > vm->bytecode->code + vm->bytecode->count) {
     function_free(func);
-    return vm_error(vm, KRONOS_ERR_INTERNAL,
-                    "Failed to allocate memory for function bytecode");
+    return vm_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Function body bytecode extends beyond valid range "
+        "(size: %zu, available: %zu)",
+        bytecode_size,
+        (size_t)(vm->bytecode->code + vm->bytecode->count - vm->ip));
   }
-  func->bytecode.count = bytecode_size;
-  func->bytecode.capacity = bytecode_size;
-  memcpy(func->bytecode.code, vm->ip, bytecode_size);
+
+  // Handle empty function body (valid case)
+  if (bytecode_size == 0) {
+    func->bytecode.code = NULL;
+    func->bytecode.count = 0;
+    func->bytecode.capacity = 0;
+  } else {
+    func->bytecode.code = malloc(bytecode_size);
+    if (!func->bytecode.code) {
+      // Allocation failure: clean up func (name, params, etc.) and return
+      // error
+      function_free(func);
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate memory for function bytecode");
+    }
+    func->bytecode.count = bytecode_size;
+    func->bytecode.capacity = bytecode_size;
+    memcpy(func->bytecode.code, vm->ip, bytecode_size);
+  }
 
   // Copy constants (retain references)
   func->bytecode.const_count = vm->bytecode->const_count;
   func->bytecode.const_capacity = vm->bytecode->const_count;
-  func->bytecode.constants =
-      malloc(sizeof(KronosValue *) * func->bytecode.const_count);
-  if (!func->bytecode.constants) {
-    // Allocation failure: free func->bytecode.code, then clean up func and
-    // return error
-    free(func->bytecode.code);
-    func->bytecode.code = NULL;
-    func->bytecode.count = 0;
-    func->bytecode.capacity = 0;
-    function_free(func);
-    return vm_error(vm, KRONOS_ERR_INTERNAL,
-                    "Failed to allocate memory for function constants");
-  }
-  for (size_t i = 0; i < func->bytecode.const_count; i++) {
-    func->bytecode.constants[i] = vm->bytecode->constants[i];
-    value_retain(func->bytecode.constants[i]);
+
+  // Handle empty constants array
+  if (func->bytecode.const_count == 0) {
+    func->bytecode.constants = NULL;
+  } else {
+    // Validate that parent bytecode has constants array
+    if (!vm->bytecode->constants) {
+      if (func->bytecode.code) {
+        free(func->bytecode.code);
+        func->bytecode.code = NULL;
+        func->bytecode.count = 0;
+        func->bytecode.capacity = 0;
+      }
+      function_free(func);
+      return vm_error(
+          vm, KRONOS_ERR_INTERNAL,
+          "Parent bytecode has non-zero const_count but NULL constants array");
+    }
+
+    func->bytecode.constants =
+        malloc(sizeof(KronosValue *) * func->bytecode.const_count);
+    if (!func->bytecode.constants) {
+      // Allocation failure: free func->bytecode.code, then clean up func and
+      // return error
+      if (func->bytecode.code) {
+        free(func->bytecode.code);
+        func->bytecode.code = NULL;
+        func->bytecode.count = 0;
+        func->bytecode.capacity = 0;
+      }
+      function_free(func);
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate memory for function constants");
+    }
+    for (size_t i = 0; i < func->bytecode.const_count; i++) {
+      func->bytecode.constants[i] = vm->bytecode->constants[i];
+      value_retain(func->bytecode.constants[i]);
+    }
   }
 
   // Store function

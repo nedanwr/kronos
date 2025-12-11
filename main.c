@@ -385,10 +385,115 @@ static char *read_line_dynamic(void) {
 }
 
 /**
+ * @brief Read multi-line input until user finishes (empty line or EOF)
+ *
+ * Reads lines from stdin, accumulating them. Shows continuation prompts
+ * ("... ") for additional lines. User finishes input by pressing Enter
+ * on an empty line.
+ *
+ * @return Pointer to allocated buffer containing the complete input, or NULL on
+ * EOF
+ */
+static char *read_multiline_input(void) {
+  size_t capacity = 512;
+  size_t len = 0;
+  char *buffer = malloc(capacity);
+  if (!buffer)
+    return NULL;
+
+  bool first_line = true;
+  bool got_empty_line = false;
+
+  while (1) {
+    // Show prompt
+    if (first_line) {
+      printf(">>> ");
+      first_line = false;
+    } else {
+      printf("... ");
+    }
+    fflush(stdout);
+
+    // Read a line
+    char *line = read_line_dynamic();
+    if (!line) {
+      // EOF - return what we have (might be empty)
+      if (len == 0) {
+        free(buffer);
+        return NULL;
+      }
+      break;
+    }
+
+    // Check for exit command (only on first line)
+    if (len == 0 && strcmp(line, "exit") == 0) {
+      free(line);
+      free(buffer);
+      return NULL; // Signal to exit REPL
+    }
+
+    size_t line_len = strlen(line);
+
+    // If we get an empty line after having content, that signals end of input
+    if (line_len == 0 && len > 0) {
+      free(line);
+      break;
+    }
+
+    // If we got an empty line previously and this is also empty, break
+    if (line_len == 0 && got_empty_line) {
+      free(line);
+      break;
+    }
+
+    if (line_len == 0) {
+      got_empty_line = true;
+      free(line);
+      continue;
+    }
+
+    got_empty_line = false;
+
+    // Calculate space needed: current buffer + new line + newline + null
+    // terminator
+    size_t needed = len + line_len + 2; // +2 for newline and null terminator
+
+    // Expand buffer if needed
+    if (needed >= capacity) {
+      size_t new_capacity = capacity;
+      while (new_capacity < needed) {
+        new_capacity *= 2;
+      }
+      char *new_buffer = realloc(buffer, new_capacity);
+      if (!new_buffer) {
+        free(line);
+        free(buffer);
+        return NULL;
+      }
+      buffer = new_buffer;
+      capacity = new_capacity;
+    }
+
+    // Append line to buffer
+    if (len > 0) {
+      buffer[len++] = '\n'; // Add newline between lines
+    }
+    memcpy(buffer + len, line, line_len);
+    len += line_len;
+    buffer[len] = '\0';
+
+    free(line);
+  }
+
+  return buffer;
+}
+
+/**
  * @brief Start the Kronos REPL (Read-Eval-Print Loop)
  *
  * Provides an interactive command-line interface for executing Kronos code.
- * Reads input line by line, executes it, and prints results or errors.
+ * Supports multi-line input with continuation prompts. Reads input until a
+ * complete statement is formed, then executes it.
  * Type 'exit' to quit the REPL.
  */
 void kronos_repl(void) {
@@ -401,36 +506,29 @@ void kronos_repl(void) {
   }
 
   while (1) {
-    printf(">>> ");
-    fflush(stdout);
-
-    char *line = read_line_dynamic();
-    if (!line) {
-      // EOF or allocation failure
+    // Read multi-line input
+    char *input = read_multiline_input();
+    if (!input) {
+      // EOF or exit command
       break;
     }
 
-    // Check for exit command
-    if (strcmp(line, "exit") == 0) {
-      free(line);
-      break;
-    }
-
-    // Skip empty lines (user just pressed Enter)
-    if (strlen(line) == 0) {
-      free(line);
+    // Skip empty input
+    if (strlen(input) == 0) {
+      free(input);
       continue;
     }
 
-    // Execute the line and print any errors
-    if (kronos_run_string(vm, line) < 0) {
+    // Execute the input (should be complete at this point)
+    int result = kronos_run_string(vm, input);
+    if (result < 0) {
       const char *err = kronos_get_last_error(vm);
       if (err && *err) {
         print_error(err);
       }
     }
 
-    free(line);
+    free(input);
   }
 
   kronos_vm_free(vm);
