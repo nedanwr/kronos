@@ -51,21 +51,38 @@ src/frontend/keywords_hash.c: src/frontend/keywords.gperf
 	gperf -t --output-file=$@ --lookup-function-name=keyword_lookup --compare-strncmp $<
 	@# Fix empty string entries in generated file
 	@python3 -c "import re; content = open('$@').read(); content = re.sub(r'\{\s*\"\"\s*\}', '{NULL, 0}', content); open('$@', 'w').write(content)"
+	@# Remove inline keywords and related preprocessor directives that can cause linking issues
+	@python3 -c "lines=open('$@').readlines(); result=[]; skip=False; [result.append(l) if not (skip or '#ifdef __GNUC__' in l or '__inline' in l or (l.strip()=='inline' and i>0 and ('#else' in lines[i-1] or '#ifdef __cplusplus' in lines[i-1]))) else (skip:=True) if '#ifdef __GNUC__' in l else (skip:=False) if skip and '#endif' in l else None for i,l in enumerate(lines)]; open('$@','w').write(''.join(result))"
 	@# Fix struct definition and function signature
 	@# Fix function signatures (old-style to modern C)
-	@sed -i '' 's/^static unsigned int$$/static unsigned int/' $@
-	@sed -i '' 's/^hash (str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@
-	@sed -i '' '/^     register const char \*str;$$/d' $@
-	@sed -i '' '/^     register unsigned int len;$$/d' $@
-	@sed -i '' 's/^struct KeywordEntry \*/const struct KeywordEntry */' $@
-	@sed -i '' 's/^keyword_lookup (str, len)$$/keyword_lookup (register const char *str, register unsigned int len)/' $@
-	@# Fix struct and return types
-	@sed -i '' 's/static struct KeywordEntry wordlist/static const struct KeywordEntry wordlist/' $@
-	@sed -i '' 's/unsigned int key = hash (str, len);/unsigned int key = keyword_hash_func (str, len);/' $@
-	@sed -i '' 's/register const char \*s = wordlist\[key\]\.name;/register const struct KeywordEntry *entry = \&wordlist[key];/' $@ || true
-	@sed -i '' 's/if (\*str == \*s && !strncmp (str + 1, s + 1, len - 1) && s\[len\] == '\''\\0'\'')/if (entry->keyword \&\& strlen(entry->keyword) == len \&\& !strncmp(str, entry->keyword, len))/' $@ || true
-	@sed -i '' 's/return \&wordlist\[key\];/return entry;/' $@ || true
-	@sed -i '' 's/return 0;/return NULL;/' $@ || true
+	@# Cross-platform sed: macOS needs -i '', Linux needs -i
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		sed -i '' 's/^static unsigned int$$/static unsigned int/' $@; \
+		sed -i '' 's/^hash (str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i '' '/^     register const char \*str;$$/d' $@; \
+		sed -i '' '/^     register unsigned int len;$$/d' $@; \
+		sed -i '' 's/^struct KeywordEntry \*/const struct KeywordEntry */' $@; \
+		sed -i '' 's/^keyword_lookup (str, len)$$/keyword_lookup (register const char *str, register unsigned int len)/' $@; \
+		sed -i '' 's/static struct KeywordEntry wordlist/static const struct KeywordEntry wordlist/' $@; \
+		sed -i '' 's/unsigned int key = hash (str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i '' 's/register const char \*s = wordlist\[key\]\.name;/register const struct KeywordEntry *entry = \&wordlist[key];/' $@ || true; \
+		sed -i '' 's/if (\*str == \*s && !strncmp (str + 1, s + 1, len - 1) && s\[len\] == '\''\\0'\'')/if (entry->keyword \&\& strlen(entry->keyword) == len \&\& !strncmp(str, entry->keyword, len))/' $@ || true; \
+		sed -i '' 's/return \&wordlist\[key\];/return entry;/' $@ || true; \
+		sed -i '' 's/return 0;/return NULL;/' $@ || true; \
+	else \
+		sed -i 's/^static unsigned int$$/static unsigned int/' $@; \
+		sed -i 's/^hash (str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i '/^     register const char \*str;$$/d' $@; \
+		sed -i '/^     register unsigned int len;$$/d' $@; \
+		sed -i 's/^struct KeywordEntry \*/const struct KeywordEntry */' $@; \
+		sed -i 's/^keyword_lookup (str, len)$$/keyword_lookup (register const char *str, register unsigned int len)/' $@; \
+		sed -i 's/static struct KeywordEntry wordlist/static const struct KeywordEntry wordlist/' $@; \
+		sed -i 's/unsigned int key = hash (str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i 's/register const char \*s = wordlist\[key\]\.name;/register const struct KeywordEntry *entry = \&wordlist[key];/' $@ || true; \
+		sed -i 's/if (\*str == \*s && !strncmp (str + 1, s + 1, len - 1) && s\[len\] == '\''\\0'\'')/if (entry->keyword \&\& strlen(entry->keyword) == len \&\& !strncmp(str, entry->keyword, len))/' $@ || true; \
+		sed -i 's/return \&wordlist\[key\];/return entry;/' $@ || true; \
+		sed -i 's/return 0;/return NULL;/' $@ || true; \
+	fi
 	@# Keep struct definition but ensure it's properly formatted
 	@echo "  Generated $@ from $<"
 
