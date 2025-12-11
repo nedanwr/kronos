@@ -878,7 +878,7 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
       size_t old_source_pos = source_pos;
       if (!tokenize_line(arr, line, indent, line_number, source, &source_pos,
                          source_len, out_err)) {
-        if (!*out_err) {
+        if (out_err && !*out_err) {
           tokenizer_report_error(
               out_err, "Failed to allocate memory while tokenizing line",
               line_number, 1);

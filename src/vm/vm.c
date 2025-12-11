@@ -5823,7 +5823,7 @@ static int handle_op_define_func(KronosVM *vm) {
   // Consume function body start position (2 bytes) - part of bytecode
   // format but not used at runtime; we just need to advance the instruction
   // pointer Format:
-  // [OP_DEFINE_FUNC][name_idx:2][param_count:1][params:2*N][body_start:2][OP_JUMP][skip_offset:1]
+  // [OP_DEFINE_FUNC][name_idx:2][param_count:1][params:2*N][body_start:2][OP_JUMP][skip_offset:2]
   read_byte(vm); // body_start high byte
   if (vm->last_error_message) {
     // Cleanup already done above
@@ -5842,12 +5842,23 @@ static int handle_op_define_func(KronosVM *vm) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
-  // Read jump offset to skip function body
-  uint8_t skip_offset = read_byte(vm);
+  // Read jump offset to skip function body (2 bytes: high byte, low byte)
+  // The compiler calculates offset as: func_end - (skip_body_pos + 2)
+  // where skip_body_pos is the position of OP_JUMP instruction.
+  // After reading OP_JUMP (1 byte) and offset (2 bytes), vm->ip points to
+  // skip_body_pos + 3, which is the start of the function body.
+  // The offset tells us: from position (skip_body_pos + 2), skip forward by
+  // offset bytes to reach func_end. So: func_end = (skip_body_pos + 2) + offset
+  // In VM terms: func_end = (vm->ip - 1) + offset
+  uint16_t skip_offset = read_uint16(vm);
   if (vm->last_error_message) {
     // Cleanup already done above
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
+
+  // Save the position where function body starts (current ip after reading
+  // offset)
+  uint8_t *body_start_ptr = vm->ip;
 
   // Validate vm->ip is still within bounds before calculating body_end_ptr
   if (vm->ip < vm->bytecode->code ||
@@ -5860,8 +5871,16 @@ static int handle_op_define_func(KronosVM *vm) {
                      vm->bytecode->count);
   }
 
-  // Calculate body end (before the jump we just read)
-  uint8_t *body_end_ptr = vm->ip + skip_offset;
+  // Calculate body end: offset is relative to position 2 bytes before current
+  // ip (the position after the OP_JUMP byte and before the offset bytes) So:
+  // body_end = (ip - 2) + offset = ip + (offset - 2) But since offset already
+  // accounts for the 2 bytes, we can use: body_end = ip + offset - 2 However,
+  // the compiler calculates offset as: func_end - (skip_body_pos + 2) where
+  // skip_body_pos is the position of OP_JUMP. After reading OP_JUMP and offset,
+  // ip points to skip_body_pos + 3. The offset tells us: from (skip_body_pos +
+  // 2), skip forward by offset bytes. So: body_end = (skip_body_pos + 2) +
+  // offset = (ip - 1) + offset
+  uint8_t *body_end_ptr = vm->ip - 1 + skip_offset;
 
   // Validate that body_end_ptr is within valid bytecode bounds
   if (body_end_ptr < vm->bytecode->code ||
@@ -5875,8 +5894,8 @@ static int handle_op_define_func(KronosVM *vm) {
   }
 
   // Copy function body bytecode
-  // Validate that body_end_ptr >= vm->ip to prevent wrap-around
-  if (body_end_ptr < vm->ip) {
+  // Validate that body_end_ptr >= body_start_ptr to prevent wrap-around
+  if (body_end_ptr < body_start_ptr) {
     function_free(func);
     return vm_errorf(
         vm, KRONOS_ERR_RUNTIME,
@@ -5884,17 +5903,18 @@ static int handle_op_define_func(KronosVM *vm) {
         skip_offset);
   }
 
-  size_t bytecode_size = body_end_ptr - vm->ip;
+  size_t bytecode_size = body_end_ptr - body_start_ptr;
 
   // Additional validation: ensure we're not copying beyond bytecode bounds
-  if (vm->ip + bytecode_size > vm->bytecode->code + vm->bytecode->count) {
+  if (body_start_ptr + bytecode_size >
+      vm->bytecode->code + vm->bytecode->count) {
     function_free(func);
     return vm_errorf(
         vm, KRONOS_ERR_RUNTIME,
         "Function body bytecode extends beyond valid range "
         "(size: %zu, available: %zu)",
         bytecode_size,
-        (size_t)(vm->bytecode->code + vm->bytecode->count - vm->ip));
+        (size_t)(vm->bytecode->code + vm->bytecode->count - body_start_ptr));
   }
 
   // Handle empty function body (valid case)
@@ -5913,7 +5933,7 @@ static int handle_op_define_func(KronosVM *vm) {
     }
     func->bytecode.count = bytecode_size;
     func->bytecode.capacity = bytecode_size;
-    memcpy(func->bytecode.code, vm->ip, bytecode_size);
+    memcpy(func->bytecode.code, body_start_ptr, bytecode_size);
   }
 
   // Copy constants (retain references)
