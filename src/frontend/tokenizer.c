@@ -223,14 +223,14 @@ static bool process_escape_sequence(char escaped_char, char *out_char);
  * Automatically grows the array if needed. On failure, frees the token's
  * text if it was allocated.
  *
- * @param arr Token array to add to
- * @param token Token to add (text will be owned by array)
+ * @param arr Token array to add to (modified)
+ * @param token Token to add (text will be owned by array, passed by value)
  * @param out_err Optional pointer to receive error information
  * @param line_number Line number for error reporting (1-based)
  * @param column Column number for error reporting (1-based)
  * @return true on success, false on allocation failure
  */
-static bool token_array_add(TokenArray *arr, Token token,
+static bool token_array_add(TokenArray *arr, const Token token,
                             TokenizeError **out_err, size_t line_number,
                             size_t column) {
   if (!arr)
@@ -243,6 +243,7 @@ static bool token_array_add(TokenArray *arr, Token token,
       tokenizer_report_error(out_err,
                              "Failed to allocate memory for token array growth",
                              line_number, column);
+      // Free the token's text (we have a local copy, so this is safe)
       if (token.text)
         free((void *)token.text);
       return false;
