@@ -1058,6 +1058,7 @@ void token_free(Token *token) {
  * @brief Free a token array and all its tokens
  *
  * Releases all token text strings and the array structure itself.
+ * Uses token_free() internally to ensure consistent behavior.
  *
  * @param array Token array to free (safe to pass NULL)
  */
@@ -1065,11 +1066,9 @@ void token_array_free(TokenArray *array) {
   if (!array)
     return;
 
+  // Free each token's text using token_free() for consistency
   for (size_t i = 0; i < array->count; i++) {
-    // Only free heap-allocated text, not static constants
-    if (array->tokens[i].text && !is_static_token_text(array->tokens[i].text)) {
-      free((char *)array->tokens[i].text);
-    }
+    token_free(&array->tokens[i]);
   }
   free(array->tokens);
   free(array);

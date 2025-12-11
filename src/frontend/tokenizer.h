@@ -131,6 +131,7 @@ void tokenize_error_free(TokenizeError *err);
 // Free a single Token's resources (frees the text string)
 // Use this when managing Tokens outside of a TokenArray.
 // If the Token is part of a TokenArray, use token_array_free() instead.
+// Note: token_array_free() uses this function internally for consistency.
 void token_free(Token *token);
 
 // Free a TokenArray and all its Tokens
