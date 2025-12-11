@@ -700,11 +700,15 @@ int main(int argc, char **argv) {
     }
 
     int result = kronos_run_file(vm, argv[i]);
-    if (result < 0) {
+    if (result != 0) {
+      // Handle any non-zero result (errors return negative, but handle positive
+      // values defensively)
       const char *err = kronos_get_last_error(vm);
       if (err && *err) {
         print_error_with_file(argv[i], err);
       }
+      // Convert any non-zero result to standard exit code 1
+      // (kronos_run_file should only return 0 or negative, but be defensive)
       exit_code = 1;
     }
 
