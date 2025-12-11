@@ -878,12 +878,12 @@ static int get_precedence(TokenType type) {
  * - "is greater than or equal" -> >=
  * - "is less than or equal" -> <=
  *
- * @param p Parser state
+ * @param p Parser state (const, as this function only reads via peek())
  * @param out_op Output parameter for the binary operator type
  * @param tokens_to_consume Output parameter for number of tokens to consume
  * @return true if a comparison operator was matched
  */
-static bool match_comparison_operator(Parser *p, BinOp *out_op,
+static bool match_comparison_operator(const Parser *p, BinOp *out_op,
                                       size_t *tokens_to_consume) {
   Token *current = peek(p, 0);
   if (!current || current->type != TOK_IS) {
