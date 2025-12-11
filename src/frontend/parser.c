@@ -658,6 +658,15 @@ static bool fstring_add_part(ASTNode ***parts, size_t *part_count,
  * @param p Parser state
  * @return AST node, or NULL on error
  */
+/**
+ * @brief Parse a value (number, string, boolean, null, variable, etc.)
+ *
+ * Parses atomic values and literals from the token stream.
+ * Handles: numbers, strings, booleans (true/false), null/undefined, variables.
+ *
+ * @param p Parser state
+ * @return AST node for the value, or NULL on error
+ */
 static ASTNode *parse_value(Parser *p) {
   Token *tok = peek(p, 0);
   if (!tok) {
@@ -942,6 +951,15 @@ static void list_cleanup_elements(ASTNode **elements, size_t element_count) {
  * @param p Parser state
  * @return AST node for the list, or NULL on error
  */
+/**
+ * @brief Parse a list literal
+ *
+ * Parses: [element1, element2, ...]
+ * Returns an empty list if no elements are present.
+ *
+ * @param p Parser state
+ * @return AST node for the list, or NULL on error
+ */
 static ASTNode *parse_list_literal(Parser *p) {
   consume(p, TOK_LIST);
 
@@ -1016,6 +1034,15 @@ static ASTNode *parse_list_literal(Parser *p) {
  *
  * Handles: "range start to end" or "range start to end by step".
  * The step is optional and defaults to 1.0.
+ *
+ * @param p Parser state
+ * @return AST node for the range, or NULL on error
+ */
+/**
+ * @brief Parse a range literal
+ *
+ * Parses: range start to end [by step]
+ * Used for range expressions in for loops.
  *
  * @param p Parser state
  * @return AST node for the range, or NULL on error
@@ -1158,6 +1185,16 @@ static void map_cleanup_entries(ASTNode **keys, ASTNode **values,
  *
  * Handles: "map key: value, key2: value2" or "map" (empty map).
  * Entries are comma-separated key-value pairs with colon separator.
+ *
+ * @param p Parser state
+ * @return AST node for the map, or NULL on error
+ */
+/**
+ * @brief Parse a map literal
+ *
+ * Parses: {key1: value1, key2: value2, ...}
+ * Keys can be identifiers (converted to strings) or expressions.
+ * Returns an empty map if no entries are present.
  *
  * @param p Parser state
  * @return AST node for the map, or NULL on error
@@ -1472,6 +1509,16 @@ static ASTNode *parse_primary(Parser *p) {
  * precedence)
  * @return AST node for the expression, or NULL on error
  */
+/**
+ * @brief Parse an expression with operator precedence handling
+ *
+ * Uses the precedence climbing algorithm to parse expressions with
+ * correct operator precedence and associativity.
+ *
+ * @param p Parser state
+ * @param min_prec Minimum precedence level to parse
+ * @return AST node for the expression, or NULL on error
+ */
 static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
   // Check recursion depth
   if (!check_recursion_depth(p)) {
@@ -1664,6 +1711,15 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
  * @param p Parser state
  * @return AST node for the expression, or NULL on error
  */
+/**
+ * @brief Parse an expression
+ *
+ * Entry point for parsing expressions. Delegates to parse_expression_prec
+ * with minimum precedence.
+ *
+ * @param p Parser state
+ * @return AST node for the expression, or NULL on error
+ */
 static ASTNode *parse_expression(Parser *p) {
   return parse_expression_prec(p, 1); // Start with minimum precedence
 }
@@ -1673,6 +1729,15 @@ static ASTNode *parse_expression(Parser *p) {
  *
  * Conditions are full expressions (can include comparisons and logical
  * operators).
+ *
+ * @param p Parser state
+ * @return AST node for the condition, or NULL on error
+ */
+/**
+ * @brief Parse a condition expression
+ *
+ * Parses a condition for if/while statements. Currently delegates to
+ * parse_expression as the expression parser handles comparisons with "is".
  *
  * @param p Parser state
  * @return AST node for the condition, or NULL on error
@@ -1827,6 +1892,17 @@ static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
  * @param indent Indentation level of this statement
  * @return AST node for the assignment, or NULL on error
  */
+/**
+ * @brief Parse an assignment statement
+ *
+ * Parses: set/let var to value [as type] or set/let var at index to value
+ * Handles both regular assignments and index assignments.
+ * "set" creates immutable variables, "let" creates mutable variables.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the assignment, or NULL on error
+ */
 static ASTNode *parse_assignment(Parser *p, int indent) {
   Token *first = peek(p, 0);
   bool is_mutable = (first->type == TOK_LET);
@@ -1855,7 +1931,16 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
   return assignment_parse_regular(p, indent, name, is_mutable);
 }
 
-// Parse delete statement: delete var at key
+/**
+ * @brief Parse a delete statement
+ *
+ * Parses: delete var at key
+ * Deletes an element from a map or list at the specified key/index.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the delete statement, or NULL on error
+ */
 static ASTNode *parse_delete(Parser *p, int indent) {
   consume(p, TOK_DELETE);
 
@@ -1904,7 +1989,16 @@ static ASTNode *parse_delete(Parser *p, int indent) {
   return node;
 }
 
-// Parse raise statement: raise ErrorType "message" or raise "message"
+/**
+ * @brief Parse a raise statement
+ *
+ * Parses: raise ErrorType "message" or raise "message"
+ * Raises an exception with an optional error type and message.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the raise statement, or NULL on error
+ */
 static ASTNode *parse_raise(Parser *p, int indent) {
   consume(p, TOK_RAISE);
 
@@ -2101,6 +2195,16 @@ static bool try_parse_finally_block(Parser *p, int indent, ASTNode *try_node) {
 }
 
 // Parse try/catch/finally statement
+/**
+ * @brief Parse a try/catch/finally statement
+ *
+ * Parses: try: ... [catch [ErrorType] [as var]: ...] ... [finally: ...]
+ * Handles exception handling with optional catch blocks and finally block.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the try statement, or NULL on error
+ */
 static ASTNode *parse_try(Parser *p, int indent) {
   consume(p, TOK_TRY);
 
@@ -2181,7 +2285,16 @@ static ASTNode *parse_try(Parser *p, int indent) {
   return node;
 }
 
-// Parse print
+/**
+ * @brief Parse a print statement
+ *
+ * Parses: print expression
+ * Prints the value of an expression.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the print statement, or NULL on error
+ */
 static ASTNode *parse_print(Parser *p, int indent) {
   consume(p, TOK_PRINT);
 
@@ -2424,7 +2537,16 @@ static bool if_parse_else(Parser *p, int indent, ASTNode *if_node) {
   return true;
 }
 
-// Parse if statement
+/**
+ * @brief Parse an if statement
+ *
+ * Parses: if condition: ... [else if condition: ...] [else: ...]
+ * Handles if statements with optional else-if chains and else blocks.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the if statement, or NULL on error
+ */
 static ASTNode *parse_if(Parser *p, int indent) {
   consume(p, TOK_IF);
 
@@ -2596,7 +2718,16 @@ static void for_cleanup_resources(ASTNode *iterable, ASTNode *end,
   }
 }
 
-// Parse for statement
+/**
+ * @brief Parse a for statement
+ *
+ * Parses: for var in iterable: ... or for var in range start to end [by step]:
+ * ... Handles both list iteration and range iteration.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the for statement, or NULL on error
+ */
 static ASTNode *parse_for(Parser *p, int indent) {
   consume(p, TOK_FOR);
 
@@ -2673,7 +2804,16 @@ static ASTNode *parse_for(Parser *p, int indent) {
   return node;
 }
 
-// Parse while statement
+/**
+ * @brief Parse a while statement
+ *
+ * Parses: while condition: ...
+ * Executes a block of code while a condition is true.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the while statement, or NULL on error
+ */
 static ASTNode *parse_while(Parser *p, int indent) {
   consume(p, TOK_WHILE);
 
@@ -2810,7 +2950,16 @@ static void function_cleanup_parameters(char **params, size_t param_count) {
   free(params);
 }
 
-// Parse function definition
+/**
+ * @brief Parse a function definition
+ *
+ * Parses: function name [with param1, param2, ...]: ...
+ * Defines a function with an optional parameter list.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the function definition, or NULL on error
+ */
 static ASTNode *parse_function(Parser *p, int indent) {
   consume(p, TOK_FUNCTION);
 
@@ -2961,9 +3110,17 @@ static void call_cleanup_arguments(ASTNode **args, size_t arg_count) {
   free(args);
 }
 
-// Parse function call
-// If indent >= 0, it's a statement (requires newline)
-// If indent < 0, it's an expression (no newline required)
+/**
+ * @brief Parse a function call
+ *
+ * Parses: call name [with arg1, arg2, ...]
+ * Can be used as a statement (indent >= 0, requires newline) or
+ * as an expression (indent < 0, no newline required).
+ *
+ * @param p Parser state
+ * @param indent Indentation level (>= 0 for statement, < 0 for expression)
+ * @return AST node for the function call, or NULL on error
+ */
 static ASTNode *parse_call(Parser *p, int indent) {
   consume(p, TOK_CALL);
 
@@ -3009,7 +3166,16 @@ static ASTNode *parse_call(Parser *p, int indent) {
   return node;
 }
 
-// Parse return statement
+/**
+ * @brief Parse a return statement
+ *
+ * Parses: return expression
+ * Returns a value from a function.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the return statement, or NULL on error
+ */
 static ASTNode *parse_return(Parser *p, int indent) {
   consume(p, TOK_RETURN);
 
@@ -3034,11 +3200,18 @@ static ASTNode *parse_return(Parser *p, int indent) {
   return node;
 }
 
-// Parse import statement
-// Supports:
-//   import module_name
-//   import module_name from "file.kr"
-//   from module_name import func1, func2
+/**
+ * @brief Parse an import statement
+ *
+ * Supports multiple import syntaxes:
+ *   - import module_name
+ *   - import module_name from "file.kr"
+ *   - from module_name import func1, func2
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the import statement, or NULL on error
+ */
 static ASTNode *parse_import(Parser *p, int indent) {
   Token *first = peek(p, 0);
   bool is_from_import = (first->type == TOK_FROM);
@@ -3190,7 +3363,16 @@ static ASTNode *parse_import(Parser *p, int indent) {
   return node;
 }
 
-// Parse break statement
+/**
+ * @brief Parse a break statement
+ *
+ * Parses: break
+ * Breaks out of the nearest loop.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the break statement, or NULL on error
+ */
 static ASTNode *parse_break(Parser *p, int indent) {
   consume(p, TOK_BREAK);
 
@@ -3207,7 +3389,16 @@ static ASTNode *parse_break(Parser *p, int indent) {
   return node;
 }
 
-// Parse continue statement
+/**
+ * @brief Parse a continue statement
+ *
+ * Parses: continue
+ * Continues to the next iteration of the nearest loop.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the continue statement, or NULL on error
+ */
 static ASTNode *parse_continue(Parser *p, int indent) {
   consume(p, TOK_CONTINUE);
 
@@ -3224,7 +3415,15 @@ static ASTNode *parse_continue(Parser *p, int indent) {
   return node;
 }
 
-// Parse statement
+/**
+ * @brief Parse a statement
+ *
+ * Main entry point for parsing statements. Handles indentation and
+ * dispatches to the appropriate statement parser based on the token type.
+ *
+ * @param p Parser state
+ * @return AST node for the statement, or NULL on error
+ */
 static ASTNode *parse_statement(Parser *p) {
   Token *tok = peek(p, 0);
   if (!tok) {
