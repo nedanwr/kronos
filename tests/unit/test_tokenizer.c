@@ -606,6 +606,93 @@ TEST(tokenize_string_escape_sequences) {
 }
 
 /**
+ * @brief Test multi-line strings with triple quotes
+ *
+ * Verifies that triple-quoted strings (""" or ''') can span multiple lines
+ * and preserve newlines in the content.
+ */
+TEST(tokenize_multiline_string) {
+  TokenizeError *err = NULL;
+  // Test triple-quoted string spanning multiple lines
+  const char *source = "\"\"\"Line 1\nLine 2\nLine 3\"\"\"";
+  TokenArray *tokens = tokenize(source, &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify content includes newlines
+  const char *text = tokens->tokens[i].text;
+  ASSERT_TRUE(strstr(text, "Line 1") != NULL);
+  ASSERT_TRUE(strstr(text, "Line 2") != NULL);
+  ASSERT_TRUE(strstr(text, "Line 3") != NULL);
+  // Check that newlines are preserved
+  bool has_newline = false;
+  for (size_t j = 0; text[j] != '\0'; j++) {
+    if (text[j] == '\n') {
+      has_newline = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_newline);
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test multi-line strings with single quotes and escape sequences
+ *
+ * Verifies that triple single-quoted strings work and escape sequences
+ * are processed correctly in multi-line strings.
+ */
+TEST(tokenize_multiline_string_single_quotes) {
+  TokenizeError *err = NULL;
+  // Test triple single-quoted string with escape sequences
+  const char *source = "'''Hello\\nWorld\\tTab'''";
+  TokenArray *tokens = tokenize(source, &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify escape sequences were converted
+  const char *text = tokens->tokens[i].text;
+  // Should contain actual newline and tab characters
+  bool has_newline = false;
+  bool has_tab = false;
+  for (size_t j = 0; text[j] != '\0'; j++) {
+    if (text[j] == '\n') {
+      has_newline = true;
+    }
+    if (text[j] == '\t') {
+      has_tab = true;
+    }
+  }
+  ASSERT_TRUE(has_newline);
+  ASSERT_TRUE(has_tab);
+
+  token_array_free(tokens);
+}
+
+/**
  * @brief Test configurable tab width
  *
  * Verifies that tab width can be configured and affects indentation

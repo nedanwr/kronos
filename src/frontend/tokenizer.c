@@ -315,6 +315,7 @@ static bool process_escape_sequence(char escaped_char, char *out_char) {
  * Processes one line, extracting all tokens. Handles:
  * - Numbers (integers and floats, with optional leading + or -)
  * - Strings and f-strings (with escape sequences)
+ * - Multi-line strings with triple quotes (""" or ''')
  * - Keywords and identifiers
  * - Operators and punctuation
  * - Indentation tokens
@@ -323,10 +324,17 @@ static bool process_escape_sequence(char escaped_char, char *out_char) {
  * @param line The line to tokenize (should not include leading whitespace)
  * @param indent Indentation level in spaces (already calculated)
  * @param line_number 1-based line number for this line
+ * @param full_source Complete source code (for multi-line string support)
+ * @param source_pos Current position in full_source (updated when reading
+ * multi-line strings)
+ * @param source_len Total length of full_source
+ * @param out_err Optional pointer to receive error information
  * @return true on success, false on error (e.g., unterminated string)
  */
 static bool tokenize_line(TokenArray *arr, const char *line, int indent,
-                          size_t line_number, TokenizeError **out_err) {
+                          size_t line_number, const char *full_source,
+                          size_t *source_pos, size_t source_len,
+                          TokenizeError **out_err) {
   size_t len = strlen(line);
   size_t col = 0;
 
@@ -393,94 +401,188 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       continue;
     }
 
-    // Check for f-string prefix (f"..." or f'...')
+    // Check for f-string prefix (f"..." or f'...' or f"""...""" or f'''...''')
     // F-strings allow embedded expressions like f"Hello {name}"
     bool is_fstring = false;
+    bool is_triple_quote = false;
     if (col + 1 < len && line[col] == 'f' &&
         (line[col + 1] == '"' || line[col + 1] == '\'')) {
       is_fstring = true;
       col++; // Skip 'f'
+      // Check for triple quotes
+      if (col + 2 < len && line[col] == line[col + 1] &&
+          line[col + 1] == line[col + 2]) {
+        is_triple_quote = true;
+      }
+    } else if (col + 2 < len && ((line[col] == '"' && line[col + 1] == '"' &&
+                                  line[col + 2] == '"') ||
+                                 (line[col] == '\'' && line[col + 1] == '\'' &&
+                                  line[col + 2] == '\''))) {
+      is_triple_quote = true;
     }
 
-    // Tokenize string literals (handles escape sequences)
-    // Supports both single and double quotes
+    // Tokenize string literals (handles escape sequences and multi-line
+    // strings) Supports both single and double quotes, and triple-quoted
+    // multi-line strings
     if (line[col] == '"' || line[col] == '\'') {
       char quote_char = line[col];
-      size_t content_start = col + 1;
-      size_t cursor = content_start;
-      bool closed = false;
+      size_t quote_count = is_triple_quote ? 3 : 1;
 
-      // First pass: find the end of the string and count escape sequences
-      // to determine the actual content length
-      size_t escape_count = 0;
-      while (cursor < len) {
-        if (line[cursor] == '\\') {
-          cursor++;
-          if (cursor < len) {
-            escape_count++; // Escape sequence takes 2 chars but becomes 1 char
-            cursor++;
-          } else {
+      if (is_triple_quote) {
+        // Multi-line string: read from full source across line boundaries
+        // Calculate absolute position in full source
+        size_t abs_pos = *source_pos + col;
+        size_t start_pos = abs_pos + quote_count; // After opening quotes
+        size_t pos = start_pos;
+        bool closed = false;
+        size_t escape_count = 0;
+
+        // Read forward until we find closing triple quotes
+        while (pos + 2 < source_len) {
+          if (full_source[pos] == '\\') {
+            // Handle escape sequences
+            if (pos + 1 < source_len) {
+              escape_count++;
+              pos += 2; // Skip backslash and escaped char
+              continue;
+            } else {
+              break;
+            }
+          } else if (full_source[pos] == quote_char &&
+                     full_source[pos + 1] == quote_char &&
+                     full_source[pos + 2] == quote_char) {
+            closed = true;
             break;
           }
-        } else if (line[cursor] == quote_char) {
-          closed = true;
-          break;
-        } else {
-          cursor++;
+          pos++;
         }
-      }
 
-      if (!closed) {
-        size_t token_col = indent + col + 1;
-        tokenizer_report_error(out_err, "Unterminated string literal",
-                               line_number, token_col);
-        return false;
-      }
-
-      // Calculate actual content length (source length minus escape overhead)
-      size_t source_len = cursor - content_start;
-      size_t actual_len =
-          source_len - escape_count; // Each escape is 2 chars -> 1 char
-
-      // Column is 1-based: indent + position in line + 1
-      // For f-strings, account for the 'f' prefix
-      size_t token_start_col = is_fstring ? col - 1 : col;
-      size_t token_col = indent + token_start_col + 1;
-      Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING,
-                   NULL,
-                   actual_len,
-                   0,
-                   line_number,
-                   token_col};
-      char *text_buf = malloc(actual_len + 1);
-      if (!text_buf) {
-        tokenizer_report_error(out_err,
-                               "Failed to allocate memory for string literal",
-                               line_number, token_col);
-        return false;
-      }
-
-      // Second pass: copy content and process escape sequences
-      size_t dest_pos = 0;
-      cursor = content_start;
-      while (cursor < content_start + source_len) {
-        if (line[cursor] == '\\' && cursor + 1 < content_start + source_len) {
-          char converted_char;
-          process_escape_sequence(line[cursor + 1], &converted_char);
-          text_buf[dest_pos++] = converted_char;
-          cursor += 2; // Skip backslash and escaped character
-        } else {
-          text_buf[dest_pos++] = line[cursor++];
+        if (!closed) {
+          size_t token_col = indent + col + 1;
+          tokenizer_report_error(out_err,
+                                 "Unterminated multi-line string literal",
+                                 line_number, token_col);
+          return false;
         }
+
+        // Calculate content length (from start_pos to pos, excluding closing
+        // quotes)
+        size_t content_len = pos - start_pos;
+        size_t actual_len = content_len - escape_count; // Escapes become 1 char
+
+        size_t token_col = indent + (is_fstring ? col - 1 : col) + 1;
+        Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING,
+                     NULL,
+                     actual_len,
+                     0,
+                     line_number,
+                     token_col};
+        char *text_buf = malloc(actual_len + 1);
+        if (!text_buf) {
+          tokenizer_report_error(out_err,
+                                 "Failed to allocate memory for string literal",
+                                 line_number, token_col);
+          return false;
+        }
+
+        // Copy content and process escape sequences
+        size_t dest_pos = 0;
+        pos = start_pos;
+        while (pos < start_pos + content_len) {
+          if (full_source[pos] == '\\' && pos + 1 < start_pos + content_len) {
+            char converted_char;
+            process_escape_sequence(full_source[pos + 1], &converted_char);
+            text_buf[dest_pos++] = converted_char;
+            pos += 2;
+          } else {
+            text_buf[dest_pos++] = full_source[pos++];
+          }
+        }
+        text_buf[actual_len] = '\0';
+        tok.text = text_buf;
+        if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+          free(text_buf);
+          return false;
+        }
+
+        // Update source_pos to point after closing triple quotes
+        *source_pos = pos + quote_count;
+        // Return false to signal caller to skip to the new position
+        // (The caller will need to handle this)
+        return true;
+      } else {
+        // Single-line string: original logic
+        size_t content_start = col + quote_count;
+        size_t cursor = content_start;
+        bool closed = false;
+        size_t escape_count = 0;
+
+        while (cursor < len) {
+          if (line[cursor] == '\\') {
+            cursor++;
+            if (cursor < len) {
+              escape_count++; // Escape sequence takes 2 chars but becomes 1
+                              // char
+              cursor++;
+            } else {
+              break;
+            }
+          } else if (line[cursor] == quote_char) {
+            closed = true;
+            break;
+          } else {
+            cursor++;
+          }
+        }
+
+        if (!closed) {
+          size_t token_col = indent + col + 1;
+          tokenizer_report_error(out_err, "Unterminated string literal",
+                                 line_number, token_col);
+          return false;
+        }
+
+        size_t source_len = cursor - content_start;
+        size_t actual_len = source_len - escape_count;
+
+        size_t token_start_col = is_fstring ? col - 1 : col;
+        size_t token_col = indent + token_start_col + 1;
+        Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING,
+                     NULL,
+                     actual_len,
+                     0,
+                     line_number,
+                     token_col};
+        char *text_buf = malloc(actual_len + 1);
+        if (!text_buf) {
+          tokenizer_report_error(out_err,
+                                 "Failed to allocate memory for string literal",
+                                 line_number, token_col);
+          return false;
+        }
+
+        // Copy content and process escape sequences
+        size_t dest_pos = 0;
+        cursor = content_start;
+        while (cursor < content_start + source_len) {
+          if (line[cursor] == '\\' && cursor + 1 < content_start + source_len) {
+            char converted_char;
+            process_escape_sequence(line[cursor + 1], &converted_char);
+            text_buf[dest_pos++] = converted_char;
+            cursor += 2;
+          } else {
+            text_buf[dest_pos++] = line[cursor++];
+          }
+        }
+        text_buf[actual_len] = '\0';
+        tok.text = text_buf;
+        if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+          free(text_buf);
+          return false;
+        }
+        col = cursor + quote_count; // Skip closing quote(s)
+        continue;
       }
-      text_buf[actual_len] = '\0';
-      tok.text = text_buf;
-      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
-        free(text_buf);
-        return false;
-      }
-      col = cursor + 1; // Skip closing quote
-      continue;
     }
 
     // Tokenize identifiers and keywords
@@ -715,12 +817,15 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
     return NULL;
   }
 
+  size_t source_len = strlen(source);
   // Process source line by line
   const char *line_start = source;
   const char *line_end;
   size_t line_number = 1;
+  size_t source_pos =
+      0; // Track absolute position in source for multi-line strings
 
-  while (*line_start) {
+  while (*line_start && source_pos < source_len) {
     // Find the end of the current line (newline or end of string)
     line_end = line_start;
     while (*line_end && *line_end != '\n') {
@@ -780,7 +885,9 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
       strncpy(line, content_start, content_len);
       line[content_len] = '\0';
 
-      if (!tokenize_line(arr, line, indent, line_number, out_err)) {
+      size_t old_source_pos = source_pos;
+      if (!tokenize_line(arr, line, indent, line_number, source, &source_pos,
+                         source_len, out_err)) {
         if (!*out_err) {
           tokenizer_report_error(out_err,
                                  "Failed to tokenize line (out of memory)",
@@ -791,9 +898,34 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
         return NULL;
       }
       free(line);
+
+      // If source_pos advanced beyond current line, skip to that position
+      // (multi-line string consumed multiple lines)
+      if (source_pos > old_source_pos + line_len) {
+        // Find the line that source_pos points to
+        line_start = source + source_pos;
+        // Find the start of the current line
+        while (line_start > source && line_start[-1] != '\n') {
+          line_start--;
+        }
+        // Count lines to update line_number
+        const char *p = source;
+        line_number = 1;
+        while (p < line_start) {
+          if (*p == '\n') {
+            line_number++;
+          }
+          p++;
+        }
+        continue; // Process the new line
+      }
     }
 
     // Move to next line
+    source_pos = line_end - source;
+    if (*line_end == '\n') {
+      source_pos++; // Skip newline
+    }
     line_start = line_end;
     if (*line_start == '\n')
       line_start++;
