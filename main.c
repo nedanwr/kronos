@@ -261,6 +261,49 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 }
 
 /**
+ * @brief Read a line from stdin with dynamic buffer allocation
+ *
+ * Reads a complete line from stdin, allocating a buffer that grows as needed.
+ * The caller is responsible for freeing the returned buffer.
+ *
+ * @return Pointer to allocated buffer containing the line (without newline),
+ *         or NULL on EOF or allocation failure. Empty lines return empty
+ * string.
+ */
+static char *read_line_dynamic(void) {
+  size_t capacity = 256;
+  size_t len = 0;
+  char *buffer = malloc(capacity);
+  if (!buffer)
+    return NULL;
+
+  int c;
+  while ((c = getchar()) != EOF && c != '\n') {
+    if (len + 1 >= capacity) {
+      // Double capacity when buffer is full
+      size_t new_capacity = capacity * 2;
+      char *new_buffer = realloc(buffer, new_capacity);
+      if (!new_buffer) {
+        free(buffer);
+        return NULL;
+      }
+      buffer = new_buffer;
+      capacity = new_capacity;
+    }
+    buffer[len++] = (char)c;
+  }
+
+  if (len == 0 && c == EOF) {
+    // EOF without any input
+    free(buffer);
+    return NULL;
+  }
+
+  buffer[len] = '\0';
+  return buffer;
+}
+
+/**
  * @brief Start the Kronos REPL (Read-Eval-Print Loop)
  *
  * Provides an interactive command-line interface for executing Kronos code.
@@ -276,39 +319,25 @@ void kronos_repl(void) {
     return;
   }
 
-  char line[1024];
-
   while (1) {
     printf(">>> ");
     fflush(stdout);
 
-    if (!fgets(line, sizeof(line), stdin)) {
+    char *line = read_line_dynamic();
+    if (!line) {
+      // EOF or allocation failure
       break;
-    }
-
-    // Check if input was truncated (line too long for buffer)
-    // If no newline found and not at EOF, the line was truncated
-    size_t len = strlen(line);
-    if (len > 0 && line[len - 1] != '\n' && !feof(stdin)) {
-      fprintf(stderr, "Warning: Input line truncated (max %zu chars)\n",
-              sizeof(line) - 1);
-      int c;
-      while ((c = getchar()) != '\n' && c != EOF)
-        ;
-    }
-
-    // Remove trailing newline character
-    if (len > 0 && line[len - 1] == '\n') {
-      line[len - 1] = '\0';
     }
 
     // Check for exit command
     if (strcmp(line, "exit") == 0) {
+      free(line);
       break;
     }
 
     // Skip empty lines (user just pressed Enter)
     if (strlen(line) == 0) {
+      free(line);
       continue;
     }
 
@@ -319,6 +348,8 @@ void kronos_repl(void) {
         fprintf(stderr, "Error: %s\n", err);
       }
     }
+
+    free(line);
   }
 
   kronos_vm_free(vm);
