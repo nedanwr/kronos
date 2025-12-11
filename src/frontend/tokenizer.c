@@ -159,24 +159,34 @@ _Static_assert(sizeof(token_type_names) / sizeof(token_type_names[0]) ==
                    TOK_EOF + 1,
                "token_type_names array must match TokenType enum count");
 
+// Forward declarations
+static void tokenizer_report_error(TokenizeError **out_err, const char *message,
+                                   size_t line, size_t column);
+
 /**
  * @brief Allocate and initialize a new token array
  *
  * Creates a dynamically-growing array to hold tokens during tokenization.
  * Starts with capacity 32 and grows as needed.
  *
+ * @param out_err Optional pointer to receive error information
  * @return New token array, or NULL on allocation failure
  */
-static TokenArray *token_array_new(void) {
+static TokenArray *token_array_new(TokenizeError **out_err) {
   TokenArray *arr = malloc(sizeof(TokenArray));
-  if (!arr)
+  if (!arr) {
+    tokenizer_report_error(out_err, "Failed to allocate TokenArray structure",
+                           0, 0);
     return NULL;
+  }
 
   arr->capacity = 32;
   arr->count = 0;
   arr->tokens = malloc(sizeof(Token) * arr->capacity);
   if (!arr->tokens) {
     free(arr);
+    tokenizer_report_error(out_err, "Failed to allocate TokenArray buffer", 0,
+                           0);
     return NULL;
   }
 
@@ -185,8 +195,6 @@ static TokenArray *token_array_new(void) {
 
 // Forward declarations
 static bool process_escape_sequence(char escaped_char, char *out_char);
-static void tokenizer_report_error(TokenizeError **out_err, const char *message,
-                                   size_t line, size_t column);
 
 /**
  * @brief Add a token to the array
@@ -212,7 +220,7 @@ static bool token_array_add(TokenArray *arr, Token token,
     Token *new_tokens = realloc(arr->tokens, sizeof(Token) * new_capacity);
     if (!new_tokens) {
       tokenizer_report_error(out_err,
-                             "Failed to grow token array (out of memory)",
+                             "Failed to allocate memory for token array growth",
                              line_number, column);
       if (token.text)
         free((void *)token.text);
@@ -735,7 +743,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       Token tok = {TOK_COLON, NULL, 1, 0, line_number, token_col};
       tok.text = strdup(":");
       if (!tok.text) {
-        tokenizer_report_error(out_err, "Failed to allocate colon token",
+        tokenizer_report_error(out_err,
+                               "Failed to allocate memory for colon token",
                                line_number, token_col);
         return false;
       }
@@ -752,7 +761,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       Token tok = {TOK_COMMA, NULL, 1, 0, line_number, token_col};
       tok.text = strdup(",");
       if (!tok.text) {
-        tokenizer_report_error(out_err, "Failed to allocate comma token",
+        tokenizer_report_error(out_err,
+                               "Failed to allocate memory for comma token",
                                line_number, token_col);
         return false;
       }
@@ -771,7 +781,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       Token tok = {TOK_MINUS, NULL, 1, 0, line_number, token_col};
       tok.text = strdup("minus");
       if (!tok.text) {
-        tokenizer_report_error(out_err, "Failed to allocate minus token",
+        tokenizer_report_error(out_err,
+                               "Failed to allocate memory for minus token",
                                line_number, token_col);
         return false;
       }
@@ -797,7 +808,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     char *newline_text = strdup("\n");
     if (!newline_text) {
       size_t token_col = indent + len + 1;
-      tokenizer_report_error(out_err, "Failed to allocate newline token text",
+      tokenizer_report_error(out_err,
+                             "Failed to allocate memory for newline token",
                              line_number, token_col);
       return false;
     }
@@ -882,29 +894,12 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
 
   // Validate input
   if (!source) {
-    if (out_err) {
-      TokenizeError *err = malloc(sizeof(TokenizeError));
-      if (err) {
-        err->message = strdup("Source code must not be NULL");
-        err->line = 0;
-        err->column = 0;
-        *out_err = err;
-      }
-    }
+    tokenizer_report_error(out_err, "Source code must not be NULL", 0, 0);
     return NULL;
   }
 
-  TokenArray *arr = token_array_new();
+  TokenArray *arr = token_array_new(out_err);
   if (!arr) {
-    if (out_err) {
-      TokenizeError *err = malloc(sizeof(TokenizeError));
-      if (err) {
-        err->message = strdup("Failed to allocate TokenArray");
-        err->line = 0;
-        err->column = 0;
-        *out_err = err;
-      }
-    }
     return NULL;
   }
 
@@ -980,9 +975,9 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
       if (!tokenize_line(arr, line, indent, line_number, source, &source_pos,
                          source_len, out_err)) {
         if (!*out_err) {
-          tokenizer_report_error(out_err,
-                                 "Failed to tokenize line (out of memory)",
-                                 line_number, 1);
+          tokenizer_report_error(
+              out_err, "Failed to allocate memory while tokenizing line",
+              line_number, 1);
         }
         free(line);
         token_array_free(arr);
@@ -1029,8 +1024,8 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
   Token eof = {TOK_EOF, NULL, 0, 0, eof_line, 1};
   if (!token_array_add(arr, eof, out_err, eof_line, 1)) {
     if (!*out_err) {
-      tokenizer_report_error(
-          out_err, "Failed to append EOF token (out of memory)", eof_line, 1);
+      tokenizer_report_error(out_err, "Failed to allocate memory for EOF token",
+                             eof_line, 1);
     }
     token_array_free(arr);
     return NULL;
