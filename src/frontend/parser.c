@@ -68,8 +68,44 @@ typedef struct {
                              errors) */
 } Parser;
 
-// Forward declaration
+// Forward declarations
 static void parser_set_error(Parser *p, const char *message);
+
+/**
+ * @brief Create a new parser instance
+ *
+ * Allocates and initializes a new Parser structure. The parser does not
+ * own the tokens array - it only holds a reference to it.
+ *
+ * @param tokens Token array to parse (must not be NULL)
+ * @param error_out Optional pointer to error output (may be NULL)
+ * @return Newly allocated Parser, or NULL on allocation failure
+ */
+static Parser *parser_new(TokenArray *tokens, ParseError **error_out) {
+  Parser *p = malloc(sizeof(Parser));
+  if (!p) {
+    return NULL;
+  }
+  p->tokens = tokens;
+  p->pos = 0;
+  p->recursion_depth = 0;
+  p->error_out = error_out;
+  return p;
+}
+
+/**
+ * @brief Free a parser instance
+ *
+ * Frees a parser allocated with parser_new(). The parser does not own
+ * the tokens array, so it is not freed here.
+ *
+ * @param p Parser to free (may be NULL, in which case this is a no-op)
+ */
+static void parser_free(Parser *p) {
+  if (p) {
+    free(p);
+  }
+}
 
 /**
  * @brief Convert token type to human-readable string
@@ -3492,7 +3528,10 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
     *out_err = NULL;
   }
 
-  Parser p = {tokens, 0, 0, out_err};
+  Parser *p = parser_new(tokens, out_err);
+  if (!p) {
+    return NULL;
+  }
 
   AST *ast = malloc(sizeof(AST));
   if (!ast) {
@@ -3509,24 +3548,24 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
 
   bool has_errors = false;
 
-  while (p.pos < tokens->count) {
-    Token *tok = peek(&p, 0);
+  while (p->pos < tokens->count) {
+    Token *tok = peek(p, 0);
     if (!tok || tok->type == TOK_EOF) {
       break;
     }
 
     if (tok->type == TOK_NEWLINE) {
-      consume_any(&p);
+      consume_any(p);
       continue;
     }
 
-    ASTNode *stmt = parse_statement(&p);
+    ASTNode *stmt = parse_statement(p);
     if (stmt) {
       if (!grow_array((void **)&ast->statements, ast->count, &ast->capacity,
                       sizeof(ASTNode *))) {
         // Realloc failed - free the statement and report error
         ast_node_free(stmt);
-        parser_set_error(&p, "Failed to grow AST statements array");
+        parser_set_error(p, "Failed to grow AST statements array");
         // Free existing AST and return NULL
         for (size_t i = 0; i < ast->count; i++) {
           ast_node_free(ast->statements[i]);
@@ -3543,17 +3582,17 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
       // If error output is provided and not already set, set it with details
       // about the first parse error encountered
       if (out_err && *out_err == NULL) {
-        Token *error_tok = peek(&p, 0);
+        Token *error_tok = peek(p, 0);
         if (error_tok) {
           char msg[256];
           snprintf(msg, sizeof(msg),
                    "Parse error: failed to parse statement starting with token "
                    "type %s",
                    token_type_name(error_tok->type));
-          parser_set_error(&p, msg);
+          parser_set_error(p, msg);
         } else {
-          parser_set_error(&p, "Parse error: failed to parse statement "
-                               "(unexpected end of input)");
+          parser_set_error(p, "Parse error: failed to parse statement "
+                              "(unexpected end of input)");
         }
       }
 
@@ -3561,8 +3600,8 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
       // This allows partial ASTs to be returned, but callers can check
       // out_err to know if the AST is incomplete due to parse errors
       while (tok && tok->type != TOK_NEWLINE && tok->type != TOK_EOF) {
-        consume_any(&p);
-        tok = peek(&p, 0);
+        consume_any(p);
+        tok = peek(p, 0);
       }
     }
   }
@@ -3570,6 +3609,7 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
   // If errors occurred, the error has been set in out_err (if provided)
   // The AST is returned but may be partial - callers should check out_err
   // to determine if the AST contains all statements or if some failed to parse
+  parser_free(p);
   return ast;
 }
 
