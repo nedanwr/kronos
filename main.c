@@ -16,6 +16,7 @@
 #include "src/vm/vm.h"
 #include <getopt.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,11 @@
 #define KRONOS_VERSION_MINOR 4
 #define KRONOS_VERSION_PATCH 0
 #define KRONOS_VERSION_STRING "0.4.0"
+
+// Global flag for graceful shutdown on signals
+static volatile sig_atomic_t g_signal_received = 0;
+static KronosVM *g_repl_vm =
+    NULL; // VM instance for REPL (for cleanup on signal)
 
 /**
  * @brief Print usage information
@@ -76,6 +82,52 @@ static void print_error(const char *message) {
  */
 static void print_error_with_file(const char *filepath, const char *message) {
   fprintf(stderr, "Error in %s: %s\n", filepath, message);
+}
+
+/**
+ * @brief Signal handler for SIGINT (Ctrl+C)
+ *
+ * Sets a flag to indicate graceful shutdown should occur.
+ */
+static void handle_sigint(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  g_signal_received = 1;
+  // Print newline to move cursor after ^C
+  fprintf(stderr, "\n");
+}
+
+/**
+ * @brief Signal handler for SIGTERM
+ *
+ * Sets a flag to indicate graceful shutdown should occur.
+ */
+static void handle_sigterm(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  g_signal_received = 1;
+}
+
+/**
+ * @brief Signal handler for SIGPIPE
+ *
+ * Handles broken pipe gracefully (e.g., when output is piped and reader
+ * closes).
+ */
+static void handle_sigpipe(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  // Ignore SIGPIPE - exit gracefully
+  // The write operation will fail with EPIPE, which we can handle
+  g_signal_received = 1;
+}
+
+/**
+ * @brief Set up signal handlers for graceful shutdown
+ *
+ * Registers handlers for SIGINT, SIGTERM, and SIGPIPE.
+ */
+static void setup_signal_handlers(void) {
+  signal(SIGINT, handle_sigint);
+  signal(SIGTERM, handle_sigterm);
+  signal(SIGPIPE, handle_sigpipe);
 }
 
 /**
@@ -497,7 +549,7 @@ static char *read_multiline_input(void) {
  * Type 'exit' to quit the REPL.
  */
 void kronos_repl(void) {
-  printf("Kronos REPL - Type 'exit' to quit\n");
+  printf("Kronos REPL - Type 'exit' to quit (or Ctrl+C)\n");
 
   KronosVM *vm = kronos_vm_new();
   if (!vm) {
@@ -505,11 +557,27 @@ void kronos_repl(void) {
     return;
   }
 
+  // Store VM pointer for signal handler cleanup
+  g_repl_vm = vm;
+
   while (1) {
+    // Check for signal
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Exiting...\n");
+      break;
+    }
+
     // Read multi-line input
     char *input = read_multiline_input();
     if (!input) {
       // EOF or exit command
+      break;
+    }
+
+    // Check for signal again after reading input
+    if (g_signal_received) {
+      free(input);
+      fprintf(stderr, "\nInterrupted. Exiting...\n");
       break;
     }
 
@@ -531,6 +599,7 @@ void kronos_repl(void) {
     free(input);
   }
 
+  g_repl_vm = NULL;
   kronos_vm_free(vm);
 }
 
@@ -544,6 +613,9 @@ void kronos_repl(void) {
  * @return 0 on success, 1 on error
  */
 int main(int argc, char **argv) {
+  // Set up signal handlers for graceful shutdown
+  setup_signal_handlers();
+
   // Command-line options
   static struct option long_options[] = {{"help", no_argument, 0, 'h'},
                                          {"version", no_argument, 0, 'v'},
@@ -601,6 +673,13 @@ int main(int argc, char **argv) {
 
   int exit_code = 0;
   for (int i = optind; i < argc; i++) {
+    // Check for signal before processing each file
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+      exit_code = 130; // Standard exit code for SIGINT
+      break;
+    }
+
     int result = kronos_run_file(vm, argv[i]);
     if (result < 0) {
       const char *err = kronos_get_last_error(vm);
@@ -608,6 +687,13 @@ int main(int argc, char **argv) {
         print_error_with_file(argv[i], err);
       }
       exit_code = 1;
+    }
+
+    // Check for signal after processing each file
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+      exit_code = 130; // Standard exit code for SIGINT
+      break;
     }
   }
 
