@@ -177,7 +177,8 @@ static TokenArray *token_array_new(void) {
   return arr;
 }
 
-// Forward declaration
+// Forward declarations
+static bool process_escape_sequence(char escaped_char, char *out_char);
 static void tokenizer_report_error(TokenizeError **out_err, const char *message,
                                    size_t line, size_t column);
 
@@ -266,6 +267,46 @@ static TokenType match_keyword(const char *text, size_t len) {
   }
 
   return TOK_NAME;
+}
+
+/**
+ * @brief Process a single escape sequence character
+ *
+ * Converts escape sequence characters to their actual values.
+ * Supports: \n, \t, \\, \", \', \r, \0
+ *
+ * @param escaped_char The character following the backslash
+ * @param out_char Output parameter for the converted character
+ * @return true if valid escape sequence, false otherwise
+ */
+static bool process_escape_sequence(char escaped_char, char *out_char) {
+  switch (escaped_char) {
+  case 'n':
+    *out_char = '\n';
+    return true;
+  case 't':
+    *out_char = '\t';
+    return true;
+  case '\\':
+    *out_char = '\\';
+    return true;
+  case '"':
+    *out_char = '"';
+    return true;
+  case '\'':
+    *out_char = '\'';
+    return true;
+  case 'r':
+    *out_char = '\r';
+    return true;
+  case '0':
+    *out_char = '\0';
+    return true;
+  default:
+    // Unknown escape sequence - return the character as-is
+    *out_char = escaped_char;
+    return true;
+  }
 }
 
 /**
@@ -368,10 +409,15 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       size_t content_start = col + 1;
       size_t cursor = content_start;
       bool closed = false;
+
+      // First pass: find the end of the string and count escape sequences
+      // to determine the actual content length
+      size_t escape_count = 0;
       while (cursor < len) {
         if (line[cursor] == '\\') {
           cursor++;
           if (cursor < len) {
+            escape_count++; // Escape sequence takes 2 chars but becomes 1 char
             cursor++;
           } else {
             break;
@@ -391,26 +437,43 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
         return false;
       }
 
-      size_t content_len = cursor - content_start;
+      // Calculate actual content length (source length minus escape overhead)
+      size_t source_len = cursor - content_start;
+      size_t actual_len =
+          source_len - escape_count; // Each escape is 2 chars -> 1 char
+
       // Column is 1-based: indent + position in line + 1
       // For f-strings, account for the 'f' prefix
       size_t token_start_col = is_fstring ? col - 1 : col;
       size_t token_col = indent + token_start_col + 1;
       Token tok = {is_fstring ? TOK_FSTRING : TOK_STRING,
                    NULL,
-                   content_len,
+                   actual_len,
                    0,
                    line_number,
                    token_col};
-      char *text_buf = malloc(content_len + 1);
+      char *text_buf = malloc(actual_len + 1);
       if (!text_buf) {
         tokenizer_report_error(out_err,
                                "Failed to allocate memory for string literal",
                                line_number, token_col);
         return false;
       }
-      memcpy(text_buf, line + content_start, content_len);
-      text_buf[content_len] = '\0';
+
+      // Second pass: copy content and process escape sequences
+      size_t dest_pos = 0;
+      cursor = content_start;
+      while (cursor < content_start + source_len) {
+        if (line[cursor] == '\\' && cursor + 1 < content_start + source_len) {
+          char converted_char;
+          process_escape_sequence(line[cursor + 1], &converted_char);
+          text_buf[dest_pos++] = converted_char;
+          cursor += 2; // Skip backslash and escaped character
+        } else {
+          text_buf[dest_pos++] = line[cursor++];
+        }
+      }
+      text_buf[actual_len] = '\0';
       tok.text = text_buf;
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
         free(text_buf);

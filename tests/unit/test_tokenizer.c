@@ -566,6 +566,46 @@ TEST(tokenize_mixed_indentation_recovery) {
 }
 
 /**
+ * @brief Test string escape sequence processing
+ *
+ * Verifies that escape sequences in strings are properly converted
+ * to their actual character values.
+ */
+TEST(tokenize_string_escape_sequences) {
+  TokenizeError *err = NULL;
+  // Test common escape sequences: \n, \t, \\, \"
+  TokenArray *tokens =
+      tokenize("\"Hello\\nWorld\\tTab\\\"Quote\\\\Backslash\"", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify escape sequences were converted
+  const char *text = tokens->tokens[i].text;
+  // "Hello\nWorld\tTab\"Quote\\Backslash" should become:
+  // Hello<newline>World<tab>Tab"Quote\Backslash
+  // Positions: 012345678901234567890123456789
+  //            Hello\nWorld\tTab"Quote\Backslash
+  ASSERT_TRUE(text[5] == '\n');  // \n converted at position 5
+  ASSERT_TRUE(text[11] == '\t'); // \t converted at position 11
+  ASSERT_TRUE(text[15] == '"');  // \" converted at position 15
+  ASSERT_TRUE(text[21] == '\\'); // \\ converted at position 21 (after "Quote"
+                                 // which is 5 chars: 16-20)
+
+  token_array_free(tokens);
+}
+
+/**
  * @brief Test configurable tab width
  *
  * Verifies that tab width can be configured and affects indentation
