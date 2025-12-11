@@ -518,3 +518,49 @@ TEST(tokenize_utf8_identifier) {
 
   token_array_free(tokens);
 }
+
+/**
+ * @brief Test mixed indentation recovery
+ *
+ * Verifies that mixed spaces and tabs in indentation report an error
+ * but allow tokenization to continue (recovery mode).
+ */
+TEST(tokenize_mixed_indentation_recovery) {
+  TokenizeError *err = NULL;
+  // Line with mixed spaces and tabs: "  \t  set x to 5"
+  // This should report an error but continue tokenizing
+  TokenArray *tokens = tokenize("  \t  set x to 5\nset y to 10", &err);
+
+  // Error should be reported
+  ASSERT_PTR_NOT_NULL(err);
+  ASSERT_STR_EQ(err->message, "Mixed indentation (spaces and tabs detected "
+                              "on the same line)");
+
+  // But tokenization should continue (recovery mode)
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count > 0);
+
+  // Should have tokens from both lines
+  // Find the second "set" token (from the second line)
+  bool found_second_set = false;
+  for (size_t i = 0; i < tokens->count; i++) {
+    if (tokens->tokens[i].type == TOK_SET) {
+      // Check if this is the second SET token
+      bool found_first = false;
+      for (size_t j = 0; j < i; j++) {
+        if (tokens->tokens[j].type == TOK_SET) {
+          found_first = true;
+          break;
+        }
+      }
+      if (found_first) {
+        found_second_set = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(found_second_set);
+
+  tokenize_error_free(err);
+  token_array_free(tokens);
+}

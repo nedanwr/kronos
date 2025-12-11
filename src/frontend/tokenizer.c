@@ -642,7 +642,8 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
 
     // Calculate indentation level
     // Tabs are treated as TOKENIZER_TAB_WIDTH spaces
-    // Mixed spaces and tabs in the same block is an error
+    // Mixed spaces and tabs in the same line is reported as an error but
+    // tokenization continues (recovery mode)
     int indent = 0;
     bool saw_space = false;
     bool saw_tab = false;
@@ -659,16 +660,17 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
         break; // End of leading whitespace
       }
 
-      // Error: mixing spaces and tabs in indentation
+      // Check for mixed indentation
+      // Report error but continue processing (recovery mode)
       if (saw_space && saw_tab) {
-        fprintf(stderr, "Mixed spaces and tabs in indentation on line %zu\n",
-                line_number);
+        // Report error but don't abort - allow recovery
+        // Use the indentation calculated so far
         tokenizer_report_error(out_err,
-                               "Mixed indentation (spaces and tabs are not "
-                               "allowed in the same block)",
+                               "Mixed indentation (spaces and tabs detected "
+                               "on the same line)",
                                line_number, 1);
-        token_array_free(arr);
-        return NULL;
+        // Continue processing with the indentation calculated so far
+        break;
       }
     }
 
