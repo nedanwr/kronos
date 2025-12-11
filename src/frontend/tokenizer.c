@@ -142,16 +142,22 @@ static bool can_continue_identifier(const char *line, size_t col, size_t len) {
  * Must match TokenType enum order exactly
  */
 static const char *token_type_names[] = {
-    "NUMBER", "STRING",   "FSTRING",  "SET",     "LET",       "TO",
-    "AS",     "IF",       "ELSE",     "ELSE_IF", "FOR",       "WHILE",
-    "BREAK",  "CONTINUE", "IN",       "RANGE",   "LIST",      "AT",
-    "FROM",   "END",      "FUNCTION", "WITH",    "CALL",      "RETURN",
-    "IMPORT", "TRUE",     "FALSE",    "NULL",    "UNDEFINED", "IS",
-    "EQUAL",  "NOT",      "GREATER",  "LESS",    "THAN",      "AND",
-    "OR",     "PRINT",    "PLUS",     "MINUS",   "TIMES",     "DIVIDED",
-    "BY",     "MOD",      "DELETE",   "TRY",     "CATCH",     "FINALLY",
-    "RAISE",  "NAME",     "COLON",    "COMMA",   "NEWLINE",   "INDENT",
-    "EOF"};
+    "NUMBER",  "STRING",   "FSTRING", "SET",      "LET",   "TO",
+    "AS",      "IF",       "ELSE",    "ELSE_IF",  "FOR",   "WHILE",
+    "BREAK",   "CONTINUE", "IN",      "RANGE",    "LIST",  "MAP",
+    "AT",      "FROM",     "END",     "FUNCTION", "WITH",  "CALL",
+    "RETURN",  "IMPORT",   "TRUE",    "FALSE",    "NULL",  "UNDEFINED",
+    "IS",      "EQUAL",    "NOT",     "GREATER",  "LESS",  "THAN",
+    "AND",     "OR",       "PRINT",   "PLUS",     "MINUS", "TIMES",
+    "DIVIDED", "BY",       "MOD",     "DELETE",   "TRY",   "CATCH",
+    "FINALLY", "RAISE",    "NAME",    "COLON",    "COMMA", "NEWLINE",
+    "INDENT",  "EOF"};
+
+// Compile-time check to ensure array matches enum count
+// This will cause a compilation error if they don't match
+_Static_assert(sizeof(token_type_names) / sizeof(token_type_names[0]) ==
+                   TOK_EOF + 1,
+               "token_type_names array must match TokenType enum count");
 
 /**
  * @brief Allocate and initialize a new token array

@@ -254,6 +254,33 @@ TEST(tokenize_keywords) {
 }
 
 /**
+ * @brief Test tokenization of map keyword
+ *
+ * Verifies that the "map" keyword is correctly recognized and that
+ * token_type_names array includes TOK_MAP (prevents out-of-bounds access).
+ */
+TEST(tokenize_map_keyword) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("map", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find MAP keyword
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_MAP);
+  ASSERT_STR_EQ(tokens->tokens[i].text, "map");
+
+  token_array_free(tokens);
+}
+
+/**
  * @brief Test tokenization of variable names (identifiers)
  *
  * Verifies that identifiers starting with letters or underscores
