@@ -219,51 +219,115 @@ static bool token_array_add(TokenArray *arr, Token token,
   return true;
 }
 
+// Keyword entry structure
+struct KeywordEntry {
+  const char *keyword;
+  TokenType type;
+};
+
+// Static const keywords array (fixes issue #4 as well)
+static const struct KeywordEntry keywords[] = {
+    {"set", TOK_SET},         {"let", TOK_LET},
+    {"to", TOK_TO},           {"as", TOK_AS},
+    {"if", TOK_IF},           {"else", TOK_ELSE},
+    {"for", TOK_FOR},         {"while", TOK_WHILE},
+    {"break", TOK_BREAK},     {"continue", TOK_CONTINUE},
+    {"in", TOK_IN},           {"range", TOK_RANGE},
+    {"list", TOK_LIST},       {"map", TOK_MAP},
+    {"at", TOK_AT},           {"from", TOK_FROM},
+    {"end", TOK_END},         {"function", TOK_FUNCTION},
+    {"with", TOK_WITH},       {"call", TOK_CALL},
+    {"return", TOK_RETURN},   {"import", TOK_IMPORT},
+    {"true", TOK_TRUE},       {"false", TOK_FALSE},
+    {"null", TOK_NULL},       {"undefined", TOK_UNDEFINED},
+    {"is", TOK_IS},           {"equal", TOK_EQUAL},
+    {"not", TOK_NOT},         {"greater", TOK_GREATER},
+    {"less", TOK_LESS},       {"than", TOK_THAN},
+    {"and", TOK_AND},         {"or", TOK_OR},
+    {"print", TOK_PRINT},     {"plus", TOK_PLUS},
+    {"minus", TOK_MINUS},     {"times", TOK_TIMES},
+    {"divided", TOK_DIVIDED}, {"by", TOK_BY},
+    {"mod", TOK_MOD},         {"delete", TOK_DELETE},
+    {"try", TOK_TRY},         {"catch", TOK_CATCH},
+    {"finally", TOK_FINALLY}, {"raise", TOK_RAISE},
+};
+
+#define KEYWORD_COUNT (sizeof(keywords) / sizeof(keywords[0]))
+#define HASH_TABLE_SIZE 97 // Prime number larger than keyword count
+
+// Hash table for keyword lookup (O(1) average case)
+static const struct KeywordEntry *keyword_hash_table[HASH_TABLE_SIZE] = {NULL};
+static bool keyword_hash_initialized = false;
+
+/**
+ * @brief Simple hash function for keywords (djb2 variant)
+ *
+ * @param text String to hash
+ * @param len Length of the string
+ * @return Hash value modulo HASH_TABLE_SIZE
+ */
+static size_t keyword_hash(const char *text, size_t len) {
+  size_t hash = 5381;
+  for (size_t i = 0; i < len; i++) {
+    hash = ((hash << 5) + hash) + (unsigned char)text[i];
+  }
+  return hash % HASH_TABLE_SIZE;
+}
+
+/**
+ * @brief Initialize the keyword hash table
+ *
+ * Called once on first use. Uses linear probing for collision resolution.
+ */
+static void init_keyword_hash_table(void) {
+  if (keyword_hash_initialized)
+    return;
+
+  // Insert all keywords into hash table
+  for (size_t i = 0; i < KEYWORD_COUNT; i++) {
+    size_t len = strlen(keywords[i].keyword);
+    size_t hash = keyword_hash(keywords[i].keyword, len);
+    size_t pos = hash;
+
+    // Linear probing to find empty slot
+    while (keyword_hash_table[pos] != NULL) {
+      pos = (pos + 1) % HASH_TABLE_SIZE;
+    }
+    keyword_hash_table[pos] = &keywords[i];
+  }
+
+  keyword_hash_initialized = true;
+}
+
 /**
  * @brief Determine if a string matches a Kronos keyword
  *
- * Checks the string against all known keywords. If no match is found,
- * returns TOK_NAME indicating it's an identifier.
+ * Uses a hash table for O(1) average case lookup instead of O(n) linear search.
+ * If no match is found, returns TOK_NAME indicating it's an identifier.
  *
  * @param text String to check (not null-terminated)
  * @param len Length of the string
  * @return Token type (keyword type or TOK_NAME if not a keyword)
  */
 static TokenType match_keyword(const char *text, size_t len) {
-  struct {
-    const char *keyword;
-    TokenType type;
-  } keywords[] = {
-      {"set", TOK_SET},         {"let", TOK_LET},
-      {"to", TOK_TO},           {"as", TOK_AS},
-      {"if", TOK_IF},           {"else", TOK_ELSE},
-      {"for", TOK_FOR},         {"while", TOK_WHILE},
-      {"break", TOK_BREAK},     {"continue", TOK_CONTINUE},
-      {"in", TOK_IN},           {"range", TOK_RANGE},
-      {"list", TOK_LIST},       {"map", TOK_MAP},
-      {"at", TOK_AT},           {"from", TOK_FROM},
-      {"end", TOK_END},         {"function", TOK_FUNCTION},
-      {"with", TOK_WITH},       {"call", TOK_CALL},
-      {"return", TOK_RETURN},   {"import", TOK_IMPORT},
-      {"true", TOK_TRUE},       {"false", TOK_FALSE},
-      {"null", TOK_NULL},       {"undefined", TOK_UNDEFINED},
-      {"is", TOK_IS},           {"equal", TOK_EQUAL},
-      {"not", TOK_NOT},         {"greater", TOK_GREATER},
-      {"less", TOK_LESS},       {"than", TOK_THAN},
-      {"and", TOK_AND},         {"or", TOK_OR},
-      {"print", TOK_PRINT},     {"plus", TOK_PLUS},
-      {"minus", TOK_MINUS},     {"times", TOK_TIMES},
-      {"divided", TOK_DIVIDED}, {"by", TOK_BY},
-      {"mod", TOK_MOD},         {"delete", TOK_DELETE},
-      {"try", TOK_TRY},         {"catch", TOK_CATCH},
-      {"finally", TOK_FINALLY}, {"raise", TOK_RAISE},
-  };
+  // Initialize hash table on first call
+  init_keyword_hash_table();
 
-  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
-    if (strlen(keywords[i].keyword) == len &&
-        strncmp(text, keywords[i].keyword, len) == 0) {
-      return keywords[i].type;
+  // Compute hash and look up in table
+  size_t hash = keyword_hash(text, len);
+  size_t pos = hash;
+
+  // Linear probing to find matching keyword
+  while (keyword_hash_table[pos] != NULL) {
+    const struct KeywordEntry *entry = keyword_hash_table[pos];
+    if (strlen(entry->keyword) == len &&
+        strncmp(text, entry->keyword, len) == 0) {
+      return entry->type;
     }
+    pos = (pos + 1) % HASH_TABLE_SIZE;
+    // Prevent infinite loop if table is full (shouldn't happen)
+    if (pos == hash)
+      break;
   }
 
   return TOK_NAME;
