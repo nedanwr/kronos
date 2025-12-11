@@ -1,0 +1,5 @@
+# Simple file read operation
+# Tests basic read_file functionality
+# Expected output: [content of data.txt]
+
+print call read_file with "data.txt"
