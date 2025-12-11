@@ -14,11 +14,46 @@
 #include "src/frontend/parser.h"
 #include "src/frontend/tokenizer.h"
 #include "src/vm/vm.h"
+#include <getopt.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Version information
+#define KRONOS_VERSION_MAJOR 0
+#define KRONOS_VERSION_MINOR 4
+#define KRONOS_VERSION_PATCH 0
+#define KRONOS_VERSION_STRING "0.4.0"
+
+/**
+ * @brief Print usage information
+ */
+static void print_usage(const char *program_name) {
+  printf("Usage: %s [OPTIONS] [FILE...]\n", program_name);
+  printf("\n");
+  printf("Options:\n");
+  printf("  -h, --help          Show this help message and exit\n");
+  printf("  -v, --version       Show version information and exit\n");
+  printf("  -d, --debug         Enable debug mode (future use)\n");
+  printf("  -n, --no-color      Disable colored output (future use)\n");
+  printf("\n");
+  printf("If FILE is provided, executes the specified Kronos file(s).\n");
+  printf("If no FILE is provided, starts the interactive REPL.\n");
+  printf("\n");
+  printf("Examples:\n");
+  printf("  %s                    # Start REPL\n", program_name);
+  printf("  %s script.kr          # Execute script.kr\n", program_name);
+  printf("  %s file1.kr file2.kr # Execute multiple files\n", program_name);
+}
+
+/**
+ * @brief Print version information
+ */
+static void print_version(void) {
+  printf("Kronos %s\n", KRONOS_VERSION_STRING);
+}
 
 /**
  * @brief Create a new Kronos VM instance
@@ -358,36 +393,80 @@ void kronos_repl(void) {
 /**
  * @brief Main entry point for the Kronos interpreter
  *
- * If a file path is provided as a command-line argument, executes that file.
- * Otherwise, starts the interactive REPL.
+ * Parses command-line arguments and either executes files or starts the REPL.
  *
  * @param argc Number of command-line arguments
- * @param argv Command-line arguments (argv[1] is optional file path)
+ * @param argv Command-line arguments
  * @return 0 on success, 1 on error
  */
 int main(int argc, char **argv) {
-  if (argc > 1) {
-    // File execution mode: compile and run the specified file
-    KronosVM *vm = kronos_vm_new();
-    if (!vm) {
-      fprintf(stderr, "Failed to create VM\n");
+  // Command-line options
+  static struct option long_options[] = {{"help", no_argument, 0, 'h'},
+                                         {"version", no_argument, 0, 'v'},
+                                         {"debug", no_argument, 0, 'd'},
+                                         {"no-color", no_argument, 0, 'n'},
+                                         {0, 0, 0, 0}};
+
+  int opt;
+  int option_index = 0;
+  // Flags for future use (currently parsed but not implemented)
+  __attribute__((unused)) bool debug_mode = false;
+  __attribute__((unused)) bool no_color = false;
+
+  // Parse command-line options
+  while ((opt = getopt_long(argc, argv, "hvdn", long_options, &option_index)) !=
+         -1) {
+    switch (opt) {
+    case 'h':
+      print_usage(argv[0]);
+      return 0;
+    case 'v':
+      print_version();
+      return 0;
+    case 'd':
+      debug_mode = true;
+      // TODO: Implement debug mode
+      break;
+    case 'n':
+      no_color = true;
+      // TODO: Implement no-color mode
+      break;
+    case '?':
+      // Invalid option - getopt already printed error message
+      return 1;
+    default:
       return 1;
     }
+  }
 
-    int result = kronos_run_file(vm, argv[1]);
-    if (result < 0) {
-      const char *err = kronos_get_last_error(vm);
-      if (err && *err) {
-        fprintf(stderr, "Error: %s\n", err);
-      }
-    }
-    kronos_vm_free(vm);
+  // Remaining arguments are file paths
+  int file_count = argc - optind;
 
-    // Convert negative error codes to standard exit code 1
-    return (result < 0) ? 1 : result;
-  } else {
+  if (file_count == 0) {
     // REPL mode: start interactive interpreter
     kronos_repl();
     return 0;
   }
+
+  // File execution mode: execute each specified file
+  KronosVM *vm = kronos_vm_new();
+  if (!vm) {
+    fprintf(stderr, "Failed to create VM\n");
+    return 1;
+  }
+
+  int exit_code = 0;
+  for (int i = optind; i < argc; i++) {
+    int result = kronos_run_file(vm, argv[i]);
+    if (result < 0) {
+      const char *err = kronos_get_last_error(vm);
+      if (err && *err) {
+        fprintf(stderr, "Error in %s: %s\n", argv[i], err);
+      }
+      exit_code = 1;
+    }
+  }
+
+  kronos_vm_free(vm);
+  return exit_code;
 }
