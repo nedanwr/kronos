@@ -95,7 +95,23 @@ typedef struct {
   size_t column; // 1-based column number where error occurred (0 if unknown)
 } TokenizeError;
 
-// Tokenize source code
+// Tokenize source code with configurable tab width
+// @param source Source code to tokenize (must not be NULL).
+// @param out_err Optional pointer to receive error details on failure.
+//                If non-NULL and an error occurs, *out_err is set to a
+//                heap-allocated TokenizeError (caller must free with
+//                tokenize_error_free()). On success, *out_err is set to NULL.
+// @param tab_width Tab width in spaces (default: 8). Must be > 0.
+//                  If 0 is passed, defaults to 8.
+// @return TokenArray* on success, NULL on error (allocation failure or
+//         invalid input). On error, if out_err is non-NULL, *out_err contains
+//         error details. Caller must free the returned TokenArray with
+//         token_array_free() and any TokenizeError with tokenize_error_free().
+TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
+                                    int tab_width);
+
+// Tokenize source code (default tab width of 8)
+// Wrapper around tokenize_with_tab_width() for backward compatibility.
 // @param source Source code to tokenize (must not be NULL).
 // @param out_err Optional pointer to receive error details on failure.
 //                If non-NULL and an error occurs, *out_err is set to a

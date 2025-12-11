@@ -602,7 +602,7 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
 }
 
 /**
- * @brief Tokenize Kronos source code
+ * @brief Tokenize Kronos source code with configurable tab width
  *
  * Main entry point for lexical analysis. Splits source into lines, calculates
  * indentation, and tokenizes each line. Handles mixed indentation errors
@@ -610,9 +610,16 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
  *
  * @param source Complete source code to tokenize (must not be NULL)
  * @param out_err Optional pointer to receive error information
+ * @param tab_width Tab width in spaces (default: 8). Must be > 0.
+ *                  If 0 is passed, defaults to 8.
  * @return Token array on success, NULL on error
  */
-TokenArray *tokenize(const char *source, TokenizeError **out_err) {
+TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
+                                    int tab_width) {
+  // Use default tab width if invalid value provided
+  if (tab_width <= 0) {
+    tab_width = 8;
+  }
   // Initialize error output
   if (out_err)
     *out_err = NULL;
@@ -675,7 +682,7 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
         indent++;
       } else if (c == '\t') {
         saw_tab = true;
-        indent += TOKENIZER_TAB_WIDTH;
+        indent += tab_width;
       } else {
         break; // End of leading whitespace
       }
@@ -744,6 +751,20 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
   }
 
   return arr;
+}
+
+/**
+ * @brief Tokenize Kronos source code (default tab width)
+ *
+ * Wrapper around tokenize_with_tab_width() that uses the default tab width
+ * of 8. This maintains backward compatibility with existing code.
+ *
+ * @param source Complete source code to tokenize (must not be NULL)
+ * @param out_err Optional pointer to receive error information
+ * @return Token array on success, NULL on error
+ */
+TokenArray *tokenize(const char *source, TokenizeError **out_err) {
+  return tokenize_with_tab_width(source, out_err, 8);
 }
 
 /**

@@ -564,3 +564,47 @@ TEST(tokenize_mixed_indentation_recovery) {
   tokenize_error_free(err);
   token_array_free(tokens);
 }
+
+/**
+ * @brief Test configurable tab width
+ *
+ * Verifies that tab width can be configured and affects indentation
+ * calculation.
+ */
+TEST(tokenize_configurable_tab_width) {
+  TokenizeError *err = NULL;
+  // Test with tab width of 4 (common in many editors)
+  // "\t\t" should be treated as 8 spaces with default, but 8 spaces with
+  // tab_width=4
+  TokenArray *tokens = tokenize_with_tab_width("\t\tset x to 5", &err, 4);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Find the INDENT token
+  size_t i = 0;
+  while (i < tokens->count && tokens->tokens[i].type != TOK_INDENT) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  // With tab_width=4, two tabs should give indent_level of 8
+  ASSERT_INT_EQ(tokens->tokens[i].indent_level, 8);
+
+  token_array_free(tokens);
+
+  // Test with tab width of 2
+  err = NULL;
+  tokens = tokenize_with_tab_width("\t\tset y to 10", &err, 2);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  i = 0;
+  while (i < tokens->count && tokens->tokens[i].type != TOK_INDENT) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  // With tab_width=2, two tabs should give indent_level of 4
+  ASSERT_INT_EQ(tokens->tokens[i].indent_level, 4);
+
+  token_array_free(tokens);
+}
