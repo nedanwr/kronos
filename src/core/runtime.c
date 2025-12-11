@@ -43,6 +43,10 @@ static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 /** Mutex for thread-safe intern table operations */
 static pthread_mutex_t intern_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/** Reference counter for runtime initialization (allows multiple VMs to share
+ * runtime) */
+static size_t runtime_refcount = 0;
+
 /**
  * @brief Hash function for strings (FNV-1a algorithm)
  *
@@ -65,30 +69,54 @@ static uint32_t hash_string(const char *str, size_t len) {
  * @brief Initialize the runtime system
  *
  * Must be called before creating any values. Initializes the string
- * interning table and garbage collector.
+ * interning table and garbage collector. Safe to call multiple times;
+ * uses reference counting to allow multiple VMs to share the runtime.
  */
 void runtime_init(void) {
   pthread_mutex_lock(&intern_mutex);
-  memset(intern_table, 0, sizeof(intern_table));
+  if (runtime_refcount == 0) {
+    // First initialization - clear intern table and initialize GC
+    memset(intern_table, 0, sizeof(intern_table));
+    pthread_mutex_unlock(&intern_mutex);
+    gc_init();
+    pthread_mutex_lock(&intern_mutex);
+  }
+  runtime_refcount++;
   pthread_mutex_unlock(&intern_mutex);
-  gc_init();
 }
 
 /**
  * @brief Cleanup the runtime system
  *
  * Releases all interned strings and shuts down the garbage collector.
+ * Uses reference counting - only performs actual cleanup when the last
+ * reference is released, allowing multiple VMs to share the runtime.
  * IMPORTANT: This must only be called after all external references to
  * interned strings have been released, otherwise values may be freed
  * prematurely.
  */
 void runtime_cleanup(void) {
-  // Free interned strings
   pthread_mutex_lock(&intern_mutex);
+  if (runtime_refcount == 0) {
+    // Already cleaned up or never initialized
+    pthread_mutex_unlock(&intern_mutex);
+    return;
+  }
+
+  runtime_refcount--;
+  if (runtime_refcount > 0) {
+    // Other VMs still using the runtime, don't cleanup yet
+    pthread_mutex_unlock(&intern_mutex);
+    return;
+  }
+
+  // Last reference - perform actual cleanup
+  // Free interned strings
   size_t active_refs = 0;
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     if (intern_table[i] != NULL) {
-      // Check if there are active references beyond the intern table's reference
+      // Check if there are active references beyond the intern table's
+      // reference
       if (intern_table[i]->refcount > 1) {
         active_refs++;
       }
@@ -97,12 +125,15 @@ void runtime_cleanup(void) {
     }
   }
   pthread_mutex_unlock(&intern_mutex);
-  
+
   if (active_refs > 0) {
-    fprintf(stderr, "Warning: runtime_cleanup() called with %zu interned strings still referenced externally. "
-                    "These may be freed prematurely.\n", active_refs);
+    fprintf(stderr,
+            "Warning: runtime_cleanup() called with %zu interned strings still "
+            "referenced externally. "
+            "These may be freed prematurely.\n",
+            active_refs);
   }
-  
+
   gc_cleanup();
 }
 
@@ -298,15 +329,17 @@ KronosValue *value_new_channel(Channel *channel) {
  * Creates a range object representing values from start to end (inclusive)
  * with the given step. The step defaults to 1.0 if 0.0 is provided.
  *
- * Negative steps are supported for reverse iteration (e.g., range 10 to 1 by -1).
- * The iteration logic in the VM handles negative steps correctly by checking
- * the step direction. No validation is performed here as ranges with mismatched
- * step direction and start/end relationship simply result in empty ranges
- * (e.g., range 1 to 10 by -1 produces no values, which is correct behavior).
+ * Negative steps are supported for reverse iteration (e.g., range 10 to 1 by
+ * -1). The iteration logic in the VM handles negative steps correctly by
+ * checking the step direction. No validation is performed here as ranges with
+ * mismatched step direction and start/end relationship simply result in empty
+ * ranges (e.g., range 1 to 10 by -1 produces no values, which is correct
+ * behavior).
  *
  * @param start Starting value (inclusive)
  * @param end Ending value (inclusive)
- * @param step Step size (defaults to 1.0 if 0.0, negative steps allowed for reverse iteration)
+ * @param step Step size (defaults to 1.0 if 0.0, negative steps allowed for
+ * reverse iteration)
  * @return New range value, or NULL on allocation failure
  */
 KronosValue *value_new_range(double start, double end, double step) {
@@ -318,9 +351,11 @@ KronosValue *value_new_range(double start, double end, double step) {
   val->refcount = 1;
   val->as.range.start = start;
   val->as.range.end = end;
-  // Step of 0.0 is invalid (would cause infinite loop). Default to 1.0 with warning.
+  // Step of 0.0 is invalid (would cause infinite loop). Default to 1.0 with
+  // warning.
   if (step == 0.0) {
-    fprintf(stderr, "Warning: Range step of 0.0 is invalid, defaulting to 1.0\n");
+    fprintf(stderr,
+            "Warning: Range step of 0.0 is invalid, defaulting to 1.0\n");
     val->as.range.step = 1.0;
   } else {
     val->as.range.step = step;
@@ -405,9 +440,10 @@ static uint32_t hash_value(KronosValue *key) {
   case VAL_FUNCTION:
   case VAL_CHANNEL:
   default:
-    // For functions and channels, use pointer hash since they are reference types.
-    // Two different function/channel objects should be considered different even
-    // if they have the same content, as they represent distinct instances.
+    // For functions and channels, use pointer hash since they are reference
+    // types. Two different function/channel objects should be considered
+    // different even if they have the same content, as they represent distinct
+    // instances.
     return (uint32_t)((uintptr_t)key * 2654435761u);
   }
 }
@@ -462,8 +498,9 @@ void value_retain(KronosValue *val) {
     } else {
       // Refcount already at maximum - value is effectively permanently retained
       // Log warning but continue execution (better than abort())
-      fprintf(stderr, "Warning: KronosValue refcount at maximum (%u), "
-                      "saturating to prevent overflow\n",
+      fprintf(stderr,
+              "Warning: KronosValue refcount at maximum (%u), "
+              "saturating to prevent overflow\n",
               UINT32_MAX);
     }
   }
@@ -600,7 +637,8 @@ void value_release(KronosValue *val) {
       for (size_t i = 0; i < current->as.list.count; i++) {
         KronosValue *child = current->as.list.items[i];
         if (child) {
-          if (!release_stack_push(&stack, &stack_count, &stack_capacity, child)) {
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  child)) {
             // Stack push failed - release directly (recursive fallback)
             value_release(child);
           }
@@ -646,7 +684,8 @@ void value_release(KronosValue *val) {
 }
 
 /**
- * @brief Print a value to a file stream (internal recursive version with depth limit)
+ * @brief Print a value to a file stream (internal recursive version with depth
+ * limit)
  *
  * @param out File stream to print to
  * @param val Value to print
@@ -817,13 +856,16 @@ bool value_is_truthy(KronosValue *val) {
 }
 
 /**
- * @brief Check if two values are equal (internal recursive version with depth limit)
+ * @brief Check if two values are equal (internal recursive version with depth
+ * limit)
  *
  * @param a First value
  * @param b Second value
  * @param depth Current recursion depth (to prevent stack overflow)
- * @param visited_a Array of visited value pointers from 'a' (for cycle detection)
- * @param visited_b Array of visited value pointers from 'b' (for cycle detection)
+ * @param visited_a Array of visited value pointers from 'a' (for cycle
+ * detection)
+ * @param visited_b Array of visited value pointers from 'b' (for cycle
+ * detection)
  * @param visited_count Current count of visited values
  * @param visited_capacity Capacity of visited arrays
  * @return true if values are equal, false otherwise
@@ -1147,7 +1189,7 @@ bool map_delete(KronosValue *map, KronosValue *key) {
   // Release references to key and value
   value_release(entries[index].key);
   value_release(entries[index].value);
-  
+
   // Mark as tombstone (key/value set to NULL for safety and to allow reuse)
   // The NULL check in map_set distinguishes new slots from reused tombstones
   entries[index].key = NULL;
@@ -1200,7 +1242,8 @@ KronosValue *string_intern(const char *str, size_t len) {
         entry->as.string.length == len &&
         memcmp(entry->as.string.data, str, len) == 0) {
       // Found existing interned string
-      // Retain before returning so caller gets refcount 1 (consistent with new strings)
+      // Retain before returning so caller gets refcount 1 (consistent with new
+      // strings)
       value_retain(entry);
       pthread_mutex_unlock(&intern_mutex);
       return entry;
@@ -1209,7 +1252,9 @@ KronosValue *string_intern(const char *str, size_t len) {
 
   // Table full, fallback to non-interned string
   pthread_mutex_unlock(&intern_mutex);
-  fprintf(stderr, "Warning: String intern table full (size %d), falling back to non-interned string\n",
+  fprintf(stderr,
+          "Warning: String intern table full (size %d), falling back to "
+          "non-interned string\n",
           INTERN_TABLE_SIZE);
   return value_new_string(str, len);
 }
@@ -1232,7 +1277,8 @@ bool value_is_type(KronosValue *val, const char *type_name) {
     return false;
 
   // Optimize by checking first character and length before strcmp
-  // This eliminates most comparisons quickly without needing full string comparison
+  // This eliminates most comparisons quickly without needing full string
+  // comparison
   char first = type_name[0];
   size_t len = strlen(type_name);
 
