@@ -15,7 +15,7 @@ print "Parsed configuration:"
 for i in range 0 to line_count minus 1:
     let line to lines at i
     set trimmed_line to call trim with line
-    
+
     # Skip empty lines
     set trimmed_len to call len with trimmed_line
     if trimmed_len is greater than 0:
@@ -26,7 +26,7 @@ for i in range 0 to line_count minus 1:
             # Extract key and value
             set key to call trim with parts at 0
             set val_str to call trim with parts at 1
-            
+
             # Try to convert to number if possible
             set parsed_val to val_str
             try:
@@ -39,7 +39,7 @@ for i in range 0 to line_count minus 1:
                         set parsed_val to bool_val
             catch err:
                 pass
-            
+
             # Display parsed config entry
             print f"   {key} = {parsed_val}"
 

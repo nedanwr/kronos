@@ -111,7 +111,7 @@ TEST(gc_cleanup_nested_list) {
 
   // Retain child since parent will hold a reference
   value_retain(child);
-  
+
   // Add child to parent's items array
   parent->as.list.items[parent->as.list.count] = child;
   parent->as.list.count++;
