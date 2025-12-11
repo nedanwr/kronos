@@ -163,6 +163,24 @@ _Static_assert(sizeof(token_type_names) / sizeof(token_type_names[0]) ==
 static void tokenizer_report_error(TokenizeError **out_err, const char *message,
                                    size_t line, size_t column);
 
+// Static string constants for single-character/small tokens
+// These are never freed, so we can use them directly without strdup()
+static const char TOKEN_TEXT_COLON[] = ":";
+static const char TOKEN_TEXT_COMMA[] = ",";
+static const char TOKEN_TEXT_MINUS[] = "minus";
+static const char TOKEN_TEXT_NEWLINE[] = "\n";
+
+/**
+ * @brief Check if a token text pointer points to a static string constant
+ *
+ * @param text Token text pointer to check
+ * @return true if text points to a static constant, false if heap-allocated
+ */
+static bool is_static_token_text(const char *text) {
+  return text == TOKEN_TEXT_COLON || text == TOKEN_TEXT_COMMA ||
+         text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE;
+}
+
 /**
  * @brief Allocate and initialize a new token array
  *
@@ -740,16 +758,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     // Colon is used for if/for/while statement headers
     if (line[col] == ':') {
       size_t token_col = indent + col + 1;
-      Token tok = {TOK_COLON, NULL, 1, 0, line_number, token_col};
-      tok.text = strdup(":");
-      if (!tok.text) {
-        tokenizer_report_error(out_err,
-                               "Failed to allocate memory for colon token",
-                               line_number, token_col);
-        return false;
-      }
+      Token tok = {TOK_COLON, TOKEN_TEXT_COLON, 1, 0, line_number, token_col};
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
-        free((void *)tok.text);
         return false;
       }
       col++;
@@ -758,16 +768,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
 
     if (line[col] == ',') {
       size_t token_col = indent + col + 1;
-      Token tok = {TOK_COMMA, NULL, 1, 0, line_number, token_col};
-      tok.text = strdup(",");
-      if (!tok.text) {
-        tokenizer_report_error(out_err,
-                               "Failed to allocate memory for comma token",
-                               line_number, token_col);
-        return false;
-      }
+      Token tok = {TOK_COMMA, TOKEN_TEXT_COMMA, 1, 0, line_number, token_col};
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
-        free((void *)tok.text);
         return false;
       }
       col++;
@@ -778,16 +780,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     // (for unary negation support)
     if (line[col] == '-') {
       size_t token_col = indent + col + 1;
-      Token tok = {TOK_MINUS, NULL, 1, 0, line_number, token_col};
-      tok.text = strdup("minus");
-      if (!tok.text) {
-        tokenizer_report_error(out_err,
-                               "Failed to allocate memory for minus token",
-                               line_number, token_col);
-        return false;
-      }
+      Token tok = {TOK_MINUS, TOKEN_TEXT_MINUS, 5, 0, line_number, token_col};
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
-        free((void *)tok.text);
         return false;
       }
       col++;
@@ -805,19 +799,10 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
   // Empty lines and comment-only lines don't get newline tokens to avoid
   // clutter
   if (len > 0 && !is_effectively_empty && !is_comment_only) {
-    char *newline_text = strdup("\n");
-    if (!newline_text) {
-      size_t token_col = indent + len + 1;
-      tokenizer_report_error(out_err,
-                             "Failed to allocate memory for newline token",
-                             line_number, token_col);
-      return false;
-    }
     // Newline is at the end of the line
     size_t token_col = indent + len + 1;
-    Token tok = {TOK_NEWLINE, newline_text, 1, 0, line_number, token_col};
+    Token tok = {TOK_NEWLINE, TOKEN_TEXT_NEWLINE, 1, 0, line_number, token_col};
     if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
-      free(newline_text);
       return false;
     }
   }
@@ -1058,7 +1043,10 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
 void token_free(Token *token) {
   if (!token)
     return;
-  free((char *)token->text);
+  // Only free heap-allocated text, not static constants
+  if (token->text && !is_static_token_text(token->text)) {
+    free((char *)token->text);
+  }
   token->text = NULL;
 }
 
@@ -1074,7 +1062,10 @@ void token_array_free(TokenArray *array) {
     return;
 
   for (size_t i = 0; i < array->count; i++) {
-    free((char *)array->tokens[i].text);
+    // Only free heap-allocated text, not static constants
+    if (array->tokens[i].text && !is_static_token_text(array->tokens[i].text)) {
+      free((char *)array->tokens[i].text);
+    }
   }
   free(array->tokens);
   free(array);
