@@ -409,11 +409,13 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
  * Reads a complete line from stdin, allocating a buffer that grows as needed.
  * The caller is responsible for freeing the returned buffer.
  *
+ * @param out_len Optional pointer to store the length of the line (excluding
+ * null terminator). If NULL, length is not returned.
  * @return Pointer to allocated buffer containing the line (without newline),
  *         or NULL on EOF or allocation failure. Empty lines return empty
  * string.
  */
-static char *read_line_dynamic(void) {
+static char *read_line_dynamic(size_t *out_len) {
   size_t capacity = 256;
   size_t len = 0;
   char *buffer = malloc(capacity);
@@ -443,6 +445,12 @@ static char *read_line_dynamic(void) {
   }
 
   buffer[len] = '\0';
+
+  // Return length if requested
+  if (out_len) {
+    *out_len = len;
+  }
+
   return buffer;
 }
 
@@ -476,8 +484,9 @@ static char *read_multiline_input(void) {
     }
     fflush(stdout);
 
-    // Read a line
-    char *line = read_line_dynamic();
+    // Read a line (get length to avoid calling strlen() again)
+    size_t line_len = 0;
+    char *line = read_line_dynamic(&line_len);
     if (!line) {
       // EOF - return what we have (might be empty)
       if (len == 0) {
@@ -495,8 +504,6 @@ static char *read_multiline_input(void) {
       free(buffer);
       return NULL; // Signal to exit REPL
     }
-
-    size_t line_len = strlen(line);
 
     // If we get an empty line after having content, that signals end of input
     if (line_len == 0 && len > 0) {
