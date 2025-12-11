@@ -64,7 +64,7 @@ Start the REPL:
 Run the comprehensive test suite:
 
 ```bash
-./run_tests.sh
+./scripts/run_tests.sh
 ```
 
 This runs 71 tests (42 passing, 29 error cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
@@ -75,7 +75,7 @@ This runs 71 tests (42 passing, 29 error cases) covering all implemented feature
 Get full IDE features (syntax highlighting, error checking, autocomplete):
 
 ```bash
-./install_extension.sh
+./scripts/install_extension.sh
 ```
 
 Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details.
