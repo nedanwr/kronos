@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 // Version information
@@ -486,8 +487,10 @@ static char *read_multiline_input(void) {
       break;
     }
 
-    // Check for exit command (only on first line)
-    if (len == 0 && strcmp(line, "exit") == 0) {
+    // Check for exit command (only on first line) - case-insensitive
+    // Support both "exit" and "quit" commands
+    if (len == 0 &&
+        (strcasecmp(line, "exit") == 0 || strcasecmp(line, "quit") == 0)) {
       free(line);
       free(buffer);
       return NULL; // Signal to exit REPL
@@ -558,7 +561,7 @@ static char *read_multiline_input(void) {
  * Type 'exit' to quit the REPL.
  */
 void kronos_repl(void) {
-  printf("Kronos REPL - Type 'exit' to quit (or Ctrl+C)\n");
+  printf("Kronos REPL - Type 'exit' or 'quit' to quit (or Ctrl+C)\n");
 
   KronosVM *vm = kronos_vm_new();
   if (!vm) {
