@@ -1,0 +1,58 @@
+# Test string function edge cases
+
+# split with empty string
+set parts1 to call split with "", ","
+print parts1
+# Expected: [""] or []
+
+# split with delimiter not found
+set parts2 to call split with "hello", "x"
+print parts2
+# Expected: ["hello"]
+
+# join with empty list
+set empty_list to list
+set joined1 to call join with empty_list, "-"
+print joined1
+# Expected: ""
+
+# join with single element
+set single_list to list "hello"
+set joined2 to call join with single_list, "-"
+print joined2
+# Expected: "hello"
+
+# replace with empty string
+set replaced1 to call replace with "hello", "", "x"
+print replaced1
+# Expected: "hello" (no replacement)
+
+# replace with pattern not found
+set replaced2 to call replace with "hello", "xyz", "world"
+print replaced2
+# Expected: "hello"
+
+# trim with only spaces
+set trimmed1 to call trim with "   "
+print trimmed1
+# Expected: ""
+
+# trim with newlines
+set trimmed2 to call trim with "\nhello\n"
+print trimmed2
+# Expected: "hello" (trim removes leading/trailing whitespace)
+
+# contains with empty substring
+set has_empty to call contains with "hello", ""
+print has_empty
+# Expected: true (empty string is contained in any string)
+
+# starts_with with empty string
+set starts_empty to call starts_with with "hello", ""
+print starts_empty
+# Expected: true
+
+# ends_with with empty string
+set ends_empty to call ends_with with "hello", ""
+print ends_empty
+# Expected: true

@@ -1,0 +1,46 @@
+# Test type conversion edge cases
+
+# to_number with string containing newline
+set num1 to call to_number with "123\n"
+print num1
+# Expected: 123
+
+# to_number with string containing carriage return
+set num2 to call to_number with "456\r"
+print num2
+# Expected: 456
+
+# to_number with string containing both newline and carriage return
+set num3 to call to_number with "789\r\n"
+print num3
+# Expected: 789
+
+# to_string with null
+set str1 to call to_string with null
+print str1
+# Expected: null
+
+# to_string with boolean true
+set str2 to call to_string with true
+print str2
+# Expected: true
+
+# to_string with boolean false
+set str3 to call to_string with false
+print str3
+# Expected: false
+
+# to_string with number (integer)
+set str4 to call to_string with 42
+print str4
+# Expected: 42
+
+# to_string with number (float)
+set str5 to call to_string with 3.14
+print str5
+# Expected: 3.14
+
+# to_string with already a string
+set str6 to call to_string with "hello"
+print str6
+# Expected: hello

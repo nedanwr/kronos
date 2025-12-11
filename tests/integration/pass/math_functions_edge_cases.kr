@@ -1,0 +1,71 @@
+# Test math function edge cases
+
+# abs with zero
+set abs_zero to call abs with 0
+print abs_zero
+# Expected: 0
+
+# abs with positive number
+set abs_pos to call abs with 42
+print abs_pos
+# Expected: 42
+
+# abs with negative number
+set abs_neg to call abs with -42
+print abs_neg
+# Expected: 42
+
+# round with .5 (should round up)
+set round_half to call round with 2.5
+print round_half
+# Expected: 3
+
+# round with negative number
+set round_neg to call round with -2.7
+print round_neg
+# Expected: -3
+
+# floor with negative number
+set floor_neg to call floor with -2.7
+print floor_neg
+# Expected: -3
+
+# ceil with negative number
+set ceil_neg to call ceil with -2.2
+print ceil_neg
+# Expected: -2
+
+# power with zero exponent
+set pow_zero_exp to call power with 5, 0
+print pow_zero_exp
+# Expected: 1
+
+# power with zero base
+set pow_zero_base to call power with 0, 5
+print pow_zero_base
+# Expected: 0
+
+# power with negative exponent
+set pow_neg_exp to call power with 2, -2
+print pow_neg_exp
+# Expected: 0.25
+
+# min with single argument
+set min_single to call min with 42
+print min_single
+# Expected: 42
+
+# max with single argument
+set max_single to call max with 42
+print max_single
+# Expected: 42
+
+# min with negative numbers
+set min_neg to call min with -5, -10, -3
+print min_neg
+# Expected: -10
+
+# max with negative numbers
+set max_neg to call max with -5, -10, -3
+print max_neg
+# Expected: -3

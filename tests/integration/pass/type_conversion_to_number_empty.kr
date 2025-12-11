@@ -1,0 +1,8 @@
+# Test to_number with empty string
+# Note: Current implementation returns 0.0 for empty string (strtod behavior)
+# This might be considered a bug - empty string should probably fail
+# Expected: 0 (current behavior) or Error (if bug is fixed)
+
+set num to call to_number with ""
+print num
+# Expected: 0 (current implementation behavior)
