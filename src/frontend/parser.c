@@ -857,6 +857,24 @@ static ASTNode *parse_value(Parser *p) {
         p, -1); // -1 indicates expression context (no newline required)
   }
 
+  // Handle parenthesized expressions: ( expression )
+  if (tok->type == TOK_LPAREN) {
+    Token *lparen_tok = consume_any(p); // consume '('
+    ASTNode *expr = parse_expression(p);
+    if (!expr) {
+      return NULL;
+    }
+    // Expect closing parenthesis
+    Token *rparen_tok = peek(p, 0);
+    if (!rparen_tok || rparen_tok->type != TOK_RPAREN) {
+      ast_node_free(expr);
+      parser_set_error(p, "Expected closing parenthesis ')'");
+      return NULL;
+    }
+    consume_any(p); // consume ')'
+    return expr;
+  }
+
   parser_set_error(p, "Unexpected token in value position");
   return NULL;
 }
@@ -1614,7 +1632,8 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
                  next->type == TOK_MINUS || next->type == TOK_NOT ||
                  next->type == TOK_TRUE || next->type == TOK_FALSE ||
                  next->type == TOK_NULL || next->type == TOK_UNDEFINED ||
-                 next->type == TOK_STRING || next->type == TOK_FSTRING)) {
+                 next->type == TOK_STRING || next->type == TOK_FSTRING ||
+                 next->type == TOK_LPAREN)) {
       consume_any(p); // consume MINUS
       // Parse the operand recursively to handle nested unary operators
       ASTNode *operand =
@@ -1661,6 +1680,11 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     // Peek at the next token to check if it's a binary operator
     Token *tok = peek(p, 0);
     if (!tok) {
+      break;
+    }
+
+    // Stop if we encounter a closing parenthesis (handled by caller)
+    if (tok->type == TOK_RPAREN) {
       break;
     }
 
@@ -1769,6 +1793,15 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
   }
 
   decrement_recursion_depth(p);
+
+  // Safety check: left should never be NULL at this point since we always
+  // parse a primary expression first. But if it is NULL, return NULL to
+  // avoid crashes.
+  if (!left) {
+    parser_set_error(p, "Internal error: expression parsing returned NULL");
+    return NULL;
+  }
+
   return left;
 }
 
