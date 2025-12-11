@@ -471,3 +471,20 @@ TEST(tokenize_invalid_string) {
   ASSERT_PTR_NOT_NULL(err);
   tokenize_error_free(err);
 }
+
+/**
+ * @brief Test error handling for unknown characters
+ *
+ * Verifies that the tokenizer correctly detects and reports errors
+ * when an unknown character (like @, #, $) is encountered.
+ */
+TEST(tokenize_unknown_character) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("@", &err);
+
+  // Tokenizer must return NULL and set error for unknown character
+  ASSERT_PTR_NULL(tokens);
+  ASSERT_PTR_NOT_NULL(err);
+  ASSERT_STR_EQ(err->message, "Unknown character encountered");
+  tokenize_error_free(err);
+}

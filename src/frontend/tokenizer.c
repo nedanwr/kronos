@@ -142,6 +142,10 @@ static TokenType match_keyword(const char *text, size_t len) {
   return TOK_NAME;
 }
 
+// Forward declaration
+static void tokenizer_report_error(TokenizeError **out_err, const char *message,
+                                   size_t line, size_t column);
+
 /**
  * @brief Tokenize a single line of source code
  *
@@ -159,7 +163,7 @@ static TokenType match_keyword(const char *text, size_t len) {
  * @return true on success, false on error (e.g., unterminated string)
  */
 static bool tokenize_line(TokenArray *arr, const char *line, int indent,
-                          size_t line_number) {
+                          size_t line_number, TokenizeError **out_err) {
   size_t len = strlen(line);
   size_t col = 0;
 
@@ -368,9 +372,11 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       continue;
     }
 
-    // Unknown character - skip it (allows graceful degradation)
-    // In a strict mode, this could be an error
-    col++;
+    // Unknown character - report error
+    size_t token_col = indent + col + 1;
+    tokenizer_report_error(out_err, "Unknown character encountered",
+                           line_number, token_col);
+    return false;
   }
 
   // Add newline token to mark end of line (if line had content)
@@ -546,9 +552,12 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err) {
       strncpy(line, content_start, content_len);
       line[content_len] = '\0';
 
-      if (!tokenize_line(arr, line, indent, line_number)) {
-        tokenizer_report_error(
-            out_err, "Failed to tokenize line (out of memory)", line_number, 1);
+      if (!tokenize_line(arr, line, indent, line_number, out_err)) {
+        if (!*out_err) {
+          tokenizer_report_error(out_err,
+                                 "Failed to tokenize line (out of memory)",
+                                 line_number, 1);
+        }
         free(line);
         token_array_free(arr);
         return NULL;
