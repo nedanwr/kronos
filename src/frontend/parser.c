@@ -3630,6 +3630,7 @@ void ast_node_free(ASTNode *node) {
   case AST_STRING:
     free(node->as.string.value);
     break;
+  case AST_NUMBER:
   case AST_BOOL:
   case AST_NULL:
     // No allocated memory
