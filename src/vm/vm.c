@@ -4606,6 +4606,37 @@ static int handle_op_call_func(KronosVM *vm) {
     frame->local_hash[i] = NULL;
   }
 
+  // Validate stack has enough arguments before popping
+  // Check both stack size and that stack_top is valid
+  if (vm->stack_top < vm->stack) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Stack pointer corruption: stack_top (%p) < stack (%p)",
+                     (void *)vm->stack_top, (void *)vm->stack);
+  }
+
+  size_t stack_size = vm->stack_top - vm->stack;
+
+  if (stack_size < arg_count) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Stack underflow: function '%s' expects %d argument%s, but "
+        "only %zu value%s on stack",
+        func_name, arg_count, arg_count == 1 ? "" : "s", stack_size,
+        stack_size == 1 ? "" : "s");
+  }
+
   // Pop arguments and bind to parameters (in reverse order)
   KronosValue **args =
       arg_count > 0 ? malloc(sizeof(KronosValue *) * arg_count) : NULL;
@@ -4613,10 +4644,34 @@ static int handle_op_call_func(KronosVM *vm) {
     // Allocation failure: restore VM state and abort call setup
     // Decrement call stack size to undo the increment above
     vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Failed to allocate argument buffer");
   }
   for (int i = arg_count - 1; i >= 0; i--) {
+    // Double-check stack before each pop
+    if (vm->stack_top <= vm->stack) {
+      // Free already-popped arguments
+      for (size_t j = i + 1; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      vm->call_stack_size--;
+      if (vm->call_stack_size > 0) {
+        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+      } else {
+        vm->current_frame = NULL;
+      }
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Stack underflow during pop: function '%s', "
+                       "expected %d args, popped %d, stack_size=%zu",
+                       func_name, arg_count, (int)(arg_count - i - 1),
+                       (size_t)(vm->stack_top - vm->stack));
+    }
     args[i] = pop(vm);
     if (!args[i]) {
       // Free already-popped arguments
@@ -4624,6 +4679,12 @@ static int handle_op_call_func(KronosVM *vm) {
         value_release(args[j]);
       }
       free(args);
+      vm->call_stack_size--;
+      if (vm->call_stack_size > 0) {
+        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+      } else {
+        vm->current_frame = NULL;
+      }
       return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
     }
   }
@@ -5872,15 +5933,21 @@ static int handle_op_define_func(KronosVM *vm) {
   }
 
   // Calculate body end: offset is relative to position 2 bytes before current
-  // ip (the position after the OP_JUMP byte and before the offset bytes) So:
-  // body_end = (ip - 2) + offset = ip + (offset - 2) But since offset already
-  // accounts for the 2 bytes, we can use: body_end = ip + offset - 2 However,
-  // the compiler calculates offset as: func_end - (skip_body_pos + 2) where
-  // skip_body_pos is the position of OP_JUMP. After reading OP_JUMP and offset,
-  // ip points to skip_body_pos + 3. The offset tells us: from (skip_body_pos +
-  // 2), skip forward by offset bytes. So: body_end = (skip_body_pos + 2) +
-  // offset = (ip - 1) + offset
-  uint8_t *body_end_ptr = vm->ip - 1 + skip_offset;
+  // ip (the position after the OP_JUMP byte and before the offset bytes).
+  // The compiler calculates offset as: func_end - (skip_body_pos + 2)
+  // where skip_body_pos is the position of OP_JUMP.
+  // After reading OP_JUMP (1 byte) and offset (2 bytes), vm->ip points to
+  // skip_body_pos + 3, which is the start of the function body.
+  // The offset tells us: from position (skip_body_pos + 2), skip forward by
+  // offset bytes to reach func_end. So: func_end = (skip_body_pos + 2) + offset
+  // In VM terms: func_end = (vm->ip - 1) + offset
+  //
+  // IMPORTANT: func_end points to the position AFTER the last byte of the
+  // function body (after OP_RETURN_VAL), so body_end_ptr should also point
+  // after the function body. The calculation (ip - 1) + offset gives us
+  // func_end, but func_end points TO OP_RETURN_VAL, not after it. We need to
+  // add 1 to skip past the OP_RETURN_VAL instruction.
+  uint8_t *body_end_ptr = vm->ip - 1 + skip_offset + 1;
 
   // Validate that body_end_ptr is within valid bytecode bounds
   if (body_end_ptr < vm->bytecode->code ||
