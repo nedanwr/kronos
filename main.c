@@ -209,7 +209,11 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
   vm_clear_error(vm);
 
   // Set current file path for relative imports
-  free(vm->current_file_path);
+  // Free previous path if it exists (safe to free NULL, but check for clarity)
+  if (vm->current_file_path) {
+    free(vm->current_file_path);
+    vm->current_file_path = NULL;
+  }
   vm->current_file_path = strdup(filepath);
   if (!vm->current_file_path) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to set current file path");
