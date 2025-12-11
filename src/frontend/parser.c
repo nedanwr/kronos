@@ -785,7 +785,7 @@ static ASTNode *parse_list_literal(Parser *p) {
     // Empty list
     ASTNode *node = ast_node_new_checked(AST_LIST);
     if (!node) {
-      free(elements);
+      list_cleanup_elements(elements, element_count);
       return NULL;
     }
     node->as.list.elements = elements;
@@ -796,7 +796,7 @@ static ASTNode *parse_list_literal(Parser *p) {
   // Parse first element
   ASTNode *first = parse_expression(p);
   if (!first) {
-    free(elements);
+    list_cleanup_elements(elements, element_count);
     return NULL;
   }
   elements[element_count++] = first;
@@ -988,10 +988,7 @@ static ASTNode *parse_map_literal(Parser *p) {
   keys = malloc(sizeof(ASTNode *) * entry_capacity);
   values = malloc(sizeof(ASTNode *) * entry_capacity);
   if (!keys || !values) {
-    if (keys)
-      free(keys);
-    if (values)
-      free(values);
+    map_cleanup_entries(keys, values, entry_count);
     fprintf(stderr, "Failed to allocate memory for map entries\n");
     return NULL;
   }
@@ -1005,8 +1002,7 @@ static ASTNode *parse_map_literal(Parser *p) {
     // Empty map
     ASTNode *node = ast_node_new_checked(AST_MAP);
     if (!node) {
-      free(keys);
-      free(values);
+      map_cleanup_entries(keys, values, entry_count);
       return NULL;
     }
     node->as.map.keys = keys;
@@ -1018,24 +1014,21 @@ static ASTNode *parse_map_literal(Parser *p) {
   // Parse first entry
   ASTNode *key = map_parse_key(p);
   if (!key) {
-    free(keys);
-    free(values);
+    map_cleanup_entries(keys, values, entry_count);
     return NULL;
   }
 
   // Expect colon
   if (!consume(p, TOK_COLON)) {
     ast_node_free(key);
-    free(keys);
-    free(values);
+    map_cleanup_entries(keys, values, entry_count);
     return NULL;
   }
 
   ASTNode *value = parse_expression(p);
   if (!value) {
     ast_node_free(key);
-    free(keys);
-    free(values);
+    map_cleanup_entries(keys, values, entry_count);
     return NULL;
   }
 
