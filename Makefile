@@ -52,7 +52,7 @@ src/frontend/keywords_hash.c: src/frontend/keywords.gperf
 	@# Fix empty string entries in generated file
 	@python3 -c "import re; content = open('$@').read(); content = re.sub(r'\{\s*\"\"\s*\}', '{NULL, 0}', content); open('$@', 'w').write(content)"
 	@# Remove inline keywords and related preprocessor directives that can cause linking issues
-	@python3 -c "lines=open('$@').readlines(); result=[]; skip=False; [result.append(l) if not (skip or '#ifdef __GNUC__' in l or '__inline' in l or (l.strip()=='inline' and i>0 and ('#else' in lines[i-1] or '#ifdef __cplusplus' in lines[i-1]))) else (skip:=True) if '#ifdef __GNUC__' in l else (skip:=False) if skip and '#endif' in l else None for i,l in enumerate(lines)]; open('$@','w').write(''.join(result))"
+	@python3 scripts/fix_keywords_hash.py $@
 	@# Fix struct definition and function signature
 	@# Fix function signatures (old-style to modern C)
 	@# Cross-platform sed: macOS needs -i '', Linux needs -i
