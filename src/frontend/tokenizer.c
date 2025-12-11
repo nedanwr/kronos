@@ -150,8 +150,8 @@ static const char *token_type_names[] = {
     "IS",      "EQUAL",    "NOT",     "GREATER",  "LESS",  "THAN",
     "AND",     "OR",       "PRINT",   "PLUS",     "MINUS", "TIMES",
     "DIVIDED", "BY",       "MOD",     "DELETE",   "TRY",   "CATCH",
-    "FINALLY", "RAISE",    "NAME",    "COLON",    "COMMA", "NEWLINE",
-    "INDENT",  "EOF"};
+    "FINALLY", "RAISE",    "NAME",    "COLON",    "COMMA", "LPAREN",
+    "RPAREN",  "NEWLINE",  "INDENT",  "EOF"};
 
 // Compile-time check to ensure array matches enum count
 // This will cause a compilation error if they don't match
@@ -168,6 +168,8 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
 static const char TOKEN_TEXT_COLON[] = ":";
 static const char TOKEN_TEXT_COMMA[] = ",";
 static const char TOKEN_TEXT_MINUS[] = "minus";
+static const char TOKEN_TEXT_LPAREN[] = "(";
+static const char TOKEN_TEXT_RPAREN[] = ")";
 static const char TOKEN_TEXT_NEWLINE[] = "\n";
 
 // Token array initial capacity - starts small and grows as needed
@@ -181,7 +183,8 @@ static const char TOKEN_TEXT_NEWLINE[] = "\n";
  */
 static bool is_static_token_text(const char *text) {
   return text == TOKEN_TEXT_COLON || text == TOKEN_TEXT_COMMA ||
-         text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE;
+         text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE ||
+         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN;
 }
 
 /**
@@ -707,6 +710,27 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       continue;
     }
 
+    // Handle parentheses for expression grouping
+    if (line[col] == '(') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_LPAREN, TOKEN_TEXT_LPAREN, 1, 0, line_number, token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == ')') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_RPAREN, TOKEN_TEXT_RPAREN, 1, 0, line_number, token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
     // Unknown character - report error
     size_t token_col = indent + col + 1;
     tokenizer_report_error(out_err, "Unknown character encountered",
@@ -882,6 +906,13 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
           tokenizer_report_error(
               out_err, "Failed to allocate memory while tokenizing line",
               line_number, 1);
+        } else if (!out_err) {
+          // out_err is NULL, cannot report error - this is a memory allocation
+          // failure that cannot be communicated to caller
+          // Free resources and return NULL
+          token_array_free(arr);
+          free(line);
+          return NULL;
         }
         free(line);
         token_array_free(arr);
@@ -927,9 +958,15 @@ TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
   size_t eof_line = line_number > 1 ? line_number - 1 : 1;
   Token eof = {TOK_EOF, NULL, 0, 0, eof_line, 1};
   if (!token_array_add(arr, eof, out_err, eof_line, 1)) {
-    if (!*out_err) {
+    if (out_err && !*out_err) {
       tokenizer_report_error(out_err, "Failed to allocate memory for EOF token",
                              eof_line, 1);
+    } else if (!out_err) {
+      // out_err is NULL, cannot report error - this is a memory allocation
+      // failure that cannot be communicated to caller
+      // Free resources and return NULL
+      token_array_free(arr);
+      return NULL;
     }
     token_array_free(arr);
     return NULL;

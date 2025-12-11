@@ -62,6 +62,8 @@ typedef enum {
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,
+  TOK_LPAREN,
+  TOK_RPAREN,
   TOK_NEWLINE,
   TOK_INDENT,
   TOK_EOF,
