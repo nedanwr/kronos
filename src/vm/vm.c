@@ -530,6 +530,7 @@ static bool handle_exception_if_any(KronosVM *vm) {
   size_t idx = vm->exception_handler_count - 1;
 
   // Jump to the exception handler (catch or finally)
+  // The handler_ip points to the first OP_CATCH instruction
   vm->ip = vm->exception_handlers[idx].handler_ip;
 
   return true; // Exception handled, continue execution from handler
@@ -5524,6 +5525,10 @@ static int handle_op_list_next(KronosVM *vm) {
 }
 
 static int handle_op_try_enter(KronosVM *vm) {
+  // Save the IP before reading the offset bytes
+  // vm->ip currently points to the first offset byte (try_start_pos)
+  uint8_t *try_start_pos = vm->ip;
+
   // Read exception handler offset
   uint8_t high = read_byte(vm);
   if (vm->last_error_message) {
@@ -5540,7 +5545,11 @@ static int handle_op_try_enter(KronosVM *vm) {
   }
 
   // Validate handler offset is within bytecode bounds
-  uint8_t *handler_ip = vm->ip + handler_offset;
+  // The compiler calculates: handler_offset = exception_handler_pos -
+  // (try_start_pos + 2) So exception_handler_pos = try_start_pos + 2 +
+  // handler_offset try_start_pos points to the first offset byte (after
+  // OP_TRY_ENTER)
+  uint8_t *handler_ip = try_start_pos + 2 + handler_offset;
   if (handler_ip < vm->bytecode->code ||
       handler_ip >= vm->bytecode->code + vm->bytecode->count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -5593,16 +5602,44 @@ static int handle_op_try_exit(KronosVM *vm) {
 
 static int handle_op_catch(KronosVM *vm) {
   // Read error type constant (0xFFFF means catch all)
+  // Save the current error state - we're handling an exception, so errors from
+  // OP_THROW are expected and shouldn't prevent reading operands
+  bool had_error = (vm->last_error_code != KRONOS_OK);
+  char *saved_error_msg =
+      vm->last_error_message ? strdup(vm->last_error_message) : NULL;
+  KronosErrorCode saved_error_code = vm->last_error_code;
+  char *saved_error_type =
+      vm->last_error_type ? strdup(vm->last_error_type) : NULL;
+
+  // Temporarily clear error to allow reading operands
+  vm_clear_error(vm);
+
   uint16_t error_type_idx = read_uint16(vm);
-  // Check for error from read_uint16
+  // Check for error from read_uint16 (shouldn't happen now)
   if (vm->last_error_message) {
+    free(saved_error_msg);
+    free(saved_error_type);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
   // Read catch variable name constant (0xFFFF means no variable)
   uint16_t catch_var_idx = read_uint16(vm);
-  // Check for error from read_uint16
+  // Check for error from read_uint16 (shouldn't happen now)
   if (vm->last_error_message) {
+    free(saved_error_msg);
+    free(saved_error_type);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Restore error state if we had one
+  if (had_error) {
+    free(vm->last_error_message);
+    free(vm->last_error_type);
+    vm->last_error_message = saved_error_msg;
+    vm->last_error_code = saved_error_code;
+    vm->last_error_type = saved_error_type;
+  } else {
+    free(saved_error_msg);
+    free(saved_error_type);
   }
   (void)catch_var_idx; // Will be used by OP_STORE_VAR following this
                        // instruction
@@ -5654,6 +5691,8 @@ static int handle_op_catch(KronosVM *vm) {
 
       // Clear error - exception is now handled
       vm_clear_error(vm);
+      // Note: handling_exception flag will be reset in the main loop after
+      // OP_CATCH returns
     }
     // If not matched, continue to next OP_CATCH or fall through to finally
   }
@@ -5709,8 +5748,7 @@ static int handle_op_throw(KronosVM *vm) {
   vm_set_error_with_type(vm, KRONOS_ERR_RUNTIME, type_name, message);
   value_release(message_val);
 
-  // Return 0 to continue loop - exception handling code at start of loop will
-  // handle it
+  // Return 0 to continue loop - exception handling code will handle it
   return 0;
 }
 
@@ -6236,21 +6274,34 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       if (handle_exception_if_any(vm)) {
         // We're now handling the exception - set flag to allow OP_CATCH to run
         handling_exception = true;
-        continue;
+        continue; // Jump to handler, next iteration will execute OP_CATCH
       } else {
         // No handler - propagate the error and stop execution
         return vm_propagate_error(vm, vm->last_error_code);
       }
     }
-    handling_exception = false; // Reset for next iteration
+    // Reset handling_exception after we've executed an instruction
+    // This allows OP_CATCH to check for errors and match them
+    if (handling_exception) {
+      // We're in exception handling mode - don't reset yet, let OP_CATCH handle
+      // it Reset will happen after OP_CATCH clears the error
+    } else {
+      // Normal execution - reset flag (redundant but safe)
+      handling_exception = false;
+    }
 
     uint8_t instruction = read_byte(vm);
 
     // Check for error state after read_byte (it may return OP_HALT on error)
     // If read_byte() encountered an error, it sets vm->last_error_message
-    if (vm->last_error_message) {
+    // However, if we're handling an exception (handling_exception is true),
+    // the error from OP_THROW is expected and we should continue to execute
+    // OP_CATCH
+    if (vm->last_error_message && !handling_exception) {
       return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
     }
+    // If handling_exception is true, vm->last_error_message is from OP_THROW
+    // and we should continue to execute OP_CATCH to handle it
 
     // Dispatch to handler function using dispatch table
     // The dispatch table uses designated initializers, so its size is
@@ -6269,9 +6320,22 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       return result;
     }
 
-    // Check if handler set an error but returned 0 (shouldn't happen, but
-    // safety check)
+    // Check if handler set an error but returned 0 (e.g., OP_THROW)
+    // If an exception handler exists, handle it immediately. Otherwise,
+    // propagate the error.
     if (vm->last_error_message) {
+      // Check if there's an exception handler that can catch this error
+      if (vm->exception_handler_count > 0 && !handling_exception) {
+        // Exception handler exists - jump to the catch handler immediately
+        if (handle_exception_if_any(vm)) {
+          // We've jumped to the handler - set flag so exception check at loop
+          // start doesn't jump again, but allow OP_CATCH to execute
+          handling_exception = true;
+          continue; // Go to loop start, but exception check will be skipped
+        }
+      }
+      // No exception handler or already handling - propagate the error and stop
+      // execution
       return vm_propagate_error(vm, vm->last_error_code);
     }
 
