@@ -322,9 +322,10 @@ void parse_error_free(ParseError *err) {
  *
  * Returns a token at the specified offset from the current parser position
  * without advancing the parser. Supports both positive (forward) and negative
- * (backward) offsets.
+ * (backward) offsets. This function only reads from parser state and does not
+ * modify it, so it takes a const pointer.
  *
- * @param p Parser state
+ * @param p Parser state (const, as this function only reads)
  * @param offset Offset from current position:
  *               - Positive: look ahead (e.g., 0 = current, 1 = next)
  *               - Negative: look behind (e.g., -1 = previous token)
@@ -334,7 +335,7 @@ void parse_error_free(ParseError *err) {
  *         - Parser is at end of input
  *         - Negative offset would underflow (looking too far back)
  */
-static Token *peek(Parser *p, int offset) {
+static Token *peek(const Parser *p, int offset) {
   // Handle negative offsets to prevent unsigned underflow
   if (offset < 0) {
     // For negative offsets, check if p->pos is large enough
