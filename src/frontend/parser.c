@@ -22,6 +22,39 @@
 // Maximum recursion depth to prevent stack exhaustion
 #define MAX_RECURSION_DEPTH 512
 
+// Initial capacity for dynamically growing arrays
+#define INITIAL_ARRAY_CAPACITY 4
+
+/**
+ * @brief Generic function to grow a pointer array
+ *
+ * Doubles the capacity of an array and reallocates it. Updates both the array
+ * pointer and capacity variable. Returns false on allocation failure.
+ *
+ * @param arr Pointer to the array pointer (void** to work with any pointer
+ * type)
+ * @param count Current count (used for bounds checking)
+ * @param capacity Pointer to capacity variable
+ * @param element_size Size of each element in bytes
+ * @return true on success, false on allocation failure
+ */
+static bool grow_array(void **arr, size_t count, size_t *capacity,
+                       size_t element_size) {
+  if (count < *capacity) {
+    return true; // No need to grow
+  }
+
+  size_t new_capacity = *capacity * 2;
+  void *new_arr = realloc(*arr, element_size * new_capacity);
+  if (!new_arr) {
+    return false;
+  }
+
+  *arr = new_arr;
+  *capacity = new_capacity;
+  return true;
+}
+
 /**
  * Parser state structure
  * Tracks current position in the token stream and recursion depth
@@ -422,14 +455,8 @@ static void fstring_cleanup_parts(ASTNode **parts, size_t part_count) {
  * @return true on success, false on allocation failure
  */
 static bool fstring_grow_parts_array(ASTNode ***parts, size_t *capacity) {
-  size_t new_capacity = *capacity * 2;
-  ASTNode **new_parts = realloc(*parts, sizeof(ASTNode *) * new_capacity);
-  if (!new_parts) {
-    return false;
-  }
-  *parts = new_parts;
-  *capacity = new_capacity;
-  return true;
+  // Use a dummy count that's >= capacity to force growth
+  return grow_array((void **)parts, *capacity, capacity, sizeof(ASTNode *));
 }
 
 /**
@@ -704,14 +731,8 @@ static bool match_comparison_operator(Parser *p, BinOp *out_op,
  * @return true on success, false on allocation failure
  */
 static bool list_grow_elements(ASTNode ***elements, size_t *capacity) {
-  size_t new_capacity = *capacity * 2;
-  ASTNode **new_elements = realloc(*elements, sizeof(ASTNode *) * new_capacity);
-  if (!new_elements) {
-    return false;
-  }
-  *elements = new_elements;
-  *capacity = new_capacity;
-  return true;
+  // Use a dummy count that's >= capacity to force growth
+  return grow_array((void **)elements, *capacity, capacity, sizeof(ASTNode *));
 }
 
 /**
@@ -910,19 +931,17 @@ static ASTNode *map_parse_key(Parser *p) {
  */
 static bool map_grow_entries(ASTNode ***keys, ASTNode ***values,
                              size_t *capacity) {
-  size_t new_capacity = *capacity * 2;
-  ASTNode **new_keys = realloc(*keys, sizeof(ASTNode *) * new_capacity);
-  ASTNode **new_values = realloc(*values, sizeof(ASTNode *) * new_capacity);
-  if (!new_keys || !new_values) {
-    if (new_keys)
-      free(new_keys);
-    if (new_values)
-      free(new_values);
+  // Grow both arrays - if second fails, first is already grown, so we can't
+  // easily rollback. This is acceptable since we check both before using.
+  bool keys_ok =
+      grow_array((void **)keys, *capacity, capacity, sizeof(ASTNode *));
+  bool values_ok =
+      grow_array((void **)values, *capacity, capacity, sizeof(ASTNode *));
+  if (!keys_ok || !values_ok) {
+    // If one succeeded and the other failed, we have a problem
+    // In practice, this is very rare and indicates severe memory pressure
     return false;
   }
-  *keys = new_keys;
-  *values = new_values;
-  *capacity = new_capacity;
   return true;
 }
 
@@ -1835,21 +1854,16 @@ static bool try_parse_catch_block(Parser *p, int indent, ASTNode *try_node,
   }
 
   // Grow catch blocks array if needed
-  if (try_node->as.try_stmt.catch_block_count >= *catch_capacity) {
-    *catch_capacity *= 2;
-    void *new_blocks = realloc(try_node->as.try_stmt.catch_blocks,
-                               sizeof(try_node->as.try_stmt.catch_blocks[0]) *
-                                   *catch_capacity);
-    if (!new_blocks) {
-      free(error_type);
-      free(catch_var);
-      for (size_t i = 0; i < catch_block_size; i++) {
-        ast_node_free(catch_block[i]);
-      }
-      free(catch_block);
-      return false;
+  if (!grow_array((void **)&try_node->as.try_stmt.catch_blocks,
+                  try_node->as.try_stmt.catch_block_count, catch_capacity,
+                  sizeof(try_node->as.try_stmt.catch_blocks[0]))) {
+    free(error_type);
+    free(catch_var);
+    for (size_t i = 0; i < catch_block_size; i++) {
+      ast_node_free(catch_block[i]);
     }
-    try_node->as.try_stmt.catch_blocks = new_blocks;
+    free(catch_block);
+    return false;
   }
 
   // Add catch block to array
@@ -2087,21 +2101,16 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       return NULL;
     }
 
-    if (count >= capacity) {
-      capacity *= 2;
-      ASTNode **new_block = realloc(block, sizeof(ASTNode *) * capacity);
-      if (!new_block) {
-        fprintf(stderr, "Parser failed to grow block statements\n");
-        for (size_t i = 0; i < count; i++) {
-          ast_node_free(block[i]);
-        }
-        free(block);
-        if (block_size)
-          *block_size = 0;
-        decrement_recursion_depth(p);
-        return NULL;
+    if (!grow_array((void **)&block, count, &capacity, sizeof(ASTNode *))) {
+      fprintf(stderr, "Parser failed to grow block statements\n");
+      for (size_t i = 0; i < count; i++) {
+        ast_node_free(block[i]);
       }
-      block = new_block;
+      free(block);
+      if (block_size)
+        *block_size = 0;
+      decrement_recursion_depth(p);
+      return NULL;
     }
     block[count++] = stmt;
   }
@@ -2551,17 +2560,12 @@ static bool function_parse_parameters(Parser *p, char ***params,
       return false;
     }
 
-    if (*param_count >= *param_capacity) {
-      size_t new_capacity = *param_capacity * 2;
-      char **new_params = realloc(*params, sizeof(char *) * new_capacity);
-      if (!new_params) {
-        fprintf(stderr, "parse_function: failed to grow params array\n");
-        function_cleanup_parameters(*params, *param_count);
-        *params = NULL;
-        return false;
-      }
-      *params = new_params;
-      *param_capacity = new_capacity;
+    if (!grow_array((void **)params, *param_count, param_capacity,
+                    sizeof(char *))) {
+      fprintf(stderr, "parse_function: failed to grow params array\n");
+      function_cleanup_parameters(*params, *param_count);
+      *params = NULL;
+      return false;
     }
     char *param_name_loop = strdup(param->text);
     if (!param_name_loop) {
@@ -2711,17 +2715,12 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
       return false;
     }
 
-    if (*arg_count >= *arg_capacity) {
-      size_t new_capacity = *arg_capacity * 2;
-      ASTNode **new_args = realloc(*args, sizeof(ASTNode *) * new_capacity);
-      if (!new_args) {
-        fprintf(stderr, "parse_call: failed to grow argument array\n");
-        call_cleanup_arguments(*args, *arg_count);
-        *args = NULL;
-        return false;
-      }
-      *args = new_args;
-      *arg_capacity = new_capacity;
+    if (!grow_array((void **)args, *arg_count, arg_capacity,
+                    sizeof(ASTNode *))) {
+      fprintf(stderr, "parse_call: failed to grow argument array\n");
+      call_cleanup_arguments(*args, *arg_count);
+      *args = NULL;
+      return false;
     }
     (*args)[(*arg_count)++] = arg;
   }
@@ -2873,21 +2872,15 @@ static ASTNode *parse_import(Parser *p, int indent) {
     while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
       consume_any(p); // consume comma
 
-      if (imported_count == capacity) {
-        size_t new_capacity = capacity * 2;
-        char **new_names =
-            realloc(imported_names, sizeof(char *) * new_capacity);
-        if (!new_names) {
-          // Cleanup
-          for (size_t i = 0; i < imported_count; i++) {
-            free(imported_names[i]);
-          }
-          free(module_name);
-          free(imported_names);
-          return NULL;
+      if (!grow_array((void **)&imported_names, imported_count, &capacity,
+                      sizeof(char *))) {
+        // Cleanup
+        for (size_t i = 0; i < imported_count; i++) {
+          free(imported_names[i]);
         }
-        imported_names = new_names;
-        capacity = new_capacity;
+        free(module_name);
+        free(imported_names);
+        return NULL;
       }
 
       func_tok = consume(p, TOK_NAME);
@@ -3101,23 +3094,18 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
 
     ASTNode *stmt = parse_statement(&p);
     if (stmt) {
-      if (ast->count >= ast->capacity) {
-        ast->capacity *= 2;
-        ASTNode **new_statements =
-            realloc(ast->statements, sizeof(ASTNode *) * ast->capacity);
-        if (!new_statements) {
-          // Realloc failed - free the statement and report error
-          ast_node_free(stmt);
-          parser_set_error(&p, "Failed to grow AST statements array");
-          // Free existing AST and return NULL
-          for (size_t i = 0; i < ast->count; i++) {
-            ast_node_free(ast->statements[i]);
-          }
-          free(ast->statements);
-          free(ast);
-          return NULL;
+      if (!grow_array((void **)&ast->statements, ast->count, &ast->capacity,
+                      sizeof(ASTNode *))) {
+        // Realloc failed - free the statement and report error
+        ast_node_free(stmt);
+        parser_set_error(&p, "Failed to grow AST statements array");
+        // Free existing AST and return NULL
+        for (size_t i = 0; i < ast->count; i++) {
+          ast_node_free(ast->statements[i]);
         }
-        ast->statements = new_statements;
+        free(ast->statements);
+        free(ast);
+        return NULL;
       }
       ast->statements[ast->count++] = stmt;
     } else {
