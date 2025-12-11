@@ -767,7 +767,7 @@ static ASTNode *parse_list_literal(Parser *p) {
 
   ASTNode **elements = NULL;
   size_t element_count = 0;
-  size_t element_capacity = 4;
+  size_t element_capacity = INITIAL_ARRAY_CAPACITY;
 
   elements = malloc(sizeof(ASTNode *) * element_capacity);
   if (!elements) {
@@ -983,7 +983,7 @@ static ASTNode *parse_map_literal(Parser *p) {
   ASTNode **keys = NULL;
   ASTNode **values = NULL;
   size_t entry_count = 0;
-  size_t entry_capacity = 4;
+  size_t entry_capacity = INITIAL_ARRAY_CAPACITY;
 
   keys = malloc(sizeof(ASTNode *) * entry_capacity);
   values = malloc(sizeof(ASTNode *) * entry_capacity);
@@ -1109,7 +1109,7 @@ static ASTNode *parse_fstring(Parser *p) {
   size_t content_len = tok->length;
 
   // Allocate parts array (alternating: string, expr, string, expr, ...)
-  size_t part_capacity = 4;
+  size_t part_capacity = INITIAL_ARRAY_CAPACITY;
   size_t part_count = 0;
   ASTNode **parts = malloc(sizeof(ASTNode *) * part_capacity);
   if (!parts) {
@@ -1947,7 +1947,7 @@ static ASTNode *parse_try(Parser *p, int indent) {
   node->as.try_stmt.finally_block = NULL;
   node->as.try_stmt.finally_block_size = 0;
 
-  size_t catch_capacity = 4;
+  size_t catch_capacity = INITIAL_ARRAY_CAPACITY;
   node->as.try_stmt.catch_blocks =
       malloc(sizeof(node->as.try_stmt.catch_blocks[0]) * catch_capacity);
   if (!node->as.try_stmt.catch_blocks) {
@@ -2033,7 +2033,8 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
   if (block_size)
     *block_size = 0;
 
-  size_t capacity = 8;
+  size_t capacity =
+      INITIAL_ARRAY_CAPACITY * 2; // Larger initial capacity for blocks
   size_t count = 0;
   ASTNode **block = malloc(sizeof(ASTNode *) * capacity);
   if (!block) {
@@ -2529,7 +2530,7 @@ static bool function_parse_parameters(Parser *p, char ***params,
 
   consume_any(p);
 
-  *param_capacity = 4;
+  *param_capacity = INITIAL_ARRAY_CAPACITY;
   *param_count = 0;
   *params = malloc(sizeof(char *) * *param_capacity);
   if (!*params) {
@@ -2690,7 +2691,7 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
 
   consume_any(p);
 
-  *arg_capacity = 4;
+  *arg_capacity = INITIAL_ARRAY_CAPACITY;
   *arg_count = 0;
   *args = malloc(sizeof(ASTNode *) * *arg_capacity);
   if (!*args) {
@@ -2847,7 +2848,7 @@ static ASTNode *parse_import(Parser *p, int indent) {
     }
 
     // Parse function names to import
-    size_t capacity = 4;
+    size_t capacity = INITIAL_ARRAY_CAPACITY;
     imported_names = malloc(sizeof(char *) * capacity);
     if (!imported_names) {
       free(module_name);
@@ -3072,7 +3073,7 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
   if (!ast)
     return NULL;
 
-  ast->capacity = 16;
+  ast->capacity = INITIAL_ARRAY_CAPACITY * 4; // Larger initial capacity for AST
   ast->count = 0;
   ast->statements = malloc(sizeof(ASTNode *) * ast->capacity);
   if (!ast->statements) {
