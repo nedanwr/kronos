@@ -33,7 +33,7 @@ jobs:
         run: make clean && make
 
       - name: Run tests
-        run: ./run_tests.sh
+        run: ./scripts/run_tests.sh
 
       - name: Package binary
         run: |
