@@ -871,8 +871,8 @@ bool value_is_truthy(KronosValue *val) {
  * @return true if values are equal, false otherwise
  */
 static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
-                                   KronosValue **visited_a,
-                                   KronosValue **visited_b,
+                                   KronosValue ***visited_a,
+                                   KronosValue ***visited_b,
                                    size_t *visited_count,
                                    size_t *visited_capacity) {
   if (a == b)
@@ -890,7 +890,7 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
 
   // Check for cycles (simple linear search - acceptable for limited depth)
   for (size_t i = 0; i < *visited_count; i++) {
-    if (visited_a[i] == a && visited_b[i] == b) {
+    if ((*visited_a)[i] == a && (*visited_b)[i] == b) {
       // Same pair already being compared - cycle detected, consider equal
       return true;
     }
@@ -901,18 +901,18 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
     size_t new_capacity =
         (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
     KronosValue **new_visited_a =
-        realloc(visited_a, new_capacity * sizeof(KronosValue *));
+        realloc(*visited_a, new_capacity * sizeof(KronosValue *));
     KronosValue **new_visited_b =
-        realloc(visited_b, new_capacity * sizeof(KronosValue *));
+        realloc(*visited_b, new_capacity * sizeof(KronosValue *));
     if (new_visited_a && new_visited_b) {
-      visited_a = new_visited_a;
-      visited_b = new_visited_b;
+      *visited_a = new_visited_a;
+      *visited_b = new_visited_b;
       *visited_capacity = new_capacity;
     }
   }
   if (*visited_count < *visited_capacity) {
-    visited_a[*visited_count] = a;
-    visited_b[*visited_count] = b;
+    (*visited_a)[*visited_count] = a;
+    (*visited_b)[*visited_count] = b;
     (*visited_count)++;
   }
 
@@ -1001,7 +1001,7 @@ bool value_equals(KronosValue *a, KronosValue *b) {
   size_t visited_count = 0;
   size_t visited_capacity = 0;
 
-  bool result = value_equals_recursive(a, b, 0, visited_a, visited_b,
+  bool result = value_equals_recursive(a, b, 0, &visited_a, &visited_b,
                                        &visited_count, &visited_capacity);
 
   free(visited_a);
