@@ -139,14 +139,14 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Workspace symbols
   - ✅ Code lens
 
-- 📋 **REPL Expression Statements** - Python-like interactive shell (planned)
+- ✅ **REPL Expression Statements** - Python-like interactive shell (completed)
 
-  - Allow expressions to be used as statements in the REPL
-  - Automatically print expression results (like Python's interactive shell)
-  - Support for evaluating expressions like `10 plus 20` directly in the REPL
-  - Example: Running `./kronos` and typing `42` or `10 plus 20` will print the result
-  - Command-line execution flag: `./kronos -e "print 42"` to execute code without entering REPL
-  - Support multiple `-e` flags: `./kronos -e "set x to 10" -e "print x"`
+  - ✅ Allow expressions to be used as statements in the REPL
+  - ✅ Automatically print expression results (like Python's interactive shell)
+  - ✅ Support for evaluating expressions like `10 plus 20` directly in the REPL
+  - ✅ Example: Running `./kronos` and typing `42` or `10 plus 20` will print the result
+  - ✅ Command-line execution flag: `./kronos -e "print 42"` to execute code without entering REPL
+  - ✅ Support multiple `-e` flags: `./kronos -e "set x to 10" -e "print x"`
 
 - 📋 **REPL Line Editing & History** - Enhanced interactive experience (planned)
 
