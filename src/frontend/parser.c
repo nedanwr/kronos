@@ -859,7 +859,7 @@ static ASTNode *parse_value(Parser *p) {
 
   // Handle parenthesized expressions: ( expression )
   if (tok->type == TOK_LPAREN) {
-    Token *lparen_tok = consume_any(p); // consume '('
+    consume_any(p); // consume '('
     ASTNode *expr = parse_expression(p);
     if (!expr) {
       return NULL;
@@ -3671,8 +3671,6 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
     return NULL;
   }
 
-  bool has_errors = false;
-
   while (p->pos < tokens->count) {
     Token *tok = peek(p, 0);
     if (!tok || tok->type == TOK_EOF) {
@@ -3701,11 +3699,8 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
       }
       ast->statements[ast->count++] = stmt;
     } else {
-      // Parse error occurred - track it
-      has_errors = true;
-
-      // If error output is provided and not already set, set it with details
-      // about the first parse error encountered
+      // Parse error occurred - if error output is provided and not already set,
+      // set it with details about the first parse error encountered
       if (out_err && *out_err == NULL) {
         Token *error_tok = peek(p, 0);
         if (error_tok) {
