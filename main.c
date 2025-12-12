@@ -46,13 +46,22 @@ static void print_usage(const char *program_name) {
   printf("  -v, --version       Show version information and exit\n");
   printf("  -d, --debug         Enable debug mode (future use)\n");
   printf("  -n, --no-color      Disable colored output (future use)\n");
+  printf("  -e, --execute CODE  Execute CODE as Kronos code (can be used "
+         "multiple times)\n");
   printf("\n");
   printf("If FILE is provided, executes the specified Kronos file(s).\n");
-  printf("If no FILE is provided, starts the interactive REPL.\n");
+  printf("If -e is provided, executes the code and exits (does not start "
+         "REPL).\n");
+  printf("If no FILE or -e is provided, starts the interactive REPL.\n");
   printf("\n");
   printf("Examples:\n");
   printf("  %s                    # Start REPL\n", program_name);
   printf("  %s script.kr          # Execute script.kr\n", program_name);
+  printf("  %s -e \"print 42\"      # Execute code without entering REPL\n",
+         program_name);
+  printf("  %s -e \"set x to 10\" -e \"print x\"  # Execute multiple -e "
+         "commands\n",
+         program_name);
   printf("  %s file1.kr file2.kr # Execute multiple files\n", program_name);
 }
 
@@ -560,11 +569,97 @@ static char *read_multiline_input(void) {
 }
 
 /**
+ * @brief Execute Kronos code as an expression and return the result value
+ *
+ * Attempts to parse and execute the source code as a single expression.
+ * If execution succeeds, returns the evaluated value. The caller is responsible
+ * for releasing the returned value.
+ *
+ * @param vm The VM instance to use for execution
+ * @param source The Kronos source code to execute (must not be NULL)
+ * @return Pointer to the result value if an expression was evaluated, NULL
+ *         otherwise (not an expression or error). Caller must call
+ *         value_release() on the returned value.
+ */
+static KronosValue *kronos_run_expression(KronosVM *vm, const char *source) {
+  if (!vm || !source)
+    return NULL;
+
+  vm_clear_error(vm);
+
+  // Step 1: Tokenize - Convert source code into tokens
+  TokenArray *tokens = tokenize(source, NULL);
+  if (!tokens) {
+    return NULL;
+  }
+
+  // Step 2: Parse as expression - Build AST node for the expression
+  ASTNode *expr_node = parse_expression_only(tokens, NULL);
+  token_array_free(tokens);
+
+  if (!expr_node) {
+    // Not a valid expression
+    return NULL;
+  }
+
+  // Step 3: Compile - Generate bytecode from expression AST node
+  // We need to create a minimal AST with just this expression node
+  AST *ast = malloc(sizeof(AST));
+  if (!ast) {
+    ast_node_free(expr_node);
+    return NULL;
+  }
+  ast->capacity = 1;
+  ast->count = 1;
+  ast->statements = malloc(sizeof(ASTNode *));
+  if (!ast->statements) {
+    free(ast);
+    ast_node_free(expr_node);
+    return NULL;
+  }
+  ast->statements[0] = expr_node;
+
+  const char *compile_err = NULL;
+  Bytecode *bytecode = compile(ast, &compile_err);
+  ast_free(ast); // This will free expr_node too
+
+  if (!bytecode) {
+    return NULL;
+  }
+
+  // Step 4: Execute - Run bytecode on the virtual machine
+  int result = vm_execute(vm, bytecode);
+  if (result < 0) {
+    // Execution failed - clear stack and return NULL
+    vm_clear_stack(vm);
+    bytecode_free(bytecode);
+    return NULL;
+  }
+
+  // Check if there's a value on the stack (expression result)
+  KronosValue *expr_result = NULL;
+  if (vm->stack_top > vm->stack) {
+    // There's a value on the stack - this was an expression
+    expr_result = vm->stack_top[-1];
+    vm->stack_top--;
+    // Retain the value since we're taking ownership
+    value_retain(expr_result);
+  }
+
+  // Clear any remaining stack values
+  vm_clear_stack(vm);
+  bytecode_free(bytecode);
+
+  return expr_result;
+}
+
+/**
  * @brief Start the Kronos REPL (Read-Eval-Print Loop)
  *
  * Provides an interactive command-line interface for executing Kronos code.
  * Supports multi-line input with continuation prompts. Reads input until a
  * complete statement is formed, then executes it.
+ * Automatically prints expression results (like Python's interactive shell).
  * Type 'exit' to quit the REPL.
  */
 void kronos_repl(void) {
@@ -606,13 +701,27 @@ void kronos_repl(void) {
       continue;
     }
 
-    // Execute the input (should be complete at this point)
-    int result = kronos_run_string(vm, input);
-    if (result < 0) {
-      const char *err = kronos_get_last_error(vm);
-      if (err && *err) {
-        print_error(err);
+    // Try to execute as an expression first (for REPL auto-printing)
+    KronosValue *expr_result = kronos_run_expression(vm, input);
+    if (expr_result) {
+      // Successfully evaluated as expression - print result
+      value_fprint(stdout, expr_result);
+      printf("\n");
+      value_release(expr_result);
+    } else {
+      // Not an expression - try as statement
+      // Clear any error state from expression attempt
+      vm_clear_error(vm);
+      int result = kronos_run_string(vm, input);
+      if (result < 0) {
+        // Statement execution also failed - show error
+        const char *err = kronos_get_last_error(vm);
+        if (err && *err) {
+          print_error(err);
+        }
       }
+      // If statement execution succeeded, no need to print (statements don't
+      // return values)
     }
 
     free(input);
@@ -636,11 +745,10 @@ int main(int argc, char **argv) {
   setup_signal_handlers();
 
   // Command-line options
-  static struct option long_options[] = {{"help", no_argument, 0, 'h'},
-                                         {"version", no_argument, 0, 'v'},
-                                         {"debug", no_argument, 0, 'd'},
-                                         {"no-color", no_argument, 0, 'n'},
-                                         {0, 0, 0, 0}};
+  static struct option long_options[] = {
+      {"help", no_argument, 0, 'h'},          {"version", no_argument, 0, 'v'},
+      {"debug", no_argument, 0, 'd'},         {"no-color", no_argument, 0, 'n'},
+      {"execute", required_argument, 0, 'e'}, {0, 0, 0, 0}};
 
   int opt;
   int option_index = 0;
@@ -648,9 +756,14 @@ int main(int argc, char **argv) {
   __attribute__((unused)) bool debug_mode = false;
   __attribute__((unused)) bool no_color = false;
 
+  // Collect -e arguments (can have multiple)
+  char **execute_args = NULL;
+  size_t execute_count = 0;
+  size_t execute_capacity = 0;
+
   // Parse command-line options
-  while ((opt = getopt_long(argc, argv, "hvdn", long_options, &option_index)) !=
-         -1) {
+  while ((opt = getopt_long(argc, argv, "hvdne:", long_options,
+                            &option_index)) != -1) {
     switch (opt) {
     case 'h':
       print_usage(argv[0]);
@@ -666,12 +779,80 @@ int main(int argc, char **argv) {
       no_color = true;
       // TODO: Implement no-color mode
       break;
+    case 'e':
+      // Collect execute argument
+      if (execute_count >= execute_capacity) {
+        size_t new_capacity = execute_capacity == 0 ? 4 : execute_capacity * 2;
+        char **new_args = realloc(execute_args, new_capacity * sizeof(char *));
+        if (!new_args) {
+          fprintf(stderr,
+                  "Error: Failed to allocate memory for -e arguments\n");
+          if (execute_args) {
+            free(execute_args);
+          }
+          return 1;
+        }
+        execute_args = new_args;
+        execute_capacity = new_capacity;
+      }
+      execute_args[execute_count++] = optarg;
+      break;
     case '?':
       // Invalid option - getopt already printed error message
+      if (execute_args) {
+        free(execute_args);
+      }
       return 1;
     default:
+      if (execute_args) {
+        free(execute_args);
+      }
       return 1;
     }
+  }
+
+  // If -e flags were provided, execute them and exit
+  if (execute_count > 0) {
+    KronosVM *vm = kronos_vm_new();
+    if (!vm) {
+      print_error("Failed to create VM");
+      if (execute_args) {
+        free(execute_args);
+      }
+      return 1;
+    }
+
+    int exit_code = 0;
+    for (size_t i = 0; i < execute_count; i++) {
+      // Check for signal before processing each -e argument
+      if (g_signal_received) {
+        fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+        exit_code = 130; // Standard exit code for SIGINT
+        break;
+      }
+
+      int result = kronos_run_string(vm, execute_args[i]);
+      if (result < 0) {
+        const char *err = kronos_get_last_error(vm);
+        if (err && *err) {
+          fprintf(stderr, "Error executing -e argument %zu: %s\n", i + 1, err);
+        }
+        exit_code = 1;
+      }
+
+      // Check for signal after processing each -e argument
+      if (g_signal_received) {
+        fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+        exit_code = 130; // Standard exit code for SIGINT
+        break;
+      }
+    }
+
+    kronos_vm_free(vm);
+    if (execute_args) {
+      free(execute_args);
+    }
+    return exit_code;
   }
 
   // Remaining arguments are file paths
@@ -721,5 +902,8 @@ int main(int argc, char **argv) {
   }
 
   kronos_vm_free(vm);
+  if (execute_args) {
+    free(execute_args);
+  }
   return exit_code;
 }
