@@ -307,6 +307,17 @@ Contributions are welcome! See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md
 
 MIT License - See [LICENSE](LICENSE) file for details.
 
+## Third-Party Libraries
+
+Kronos uses the following third-party libraries:
+
+- **linenoise** - Line editing library for the REPL
+  - Copyright (c) 2010-2023, Salvatore Sanfilippo <antirez at gmail dot com>
+  - Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+  - BSD License
+  - Source: https://github.com/antirez/linenoise
+  - Used for: REPL line editing, command history, and tab completion
+
 ## Performance
 
 - **Binary Size**: 58KB
