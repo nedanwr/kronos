@@ -376,9 +376,7 @@ static size_t add_constant(Compiler *c, KronosValue *value) {
   }
 
   // Not found - add new constant
-  // Retain the value since the constant pool now owns a reference
-  value_retain(value);
-
+  // Pool takes ownership of caller's reference - don't retain
   size_t idx = c->bytecode->const_count;
   c->bytecode->constants[idx] = value;
   c->bytecode->const_count++;
@@ -410,8 +408,8 @@ static void emit_constant(Compiler *c, KronosValue *value) {
   }
 
   size_t idx = add_constant(c, value);
-  // add_constant() always takes ownership (releases if duplicate, retains if
-  // new)
+  // add_constant() always takes ownership (releases if duplicate, takes
+  // ownership if new)
 
   // Check for errors immediately after add_constant
   if (compiler_has_error(c)) {
@@ -486,8 +484,8 @@ static bool emit_constant_index(Compiler *c, KronosValue *value) {
   }
 
   size_t idx = add_constant(c, value);
-  // add_constant() always takes ownership (releases if duplicate, retains if
-  // new)
+  // add_constant() always takes ownership (releases if duplicate, takes
+  // ownership if new)
 
   // Check for errors immediately after add_constant
   if (compiler_has_error(c)) {
