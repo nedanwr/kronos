@@ -1,0 +1,50 @@
+---
+title: "No-Reference to Uncommitted Files"
+alwaysApply: true
+severity: "high"
+---
+
+Rule
+Do not reference, cite, or link to any file that is not committed to git. Before proposing or inserting a reference to a file (in code, comments, docs, or commit messages), check `git status --porcelain` and only reference files that are tracked and clean.
+
+Rationale
+Ephemeral internal docs (scratch pads, debugging notes) may exist locally but will never be committed. Referencing them in code or long-lived docs leads to broken pointers and confusion for collaborators and CI.
+
+Required behavior
+
+- Always run `git status --porcelain` (or `git ls-files --error-unmatch <path>`) conceptually before referencing a file.
+- Only reference files that:
+  - are tracked by git, and
+  - are not deleted, and
+  - are expected to be committed in the change.
+- If a referenced file is new and staged, ensure it’s included in the current commit/PR.
+- If a file is untracked or ignored, do not reference it. Instead:
+  - Summarize the relevant content inline, or
+  - Move essential material into a committed doc (e.g., docs/adr/<id>.md) and reference that.
+
+Prohibited
+
+- Adding comments like “see notes in scratch/debug-notes.md” if that file is untracked.
+- Linking to local-only paths (e.g., ~/notes/tmp.md) or editor scratch files.
+- Referencing files that are gitignored or only exist in a local branch stash.
+
+Exceptions
+
+- Temporary work-in-progress PR descriptions can mention uncommitted files, but codebase artifacts (source files, committed docs, README, CHANGELOG) must not.
+- Issue tracker references (e.g., JIRA, GitHub Issues) are allowed.
+
+Reviewer checklist
+
+- Does the change reference any file path that isn’t added/modified in the diff?
+- For every referenced file, does `git ls-files` include it?
+- Are ephemeral debugging docs summarized or migrated into a committed, durable doc?
+
+Examples — Do
+
+- “See docs/adr/0007-debug-architecture.md for the approach.” (file is committed)
+- Summarize: “We tried A/B approaches; A failed due to X. See commit abc123 for the experiment.”
+
+Examples — Don’t
+
+- “See scratch/triage-2025-12-11.md” (untracked local notes)
+- “Investigate later: ~/Desktop/internals.txt”

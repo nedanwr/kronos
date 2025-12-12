@@ -1,0 +1,24 @@
+# Lightweight development image for Kronos with Valgrind
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies and valgrind
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        make \
+        gperf \
+        valgrind \
+        python3 \
+        bash \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /work
+
+# Default command (can be overridden)
+CMD ["bash"]

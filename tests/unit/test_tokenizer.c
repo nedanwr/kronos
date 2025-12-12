@@ -254,6 +254,107 @@ TEST(tokenize_keywords) {
 }
 
 /**
+ * @brief Test tokenization of map keyword
+ *
+ * Verifies that the "map" keyword is correctly recognized and that
+ * token_type_names array includes TOK_MAP (prevents out-of-bounds access).
+ */
+TEST(tokenize_map_keyword) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("map", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find MAP keyword
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_MAP);
+  ASSERT_STR_EQ(tokens->tokens[i].text, "map");
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test tokenization of single-line comments
+ *
+ * Verifies that comments starting with # are correctly ignored.
+ */
+TEST(tokenize_single_line_comment) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("# This is a comment", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  // Should only have INDENT token (if any) and EOF, no other tokens
+  ASSERT_TRUE(tokens->count <= 2);
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test tokenization of inline comments
+ *
+ * Verifies that comments after code on the same line are correctly ignored.
+ */
+TEST(tokenize_inline_comment) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set x to 5 # This is a comment", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 4);
+
+  // Skip INDENT token, check that we have SET, NAME, TO, NUMBER tokens
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 3 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_SET);
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 1].text, "x");
+  ASSERT_INT_EQ(tokens->tokens[i + 2].type, TOK_TO);
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_NUMBER);
+  // Comment should be ignored, so no additional tokens before NEWLINE/EOF
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test that # inside strings is not treated as a comment
+ *
+ * Verifies that # characters inside string literals are preserved.
+ */
+TEST(tokenize_comment_inside_string) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set msg to \"Hello # world\"", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 4);
+
+  // Skip INDENT token, find STRING token
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 3 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_STRING);
+  // String should contain the # character
+  ASSERT_TRUE(strstr(tokens->tokens[i + 3].text, "#") != NULL);
+
+  token_array_free(tokens);
+}
+
+/**
  * @brief Test tokenization of variable names (identifiers)
  *
  * Verifies that identifiers starting with letters or underscores
@@ -470,4 +571,268 @@ TEST(tokenize_invalid_string) {
   ASSERT_PTR_NULL(tokens);
   ASSERT_PTR_NOT_NULL(err);
   tokenize_error_free(err);
+}
+
+/**
+ * @brief Test error handling for unknown characters
+ *
+ * Verifies that the tokenizer correctly detects and reports errors
+ * when an unknown character (like @, #, $) is encountered.
+ */
+TEST(tokenize_unknown_character) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("@", &err);
+
+  // Tokenizer must return NULL and set error for unknown character
+  ASSERT_PTR_NULL(tokens);
+  ASSERT_PTR_NOT_NULL(err);
+  ASSERT_STR_EQ(err->message, "Unknown character encountered");
+  tokenize_error_free(err);
+}
+
+/**
+ * @brief Test tokenization of UTF-8 identifiers
+ *
+ * Verifies that identifiers containing UTF-8 Unicode characters
+ * are correctly tokenized.
+ */
+TEST(tokenize_utf8_identifier) {
+  TokenizeError *err = NULL;
+  // Test with common UTF-8 characters: é (é), ñ (ñ), 中文 (Chinese)
+  TokenArray *tokens = tokenize("café résumé", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 3);
+
+  // Skip INDENT token, find identifiers
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i + 1 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i].text, "café");
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 1].text, "résumé");
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test mixed indentation recovery
+ *
+ * Verifies that mixed spaces and tabs in indentation report an error
+ * but allow tokenization to continue (recovery mode).
+ */
+TEST(tokenize_mixed_indentation_recovery) {
+  TokenizeError *err = NULL;
+  // Line with mixed spaces and tabs: "  \t  set x to 5"
+  // This should report an error but continue tokenizing
+  TokenArray *tokens = tokenize("  \t  set x to 5\nset y to 10", &err);
+
+  // Error should be reported
+  ASSERT_PTR_NOT_NULL(err);
+  ASSERT_STR_EQ(err->message, "Mixed indentation (spaces and tabs detected "
+                              "on the same line)");
+
+  // But tokenization should continue (recovery mode)
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count > 0);
+
+  // Should have tokens from both lines
+  // Find the second "set" token (from the second line)
+  bool found_second_set = false;
+  for (size_t i = 0; i < tokens->count; i++) {
+    if (tokens->tokens[i].type == TOK_SET) {
+      // Check if this is the second SET token
+      bool found_first = false;
+      for (size_t j = 0; j < i; j++) {
+        if (tokens->tokens[j].type == TOK_SET) {
+          found_first = true;
+          break;
+        }
+      }
+      if (found_first) {
+        found_second_set = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(found_second_set);
+
+  tokenize_error_free(err);
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test string escape sequence processing
+ *
+ * Verifies that escape sequences in strings are properly converted
+ * to their actual character values.
+ */
+TEST(tokenize_string_escape_sequences) {
+  TokenizeError *err = NULL;
+  // Test common escape sequences: \n, \t, \\, \"
+  TokenArray *tokens =
+      tokenize("\"Hello\\nWorld\\tTab\\\"Quote\\\\Backslash\"", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify escape sequences were converted
+  const char *text = tokens->tokens[i].text;
+  // "Hello\nWorld\tTab\"Quote\\Backslash" should become:
+  // Hello<newline>World<tab>Tab"Quote\Backslash
+  // Positions: 012345678901234567890123456789
+  //            Hello\nWorld\tTab"Quote\Backslash
+  ASSERT_TRUE(text[5] == '\n');  // \n converted at position 5
+  ASSERT_TRUE(text[11] == '\t'); // \t converted at position 11
+  ASSERT_TRUE(text[15] == '"');  // \" converted at position 15
+  ASSERT_TRUE(text[21] == '\\'); // \\ converted at position 21 (after "Quote"
+                                 // which is 5 chars: 16-20)
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test multi-line strings with triple quotes
+ *
+ * Verifies that triple-quoted strings (""" or ''') can span multiple lines
+ * and preserve newlines in the content.
+ */
+TEST(tokenize_multiline_string) {
+  TokenizeError *err = NULL;
+  // Test triple-quoted string spanning multiple lines
+  const char *source = "\"\"\"Line 1\nLine 2\nLine 3\"\"\"";
+  TokenArray *tokens = tokenize(source, &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify content includes newlines
+  const char *text = tokens->tokens[i].text;
+  ASSERT_TRUE(strstr(text, "Line 1") != NULL);
+  ASSERT_TRUE(strstr(text, "Line 2") != NULL);
+  ASSERT_TRUE(strstr(text, "Line 3") != NULL);
+  // Check that newlines are preserved
+  bool has_newline = false;
+  for (size_t j = 0; text[j] != '\0'; j++) {
+    if (text[j] == '\n') {
+      has_newline = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_newline);
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test multi-line strings with single quotes and escape sequences
+ *
+ * Verifies that triple single-quoted strings work and escape sequences
+ * are processed correctly in multi-line strings.
+ */
+TEST(tokenize_multiline_string_single_quotes) {
+  TokenizeError *err = NULL;
+  // Test triple single-quoted string with escape sequences
+  const char *source = "'''Hello\\nWorld\\tTab'''";
+  TokenArray *tokens = tokenize(source, &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Skip INDENT token, find STRING
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_STRING);
+
+  // Verify escape sequences were converted
+  const char *text = tokens->tokens[i].text;
+  // Should contain actual newline and tab characters
+  bool has_newline = false;
+  bool has_tab = false;
+  for (size_t j = 0; text[j] != '\0'; j++) {
+    if (text[j] == '\n') {
+      has_newline = true;
+    }
+    if (text[j] == '\t') {
+      has_tab = true;
+    }
+  }
+  ASSERT_TRUE(has_newline);
+  ASSERT_TRUE(has_tab);
+
+  token_array_free(tokens);
+}
+
+/**
+ * @brief Test configurable tab width
+ *
+ * Verifies that tab width can be configured and affects indentation
+ * calculation.
+ */
+TEST(tokenize_configurable_tab_width) {
+  TokenizeError *err = NULL;
+  // Test with tab width of 4 (common in many editors)
+  // "\t\t" should be treated as 8 spaces with default, but 8 spaces with
+  // tab_width=4
+  TokenArray *tokens = tokenize_with_tab_width("\t\tset x to 5", &err, 4);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  // Find the INDENT token
+  size_t i = 0;
+  while (i < tokens->count && tokens->tokens[i].type != TOK_INDENT) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  // With tab_width=4, two tabs should give indent_level of 8
+  ASSERT_INT_EQ(tokens->tokens[i].indent_level, 8);
+
+  token_array_free(tokens);
+
+  // Test with tab width of 2
+  err = NULL;
+  tokens = tokenize_with_tab_width("\t\tset y to 10", &err, 2);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  i = 0;
+  while (i < tokens->count && tokens->tokens[i].type != TOK_INDENT) {
+    i++;
+  }
+  ASSERT_TRUE(i < tokens->count);
+  // With tab_width=2, two tabs should give indent_level of 4
+  ASSERT_INT_EQ(tokens->tokens[i].indent_level, 4);
+
+  token_array_free(tokens);
 }

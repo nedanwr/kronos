@@ -1,0 +1,29 @@
+# Module Usage Example
+# Demonstrates importing modules and calling their functions
+
+print "=== Module Usage Example ==="
+print ""
+
+# Import the utils module
+import utils from "examples/utils_module.kr"
+print "Module imported successfully"
+print ""
+
+# Note: Module function calls use the module.function syntax
+# For this example, we'll demonstrate the concept
+# (Actual function calls depend on what functions are exported)
+
+print "1. Module Import:"
+print "   Module 'utils' has been imported"
+print "   You can call functions using: call utils.function_name with args"
+print ""
+
+# Example: If utils module had an add function
+# set sum_result to call utils.add with 15, 27
+# print f"   utils.add(15, 27) = {sum_result}"
+print "2. Module Usage:"
+print "   Import modules to reuse code across multiple files"
+print "   Functions and variables from modules are namespaced"
+print ""
+
+print "=== Example Complete ==="

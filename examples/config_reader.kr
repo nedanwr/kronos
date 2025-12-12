@@ -1,0 +1,47 @@
+# Configuration File Reader Example
+# Demonstrates reading and parsing configuration-like data
+
+print "=== Configuration Reader Example ==="
+print ""
+
+# Create a simple config file
+call write_file with "config.txt", "host=localhost\nport=8080\ndebug=true\nmax_connections=100"
+
+# Read and parse the config
+set lines to call read_lines with "config.txt"
+set line_count to call len with lines
+
+print "Parsed configuration:"
+for i in range 0 to line_count minus 1:
+    let line to lines at i
+    set trimmed_line to call trim with line
+
+    # Skip empty lines
+    set trimmed_len to call len with trimmed_line
+    if trimmed_len is greater than 0:
+        # Split key=value pairs
+        set parts to call split with trimmed_line, "="
+        set parts_count to call len with parts
+        if parts_count is equal 2:
+            # Extract key and value
+            set key to call trim with parts at 0
+            set val_str to call trim with parts at 1
+
+            # Try to convert to number if possible
+            set parsed_val to val_str
+            try:
+                set num_val to call to_number with val_str
+                if num_val is not equal 0 or val_str is equal "0":
+                    set parsed_val to num_val
+                else:
+                    set bool_val to call to_bool with val_str
+                    if val_str is equal "true" or val_str is equal "false":
+                        set parsed_val to bool_val
+            catch err:
+                pass
+
+            # Display parsed config entry
+            print f"   {key} = {parsed_val}"
+
+print ""
+print "=== Example Complete ==="

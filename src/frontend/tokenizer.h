@@ -62,6 +62,8 @@ typedef enum {
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,
+  TOK_LPAREN,
+  TOK_RPAREN,
   TOK_NEWLINE,
   TOK_INDENT,
   TOK_EOF,
@@ -69,15 +71,27 @@ typedef enum {
 
 typedef struct {
   TokenType type;
-  const char
-      *text; // Heap-allocated, nul-terminated string owned by this Token.
-             // Allocated via malloc()/strdup() during tokenization.
-             // Must be freed with token_free() or free((char *)text) when
-             // the Token is no longer part of a TokenArray. If the Token
-             // is part of a TokenArray, token_array_free() will free it
-             // automatically. The pointer becomes invalid after freeing.
+  const char *
+      text; // Token text string (nul-terminated).
+            //
+            // OWNERSHIP RULES:
+            // - If Token is part of a TokenArray: TokenArray owns the text.
+            //   Use token_array_free() to free the entire array and all tokens.
+            // - If Token is extracted/copied from a TokenArray: Caller owns the
+            // text.
+            //   Use token_free() or free((char *)text) to free it.
+            // - Static constants (colon, comma, minus, newline): Never freed.
+            //   These are static strings that don't require freeing.
+            //
+            // Allocated via malloc()/strdup() during tokenization for dynamic
+            // tokens. For static tokens (TOK_COLON, TOK_COMMA, TOK_MINUS,
+            // TOK_NEWLINE), points to static string constants that must not be
+            // freed. The pointer becomes invalid after freeing (for
+            // heap-allocated text).
   size_t length;
   int indent_level; // For INDENT tokens
+  size_t line;   // 1-based line number where this token starts (0 if unknown)
+  size_t column; // 1-based column number where this token starts (0 if unknown)
 } Token;
 
 typedef struct {
@@ -93,7 +107,23 @@ typedef struct {
   size_t column; // 1-based column number where error occurred (0 if unknown)
 } TokenizeError;
 
-// Tokenize source code
+// Tokenize source code with configurable tab width
+// @param source Source code to tokenize (must not be NULL).
+// @param out_err Optional pointer to receive error details on failure.
+//                If non-NULL and an error occurs, *out_err is set to a
+//                heap-allocated TokenizeError (caller must free with
+//                tokenize_error_free()). On success, *out_err is set to NULL.
+// @param tab_width Tab width in spaces (default: 8). Must be > 0.
+//                  If 0 is passed, defaults to 8.
+// @return TokenArray* on success, NULL on error (allocation failure or
+//         invalid input). On error, if out_err is non-NULL, *out_err contains
+//         error details. Caller must free the returned TokenArray with
+//         token_array_free() and any TokenizeError with tokenize_error_free().
+TokenArray *tokenize_with_tab_width(const char *source, TokenizeError **out_err,
+                                    int tab_width);
+
+// Tokenize source code (default tab width of 8)
+// Wrapper around tokenize_with_tab_width() for backward compatibility.
 // @param source Source code to tokenize (must not be NULL).
 // @param out_err Optional pointer to receive error details on failure.
 //                If non-NULL and an error occurs, *out_err is set to a
@@ -101,8 +131,14 @@ typedef struct {
 //                tokenize_error_free()). On success, *out_err is set to NULL.
 // @return TokenArray* on success, NULL on error (allocation failure or
 //         invalid input). On error, if out_err is non-NULL, *out_err contains
-//         error details. Caller must free the returned TokenArray with
-//         token_array_free() and any TokenizeError with tokenize_error_free().
+//         error details.
+//
+// OWNERSHIP: Caller owns the returned TokenArray and must free it with
+//            token_array_free(). The TokenArray owns all Token.text strings.
+//            If you extract Tokens from the array, you own those tokens and
+//            must free them with token_free().
+//
+// Also free any TokenizeError with tokenize_error_free().
 TokenArray *tokenize(const char *source, TokenizeError **out_err);
 
 // Free a TokenizeError structure
@@ -111,12 +147,31 @@ TokenArray *tokenize(const char *source, TokenizeError **out_err);
 void tokenize_error_free(TokenizeError *err);
 
 // Free a single Token's resources (frees the text string)
-// Use this when managing Tokens outside of a TokenArray.
-// If the Token is part of a TokenArray, use token_array_free() instead.
+//
+// OWNERSHIP: Use this when you own a Token that is NOT part of a TokenArray.
+// Examples:
+//   - Token extracted/copied from a TokenArray (caller now owns it)
+//   - Token created manually outside of tokenization
+//
+// DO NOT use this for Tokens that are still part of a TokenArray.
+// Instead, use token_array_free() to free the entire array.
+//
+// SAFETY: This function safely handles static string constants (colon, comma,
+//         minus, newline) and will not attempt to free them.
+// Note: token_array_free() uses this function internally for consistency.
 void token_free(Token *token);
 
 // Free a TokenArray and all its Tokens
-// Automatically frees all Token.text strings in the array.
+//
+// OWNERSHIP: Frees the TokenArray structure and all Token.text strings it
+// contains. After calling this, the TokenArray pointer and all Token pointers
+// within it become invalid and must not be used.
+//
+// SAFETY: Automatically handles static string constants (colon, comma, minus,
+//         newline) and will not attempt to free them.
+//
+// If you need to extract Tokens from the array before freeing, copy them first
+// (they will own their text), then free the array.
 void token_array_free(TokenArray *array);
 
 // Debug

@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc make valgrind
+          sudo apt-get install -y build-essential gcc make gperf valgrind
 
       - name: Build Kronos
         run: make clean && make
@@ -118,4 +118,3 @@ jobs:
             echo "✗ $failed_count file(s) failed memory leak check"
             exit 1
           fi
-

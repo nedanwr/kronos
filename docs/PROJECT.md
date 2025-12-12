@@ -158,8 +158,10 @@ kronos/
 ├── Makefile                     # Build system
 ├── .gitignore                   # Git exclusions
 │
-├── install_extension.sh         # Install VSCode extension
-├── test_lsp_manually.sh         # Test LSP server manually
+├── scripts/
+│   ├── install_extension.sh     # Install VSCode extension
+│   ├── run_tests.sh             # Run test suite
+│   └── fix_keywords_hash.py     # Fix generated keyword hash file
 │
 ├── main.c                       # Entry point
 ├── kronos                       # Compiled binary (gitignored)
@@ -241,11 +243,11 @@ examples/
 
 ### Key Files
 
-| File                   | Purpose                                                     |
-| ---------------------- | ----------------------------------------------------------- |
-| `main.c`               | CLI entry point (file execution & REPL)                     |
-| `Makefile`             | Build system with targets: `all`, `lsp`, `clean`, `install` |
-| `install_extension.sh` | One-command LSP installation                                |
+| File                           | Purpose                                                     |
+| ------------------------------ | ----------------------------------------------------------- |
+| `main.c`                       | CLI entry point (file execution & REPL)                     |
+| `Makefile`                     | Build system with targets: `all`, `lsp`, `clean`, `install` |
+| `scripts/install_extension.sh` | One-command LSP installation                                |
 
 ### Build Artifacts (Gitignored)
 

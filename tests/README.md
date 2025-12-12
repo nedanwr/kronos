@@ -18,7 +18,7 @@ tests/
 ### Run All Tests
 
 ```bash
-./run_tests.sh
+./scripts/run_tests.sh
 ```
 
 ### Run Specific Category
@@ -36,6 +36,7 @@ tests/
 ### Passing Tests (`tests/integration/pass/`)
 
 The test suite includes 42 passing integration tests covering:
+
 - Variables (immutable, mutable, typed)
 - Arithmetic operations
 - Comparisons and logical operators
@@ -52,6 +53,7 @@ The test suite includes 42 passing integration tests covering:
 ### Error Tests (`tests/integration/fail/`)
 
 The test suite includes 29 error tests covering:
+
 - Immutability violations
 - Type mismatches
 - Undefined variables and functions
@@ -134,7 +136,7 @@ See `.github/workflows/test.yml` for the CI configuration.
 1. Create a new file in `tests/integration/pass/` with a descriptive name
 2. Add a comment describing what the test validates
 3. Write Kronos code that should execute successfully
-4. Run `./run_tests.sh` to verify
+4. Run `./scripts/run_tests.sh` to verify
 
 Example:
 
@@ -151,7 +153,7 @@ print greeting
 1. Create a new file in `tests/integration/fail/` with a descriptive name
 2. Add a comment describing the expected error
 3. Write Kronos code that should produce an error
-4. Run `./run_tests.sh` to verify
+4. Run `./scripts/run_tests.sh` to verify
 
 Example:
 

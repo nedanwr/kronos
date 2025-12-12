@@ -14,6 +14,9 @@
 #define LOCALS_MAX 64
 #define MODULES_MAX 64
 #define EXCEPTION_HANDLERS_MAX 64
+// Maximum import depth to prevent C stack exhaustion from recursive module loading
+// This is more conservative than MODULES_MAX to account for C stack usage
+#define IMPORT_DEPTH_MAX 32
 
 // Function definition
 typedef struct {
@@ -42,13 +45,18 @@ typedef struct {
   KronosValue **frame_start; // Start of this frame's stack
 
   // Local variables (includes parameters)
-  struct {
+  struct LocalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
     char *type_name; // NULL if no type restriction
   } locals[LOCALS_MAX];
   size_t local_count;
+
+  // Local variable hash table for O(1) lookup
+  // Stores pointers to local variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct LocalVar *local_hash[LOCALS_MAX];
 } CallFrame;
 
 // Virtual machine state
@@ -63,7 +71,7 @@ typedef struct KronosVM {
   CallFrame *current_frame;
 
   // Global variables
-  struct {
+  struct GlobalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
@@ -71,9 +79,19 @@ typedef struct KronosVM {
   } globals[GLOBALS_MAX];
   size_t global_count;
 
+  // Global variable hash table for O(1) lookup
+  // Stores pointers to global variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct GlobalVar *global_hash[GLOBALS_MAX];
+
   // Functions
   Function *functions[FUNCTIONS_MAX];
   size_t function_count;
+
+  // Function hash table for O(1) lookup
+  // Simple hash table: array of Function pointers, NULL if empty
+  // Collisions are handled by linear probing (next available slot)
+  Function *function_hash[FUNCTIONS_MAX];
 
   // Modules (file-based modules)
   Module *modules[MODULES_MAX];

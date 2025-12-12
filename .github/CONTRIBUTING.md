@@ -50,7 +50,7 @@ Thank you for your interest in contributing to Kronos! This document provides gu
 3. **Run the test suite:**
 
    ```bash
-   ./run_tests.sh
+   ./scripts/run_tests.sh
    ```
 
 4. **Try running an example:**
@@ -93,7 +93,7 @@ The Makefile uses the following compiler flags:
 For the best development experience, install the VSCode extension:
 
 ```bash
-./install_extension.sh
+./scripts/install_extension.sh
 ```
 
 This provides:
@@ -337,14 +337,17 @@ print result  # Should print 1
 2. **Ensure tests pass:**
 
    ```bash
-   ./run_tests.sh
+   ./scripts/run_tests.sh
    ```
 
-3. **Check for memory leaks** (optional but recommended):
+3. **Memory leak checks** (automatic in CI):
+
+   Memory leak detection runs automatically in CI via `.github/workflows/memory-check.yml`.
+   For local testing with valgrind, you can manually run:
 
    ```bash
    # If you have valgrind installed
-   ./test_valgrind.sh
+   valgrind --leak-check=full --show-leak-kinds=all ./kronos tests/integration/pass/your_test.kr
    ```
 
 4. **Create the pull request:**

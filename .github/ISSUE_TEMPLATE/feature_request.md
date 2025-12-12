@@ -1,9 +1,9 @@
 ---
 name: Feature Request
 about: Suggest a new feature or enhancement
-title: '[Feature]: '
+title: "[Feature]: "
 labels: enhancement
-assignees: ''
+assignees: ""
 ---
 
 ## Description
@@ -30,9 +30,9 @@ Describe any alternative solutions or features you've considered.
 
 Provide specific examples of how this feature would be used:
 
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Related Issues
 
@@ -45,4 +45,3 @@ Add any other context, mockups, or examples about the feature request here.
 ## Implementation Notes
 
 If you have ideas on how this could be implemented, please share them here.
-

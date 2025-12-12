@@ -7,6 +7,9 @@ kronos_unit_tests
 kronos_lsp_tests
 *.dSYM/
 
+# Generated files (auto-generated from source)
+src/frontend/keywords_hash.c
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -38,3 +41,7 @@ vscode-extension/package-lock.json
 
 # Test output
 test_output.txt
+# File I/O test artifacts
+*.txt
+!docs/**/*.txt
+!vscode-extension/node_modules/**/*.txt

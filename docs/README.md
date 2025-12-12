@@ -14,7 +14,9 @@ Complete documentation for the Kronos programming language.
 ## Language Reference
 
 ### [SYNTAX.md](SYNTAX.md)
+
 Complete syntax guide with examples:
+
 - Variables (immutable/mutable/typed)
 - Data types & operators
 - Control flow (if, for, while)
@@ -23,12 +25,15 @@ Complete syntax guide with examples:
 - Safety & error handling
 
 ### [QUICKREF.md](QUICKREF.md)
+
 One-page quick reference for fast lookup.
 
 ## Development
 
 ### [PROJECT.md](PROJECT.md)
+
 Architecture and implementation details:
+
 - Component breakdown
 - Bytecode VM design
 - Memory management
@@ -39,7 +44,9 @@ Architecture and implementation details:
 ## Editor Setup
 
 ### [EDITOR.md](EDITOR.md)
+
 Full IDE support:
+
 - Quick install (one command)
 - Syntax highlighting
 - Real-time error detection
@@ -49,7 +56,9 @@ Full IDE support:
 ## Testing
 
 ### [../tests/README.md](../tests/README.md)
+
 Test suite documentation:
+
 - 71 comprehensive tests (42 passing, 29 error cases)
 - Test runner usage
 - CI/CD integration
@@ -61,8 +70,9 @@ See [../examples/](../examples/) for sample programs.
 ## Contributing
 
 When adding features:
+
 1. Update SYNTAX.md with new syntax
 2. Add examples to examples/
 3. Create tests in tests/integration/pass/ or tests/integration/fail/
-4. Run `./run_tests.sh` to verify
+4. Run `./scripts/run_tests.sh` to verify
 5. Update PROJECT.md if architecture changes

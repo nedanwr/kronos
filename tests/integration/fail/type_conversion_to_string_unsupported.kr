@@ -1,0 +1,14 @@
+# Test to_string with unsupported types
+# Expected: Runtime error - cannot convert type to string
+
+# to_string with list
+set str1 to call to_string with list 1, 2, 3
+# Expected: Error - Cannot convert type to string
+
+# to_string with map
+set str2 to call to_string with map key: "value"
+# Expected: Error - Cannot convert type to string
+
+# to_string with range
+set str3 to call to_string with range 1 to 10
+# Expected: Error - Cannot convert type to string

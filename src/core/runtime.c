@@ -13,6 +13,7 @@
 #include "runtime.h"
 #include "gc.h"
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,8 +24,28 @@
 /** Size of the string interning hash table */
 #define INTERN_TABLE_SIZE 1024
 
+/** Maximum depth for printing nested structures to prevent stack overflow */
+#define VALUE_PRINT_MAX_DEPTH 64
+
+/** Maximum depth for comparing nested structures to prevent stack overflow */
+#define VALUE_EQUALS_MAX_DEPTH 64
+
+/** Map entry structure for hash table implementation */
+typedef struct {
+  KronosValue *key;
+  KronosValue *value;
+  bool is_tombstone;
+} MapEntry;
+
 /** Hash table for string interning (reduces memory for duplicate strings) */
 static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
+
+/** Mutex for thread-safe intern table operations */
+static pthread_mutex_t intern_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/** Reference counter for runtime initialization (allows multiple VMs to share
+ * runtime) */
+static size_t runtime_refcount = 0;
 
 /**
  * @brief Hash function for strings (FNV-1a algorithm)
@@ -48,29 +69,71 @@ static uint32_t hash_string(const char *str, size_t len) {
  * @brief Initialize the runtime system
  *
  * Must be called before creating any values. Initializes the string
- * interning table and garbage collector.
+ * interning table and garbage collector. Safe to call multiple times;
+ * uses reference counting to allow multiple VMs to share the runtime.
  */
 void runtime_init(void) {
-  memset(intern_table, 0, sizeof(intern_table));
-  gc_init();
+  pthread_mutex_lock(&intern_mutex);
+  if (runtime_refcount == 0) {
+    // First initialization - clear intern table and initialize GC
+    memset(intern_table, 0, sizeof(intern_table));
+    pthread_mutex_unlock(&intern_mutex);
+    gc_init();
+    pthread_mutex_lock(&intern_mutex);
+  }
+  runtime_refcount++;
+  pthread_mutex_unlock(&intern_mutex);
 }
 
 /**
  * @brief Cleanup the runtime system
  *
  * Releases all interned strings and shuts down the garbage collector.
+ * Uses reference counting - only performs actual cleanup when the last
+ * reference is released, allowing multiple VMs to share the runtime.
  * IMPORTANT: This must only be called after all external references to
  * interned strings have been released, otherwise values may be freed
  * prematurely.
  */
 void runtime_cleanup(void) {
+  pthread_mutex_lock(&intern_mutex);
+  if (runtime_refcount == 0) {
+    // Already cleaned up or never initialized
+    pthread_mutex_unlock(&intern_mutex);
+    return;
+  }
+
+  runtime_refcount--;
+  if (runtime_refcount > 0) {
+    // Other VMs still using the runtime, don't cleanup yet
+    pthread_mutex_unlock(&intern_mutex);
+    return;
+  }
+
+  // Last reference - perform actual cleanup
   // Free interned strings
+  size_t active_refs = 0;
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     if (intern_table[i] != NULL) {
+      // Check if there are active references beyond the intern table's
+      // reference
+      if (intern_table[i]->refcount > 1) {
+        active_refs++;
+      }
       value_release(intern_table[i]); // Release intern table's reference
       intern_table[i] = NULL;
     }
   }
+  pthread_mutex_unlock(&intern_mutex);
+
+  if (active_refs > 0) {
+    fprintf(stderr,
+            "Warning: runtime_cleanup() called with %zu interned strings still "
+            "referenced externally. "
+            "These may be freed prematurely.\n",
+            active_refs);
+  }
+
   gc_cleanup();
 }
 
@@ -266,9 +329,17 @@ KronosValue *value_new_channel(Channel *channel) {
  * Creates a range object representing values from start to end (inclusive)
  * with the given step. The step defaults to 1.0 if 0.0 is provided.
  *
+ * Negative steps are supported for reverse iteration (e.g., range 10 to 1 by
+ * -1). The iteration logic in the VM handles negative steps correctly by
+ * checking the step direction. No validation is performed here as ranges with
+ * mismatched step direction and start/end relationship simply result in empty
+ * ranges (e.g., range 1 to 10 by -1 produces no values, which is correct
+ * behavior).
+ *
  * @param start Starting value (inclusive)
  * @param end Ending value (inclusive)
- * @param step Step size (defaults to 1.0 if 0.0)
+ * @param step Step size (defaults to 1.0 if 0.0, negative steps allowed for
+ * reverse iteration)
  * @return New range value, or NULL on allocation failure
  */
 KronosValue *value_new_range(double start, double end, double step) {
@@ -280,8 +351,15 @@ KronosValue *value_new_range(double start, double end, double step) {
   val->refcount = 1;
   val->as.range.start = start;
   val->as.range.end = end;
-  // Default step to 1.0 if 0.0 is provided
-  val->as.range.step = (step == 0.0) ? 1.0 : step;
+  // Step of 0.0 is invalid (would cause infinite loop). Default to 1.0 with
+  // warning.
+  if (step == 0.0) {
+    fprintf(stderr,
+            "Warning: Range step of 0.0 is invalid, defaulting to 1.0\n");
+    val->as.range.step = 1.0;
+  } else {
+    val->as.range.step = step;
+  }
 
   gc_track(val);
   return val;
@@ -316,8 +394,56 @@ static uint32_t hash_value(KronosValue *key) {
     return key->as.boolean ? 1 : 0;
   case VAL_NIL:
     return 0xDEADBEEF; // Arbitrary constant for null
+  case VAL_RANGE: {
+    // Hash range components
+    uint32_t h = 2166136261u;
+    union {
+      double d;
+      uint64_t u;
+    } converter;
+    converter.d = key->as.range.start;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    h *= 16777619;
+    converter.d = key->as.range.end;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    h *= 16777619;
+    converter.d = key->as.range.step;
+    h ^= (uint32_t)(converter.u ^ (converter.u >> 32));
+    return h;
+  }
+  case VAL_LIST: {
+    // Hash list by hashing each element (content-based)
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < key->as.list.count; i++) {
+      h ^= hash_value(key->as.list.items[i]);
+      h *= 16777619;
+    }
+    return h;
+  }
+  case VAL_MAP: {
+    // Hash map by hashing key-value pairs (content-based)
+    // Note: Order-dependent, but maps are unordered anyway
+    uint32_t h = 2166136261u;
+    MapEntry *entries = (MapEntry *)key->as.map.entries;
+    for (size_t i = 0; i < key->as.map.capacity; i++) {
+      if (entries[i].key && !entries[i].is_tombstone) {
+        h ^= hash_value(entries[i].key);
+        h *= 16777619;
+        if (entries[i].value) {
+          h ^= hash_value(entries[i].value);
+          h *= 16777619;
+        }
+      }
+    }
+    return h;
+  }
+  case VAL_FUNCTION:
+  case VAL_CHANNEL:
   default:
-    // For other types, use pointer hash
+    // For functions and channels, use pointer hash since they are reference
+    // types. Two different function/channel objects should be considered
+    // different even if they have the same content, as they represent distinct
+    // instances.
     return (uint32_t)((uintptr_t)key * 2654435761u);
   }
 }
@@ -338,11 +464,7 @@ KronosValue *value_new_map(size_t initial_capacity) {
   if (!val)
     return NULL;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = calloc(capacity, sizeof(*entries));
+  MapEntry *entries = calloc(capacity, sizeof(MapEntry));
 
   if (!entries) {
     free(val);
@@ -369,29 +491,99 @@ KronosValue *value_new_map(size_t initial_capacity) {
  */
 void value_retain(KronosValue *val) {
   if (val) {
-    if (val->refcount == UINT32_MAX) {
-      fprintf(stderr, "KronosValue refcount overflow\n");
-      abort();
+    // Use saturating arithmetic: if already at max, leave it there
+    // This prevents overflow while avoiding abrupt termination
+    if (val->refcount < UINT32_MAX) {
+      val->refcount++;
+    } else {
+      // Refcount already at maximum - value is effectively permanently retained
+      // Log warning but continue execution (better than abort())
+      fprintf(stderr,
+              "Warning: KronosValue refcount at maximum (%u), "
+              "saturating to prevent overflow\n",
+              UINT32_MAX);
     }
-    val->refcount++;
   }
 }
 
-static void release_stack_push(KronosValue ***stack, size_t *count,
+/**
+ * @brief Push a value onto the release stack
+ *
+ * Grows the stack if needed. If realloc fails, logs a warning and returns
+ * false. The caller should handle the failure appropriately (e.g., by
+ * releasing the value directly, which will recurse but avoids memory leak).
+ *
+ * @param stack Pointer to stack array
+ * @param count Pointer to current count
+ * @param capacity Pointer to current capacity
+ * @param val Value to push
+ * @return true on success, false if realloc failed
+ */
+static bool release_stack_push(KronosValue ***stack, size_t *count,
                                size_t *capacity, KronosValue *val) {
   if (*count == *capacity) {
     size_t new_capacity = (*capacity == 0) ? 8 : (*capacity * 2);
     KronosValue **new_stack =
         realloc(*stack, new_capacity * sizeof(KronosValue *));
     if (!new_stack) {
-      fprintf(stderr, "Failed to grow release stack\n");
-      abort();
+      fprintf(stderr, "Warning: Failed to grow release stack (memory "
+                      "exhaustion). Falling back to recursive release.\n");
+      return false;
     }
     *stack = new_stack;
     *capacity = new_capacity;
   }
 
   (*stack)[(*count)++] = val;
+  return true;
+}
+
+/**
+ * @brief Finalize an object without releasing children
+ *
+ * Used during gc_cleanup to avoid use-after-free issues. This function
+ * frees the object's own memory (strings, bytecode, containers) but does
+ * NOT recursively release child values, since they will be freed separately
+ * by gc_cleanup.
+ *
+ * @param val Value to finalize (safe to pass NULL)
+ */
+void value_finalize(KronosValue *val) {
+  if (!val)
+    return;
+
+  gc_untrack(val);
+
+  // Free any owned memory, but don't release children
+  switch (val->type) {
+  case VAL_STRING:
+    free(val->as.string.data);
+    break;
+  case VAL_FUNCTION:
+    free(val->as.function.bytecode);
+    break;
+  case VAL_LIST:
+    // Free the items array, but don't release the child values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.list.items);
+    break;
+  case VAL_MAP: {
+    // Free the entries array, but don't release keys/values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.map.entries);
+    break;
+  }
+  case VAL_CHANNEL:
+    // Channels are currently managed externally.
+    break;
+  case VAL_RANGE:
+    // Ranges don't own other values, just store numbers
+    break;
+  default:
+    break;
+  }
+
+  free(val);
 }
 
 /**
@@ -444,24 +636,32 @@ void value_release(KronosValue *val) {
     case VAL_LIST:
       for (size_t i = 0; i < current->as.list.count; i++) {
         KronosValue *child = current->as.list.items[i];
-        if (child)
-          release_stack_push(&stack, &stack_count, &stack_capacity, child);
+        if (child) {
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  child)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release(child);
+          }
+        }
       }
       free(current->as.list.items);
       break;
     case VAL_MAP: {
-      struct {
-        KronosValue *key;
-        KronosValue *value;
-        bool is_tombstone;
-      } *entries = (void *)current->as.map.entries;
+      MapEntry *entries = (MapEntry *)current->as.map.entries;
       for (size_t i = 0; i < current->as.map.capacity; i++) {
         if (entries[i].key && !entries[i].is_tombstone) {
-          release_stack_push(&stack, &stack_count, &stack_capacity,
-                             entries[i].key);
-          if (entries[i].value)
-            release_stack_push(&stack, &stack_count, &stack_capacity,
-                               entries[i].value);
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  entries[i].key)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release(entries[i].key);
+          }
+          if (entries[i].value) {
+            if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                    entries[i].value)) {
+              // Stack push failed - release directly (recursive fallback)
+              value_release(entries[i].value);
+            }
+          }
         }
       }
       free(entries);
@@ -484,19 +684,14 @@ void value_release(KronosValue *val) {
 }
 
 /**
- * @brief Print a value to a file stream
+ * @brief Print a value to a file stream (internal recursive version with depth
+ * limit)
  *
- * Formats the value in a human-readable way:
- * - Numbers: printed as integers if whole, otherwise as floats
- * - Strings: printed as-is
- * - Booleans: "true" or "false"
- * - Nil: "null"
- * - Lists: [item1, item2, ...]
- *
- * @param out File stream to print to (defaults to stdout if NULL)
- * @param val Value to print (prints "null" if NULL)
+ * @param out File stream to print to
+ * @param val Value to print
+ * @param depth Current recursion depth (to prevent stack overflow)
  */
-void value_fprint(FILE *out, KronosValue *val) {
+static void value_fprint_recursive(FILE *out, KronosValue *val, int depth) {
   if (!out)
     out = stdout;
 
@@ -529,11 +724,15 @@ void value_fprint(FILE *out, KronosValue *val) {
     fprintf(out, "<function>");
     break;
   case VAL_LIST:
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "[<max depth exceeded>]");
+      break;
+    }
     fprintf(out, "[");
     for (size_t i = 0; i < val->as.list.count; i++) {
       if (i > 0)
         fprintf(out, ", ");
-      value_fprint(out, val->as.list.items[i]);
+      value_fprint_recursive(out, val->as.list.items[i], depth + 1);
     }
     fprintf(out, "]");
     break;
@@ -568,11 +767,11 @@ void value_fprint(FILE *out, KronosValue *val) {
     break;
   }
   case VAL_MAP: {
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *entries = (void *)val->as.map.entries;
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "{<max depth exceeded>}");
+      break;
+    }
+    MapEntry *entries = (MapEntry *)val->as.map.entries;
     fprintf(out, "{");
     bool first = true;
     for (size_t i = 0; i < val->as.map.capacity; i++) {
@@ -580,9 +779,9 @@ void value_fprint(FILE *out, KronosValue *val) {
         if (!first)
           fprintf(out, ", ");
         first = false;
-        value_fprint(out, entries[i].key);
+        value_fprint_recursive(out, entries[i].key, depth + 1);
         fprintf(out, ": ");
-        value_fprint(out, entries[i].value);
+        value_fprint_recursive(out, entries[i].value, depth + 1);
       }
     }
     fprintf(out, "}");
@@ -592,6 +791,28 @@ void value_fprint(FILE *out, KronosValue *val) {
     fprintf(out, "<unknown>");
     break;
   }
+}
+
+/**
+ * @brief Print a value to a file stream
+ *
+ * Formats the value in a human-readable way:
+ * - Numbers: printed as integers if whole, otherwise as floats
+ * - Strings: printed as-is
+ * - Booleans: "true" or "false"
+ * - Nil: "null"
+ * - Lists: [item1, item2, ...]
+ * - Maps: {key1: value1, key2: value2, ...}
+ *
+ * Uses depth limiting to prevent stack overflow from deeply nested structures.
+ *
+ * @param out File stream to print to (defaults to stdout if NULL)
+ * @param val Value to print (prints "null" if NULL)
+ */
+void value_fprint(FILE *out, KronosValue *val) {
+  if (!out)
+    out = stdout;
+  value_fprint_recursive(out, val, 0);
 }
 
 /**
@@ -635,27 +856,65 @@ bool value_is_truthy(KronosValue *val) {
 }
 
 /**
- * @brief Check if two values are equal
- *
- * Performs deep equality checking:
- * - Same pointer: always equal
- * - Different types: never equal
- * - Numbers: compared with epsilon tolerance for floating-point
- * - Strings: byte-by-byte comparison
- * - Lists: recursive element-by-element comparison
- * - Other types: pointer equality
+ * @brief Check if two values are equal (internal recursive version with depth
+ * limit)
  *
  * @param a First value
  * @param b Second value
- * @return true if equal, false otherwise
+ * @param depth Current recursion depth (to prevent stack overflow)
+ * @param visited_a Array of visited value pointers from 'a' (for cycle
+ * detection)
+ * @param visited_b Array of visited value pointers from 'b' (for cycle
+ * detection)
+ * @param visited_count Current count of visited values
+ * @param visited_capacity Capacity of visited arrays
+ * @return true if values are equal, false otherwise
  */
-bool value_equals(KronosValue *a, KronosValue *b) {
+static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
+                                   KronosValue ***visited_a,
+                                   KronosValue ***visited_b,
+                                   size_t *visited_count,
+                                   size_t *visited_capacity) {
   if (a == b)
     return true;
   if (!a || !b)
     return false;
   if (a->type != b->type)
     return false;
+
+  // Check depth limit
+  if (depth >= VALUE_EQUALS_MAX_DEPTH) {
+    // At max depth, use pointer equality as fallback
+    return a == b;
+  }
+
+  // Check for cycles (simple linear search - acceptable for limited depth)
+  for (size_t i = 0; i < *visited_count; i++) {
+    if ((*visited_a)[i] == a && (*visited_b)[i] == b) {
+      // Same pair already being compared - cycle detected, consider equal
+      return true;
+    }
+  }
+
+  // Add to visited set
+  if (*visited_count >= *visited_capacity) {
+    size_t new_capacity =
+        (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
+    KronosValue **new_visited_a =
+        realloc(*visited_a, new_capacity * sizeof(KronosValue *));
+    KronosValue **new_visited_b =
+        realloc(*visited_b, new_capacity * sizeof(KronosValue *));
+    if (new_visited_a && new_visited_b) {
+      *visited_a = new_visited_a;
+      *visited_b = new_visited_b;
+      *visited_capacity = new_capacity;
+    }
+  }
+  if (*visited_count < *visited_capacity) {
+    (*visited_a)[*visited_count] = a;
+    (*visited_b)[*visited_count] = b;
+    (*visited_count)++;
+  }
 
   switch (a->type) {
   case VAL_NUMBER:
@@ -672,7 +931,9 @@ bool value_equals(KronosValue *a, KronosValue *b) {
     if (a->as.list.count != b->as.list.count)
       return false;
     for (size_t i = 0; i < a->as.list.count; i++) {
-      if (!value_equals(a->as.list.items[i], b->as.list.items[i]))
+      if (!value_equals_recursive(a->as.list.items[i], b->as.list.items[i],
+                                  depth + 1, visited_a, visited_b,
+                                  visited_count, visited_capacity))
         return false;
     }
     return true;
@@ -684,16 +945,8 @@ bool value_equals(KronosValue *a, KronosValue *b) {
   case VAL_MAP: {
     if (a->as.map.count != b->as.map.count)
       return false;
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *a_entries = (void *)a->as.map.entries;
-    struct {
-      KronosValue *key;
-      KronosValue *value;
-      bool is_tombstone;
-    } *b_entries = (void *)b->as.map.entries;
+    MapEntry *a_entries = (MapEntry *)a->as.map.entries;
+    MapEntry *b_entries = (MapEntry *)b->as.map.entries;
     // For each key in a, check if it exists in b with same value
     for (size_t i = 0; i < a->as.map.capacity; i++) {
       if (a_entries[i].key && !a_entries[i].is_tombstone) {
@@ -701,8 +954,12 @@ bool value_equals(KronosValue *a, KronosValue *b) {
         bool found = false;
         for (size_t j = 0; j < b->as.map.capacity; j++) {
           if (b_entries[j].key && !b_entries[j].is_tombstone &&
-              value_equals(a_entries[i].key, b_entries[j].key)) {
-            if (!value_equals(a_entries[i].value, b_entries[j].value))
+              value_equals_recursive(a_entries[i].key, b_entries[j].key,
+                                     depth + 1, visited_a, visited_b,
+                                     visited_count, visited_capacity)) {
+            if (!value_equals_recursive(a_entries[i].value, b_entries[j].value,
+                                        depth + 1, visited_a, visited_b,
+                                        visited_count, visited_capacity))
               return false;
             found = true;
             break;
@@ -717,6 +974,39 @@ bool value_equals(KronosValue *a, KronosValue *b) {
   default:
     return a == b; // Pointer equality for complex types
   }
+}
+
+/**
+ * @brief Check if two values are equal
+ *
+ * Performs deep equality checking:
+ * - Same pointer: always equal
+ * - Different types: never equal
+ * - Numbers: compared with epsilon tolerance for floating-point
+ * - Strings: byte-by-byte comparison
+ * - Lists: recursive element-by-element comparison
+ * - Maps: recursive key-value comparison
+ * - Other types: pointer equality
+ *
+ * Uses depth limiting and cycle detection to prevent stack overflow and
+ * infinite recursion from deeply nested or circular structures.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return true if equal, false otherwise
+ */
+bool value_equals(KronosValue *a, KronosValue *b) {
+  KronosValue **visited_a = NULL;
+  KronosValue **visited_b = NULL;
+  size_t visited_count = 0;
+  size_t visited_capacity = 0;
+
+  bool result = value_equals_recursive(a, b, 0, &visited_a, &visited_b,
+                                       &visited_count, &visited_capacity);
+
+  free(visited_a);
+  free(visited_b);
+  return result;
 }
 
 /**
@@ -738,11 +1028,10 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
   size_t capacity = map->as.map.capacity;
   size_t index = hash % capacity;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
+
+  // Track first tombstone slot found (can be reused for insertion)
+  size_t first_tombstone = SIZE_MAX;
 
   // Linear probing
   for (size_t i = 0; i < capacity; i++) {
@@ -755,9 +1044,19 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
       *out_index = probe;
       return true; // Found
     }
+    // Track first tombstone for potential reuse
+    if (entries[probe].is_tombstone && first_tombstone == SIZE_MAX) {
+      first_tombstone = probe;
+    }
   }
 
-  *out_index = index; // Fallback
+  // If we found a tombstone, reuse it; otherwise use original hash index
+  // (This should rarely happen as map_set grows before calling this)
+  if (first_tombstone != SIZE_MAX) {
+    *out_index = first_tombstone;
+  } else {
+    *out_index = index; // Fallback (map should have been grown before this)
+  }
   return false;
 }
 
@@ -771,16 +1070,8 @@ static int map_grow(KronosValue *map) {
   size_t old_capacity = map->as.map.capacity;
   size_t new_capacity = old_capacity * 2;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *old_entries = (void *)map->as.map.entries;
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *new_entries = calloc(new_capacity, sizeof(*new_entries));
+  MapEntry *old_entries = (MapEntry *)map->as.map.entries;
+  MapEntry *new_entries = calloc(new_capacity, sizeof(MapEntry));
 
   if (!new_entries)
     return -1;
@@ -825,11 +1116,7 @@ KronosValue *map_get(KronosValue *map, KronosValue *key) {
   if (!map_find_entry(map, key, &index))
     return NULL;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   return entries[index].value;
 }
@@ -855,17 +1142,15 @@ int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
   size_t index;
   bool found = map_find_entry(map, key, &index);
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   if (found) {
     // Update existing entry
     value_release(entries[index].value);
     entries[index].value = value;
     value_retain(value);
+    // Retain the key parameter to ensure it's not freed while in the map
+    value_retain(key);
   } else {
     // Insert new entry
     if (!entries[index].key) {
@@ -896,17 +1181,17 @@ bool map_delete(KronosValue *map, KronosValue *key) {
   if (!map_find_entry(map, key, &index))
     return false;
 
-  struct {
-    KronosValue *key;
-    KronosValue *value;
-    bool is_tombstone;
-  } *entries = (void *)map->as.map.entries;
+  MapEntry *entries = (MapEntry *)map->as.map.entries;
 
   if (entries[index].is_tombstone)
     return false;
 
+  // Release references to key and value
   value_release(entries[index].key);
   value_release(entries[index].value);
+
+  // Mark as tombstone (key/value set to NULL for safety and to allow reuse)
+  // The NULL check in map_set distinguishes new slots from reused tombstones
   entries[index].key = NULL;
   entries[index].value = NULL;
   entries[index].is_tombstone = true;
@@ -933,6 +1218,8 @@ KronosValue *string_intern(const char *str, size_t len) {
   uint32_t hash = hash_string(str, len);
   size_t index = hash % INTERN_TABLE_SIZE;
 
+  pthread_mutex_lock(&intern_mutex);
+
   // Linear probing
   for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
     size_t probe = (index + i) % INTERN_TABLE_SIZE;
@@ -943,8 +1230,11 @@ KronosValue *string_intern(const char *str, size_t len) {
       KronosValue *val = value_new_string(str, len);
       if (val) {
         intern_table[probe] = val;
-        value_retain(val); // Extra ref for intern table
+        value_retain(val); // Extra ref for intern table (refcount now 2)
+        // Release one ref before returning so caller gets refcount 1
+        value_release(val);
       }
+      pthread_mutex_unlock(&intern_mutex);
       return val;
     }
 
@@ -952,11 +1242,20 @@ KronosValue *string_intern(const char *str, size_t len) {
         entry->as.string.length == len &&
         memcmp(entry->as.string.data, str, len) == 0) {
       // Found existing interned string
+      // Retain before returning so caller gets refcount 1 (consistent with new
+      // strings)
+      value_retain(entry);
+      pthread_mutex_unlock(&intern_mutex);
       return entry;
     }
   }
 
   // Table full, fallback to non-interned string
+  pthread_mutex_unlock(&intern_mutex);
+  fprintf(stderr,
+          "Warning: String intern table full (size %d), falling back to "
+          "non-interned string\n",
+          INTERN_TABLE_SIZE);
   return value_new_string(str, len);
 }
 
@@ -977,24 +1276,47 @@ bool value_is_type(KronosValue *val, const char *type_name) {
   if (!val || !type_name)
     return false;
 
-  if (strcmp(type_name, "number") == 0) {
-    return val->type == VAL_NUMBER;
-  } else if (strcmp(type_name, "string") == 0) {
-    return val->type == VAL_STRING;
-  } else if (strcmp(type_name, "boolean") == 0) {
-    return val->type == VAL_BOOL;
-  } else if (strcmp(type_name, "null") == 0) {
-    return val->type == VAL_NIL;
-  } else if (strcmp(type_name, "range") == 0) {
-    return val->type == VAL_RANGE;
-  } else if (strcmp(type_name, "list") == 0) {
-    return val->type == VAL_LIST;
-  } else if (strcmp(type_name, "map") == 0) {
-    return val->type == VAL_MAP;
-  } else if (strcmp(type_name, "function") == 0) {
-    return val->type == VAL_FUNCTION;
-  } else if (strcmp(type_name, "channel") == 0) {
-    return val->type == VAL_CHANNEL;
+  // Optimize by checking first character and length before strcmp
+  // This eliminates most comparisons quickly without needing full string
+  // comparison
+  char first = type_name[0];
+  size_t len = strlen(type_name);
+
+  switch (first) {
+  case 'b':
+    if (len == 7 && strcmp(type_name, "boolean") == 0)
+      return val->type == VAL_BOOL;
+    break;
+  case 'c':
+    if (len == 7 && strcmp(type_name, "channel") == 0)
+      return val->type == VAL_CHANNEL;
+    break;
+  case 'f':
+    if (len == 8 && strcmp(type_name, "function") == 0)
+      return val->type == VAL_FUNCTION;
+    break;
+  case 'l':
+    if (len == 4 && strcmp(type_name, "list") == 0)
+      return val->type == VAL_LIST;
+    break;
+  case 'm':
+    if (len == 3 && strcmp(type_name, "map") == 0)
+      return val->type == VAL_MAP;
+    break;
+  case 'n':
+    if (len == 6 && strcmp(type_name, "number") == 0)
+      return val->type == VAL_NUMBER;
+    else if (len == 4 && strcmp(type_name, "null") == 0)
+      return val->type == VAL_NIL;
+    break;
+  case 'r':
+    if (len == 5 && strcmp(type_name, "range") == 0)
+      return val->type == VAL_RANGE;
+    break;
+  case 's':
+    if (len == 6 && strcmp(type_name, "string") == 0)
+      return val->type == VAL_STRING;
+    break;
   }
 
   return false;

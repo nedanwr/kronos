@@ -1,0 +1,20 @@
+# File I/O with large files and number conversion
+# Tests reading a large file and converting its content to a number
+# Expected output:
+# 1. As Text (String): [content of huge.txt]
+# 2. As Number (Calculated): [number value]
+# 3. Let's try math (num + 1): [number + 1]
+
+# Create the test file first
+call write_file with "huge.txt", "12345678901234567890"
+
+set text to call read_file with "huge.txt"
+print "1. As Text (String):"
+print text
+
+print "2. As Number (Calculated):"
+set num to call to_number with text
+print num
+
+print "3. Let's try math (num + 1):"
+print num plus 1

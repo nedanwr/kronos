@@ -4,7 +4,7 @@ LDFLAGS = -lm
 
 # Source files
 CORE_SRC = src/core/runtime.c src/core/gc.c
-FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/parser.c
+FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/keywords_hash.c src/frontend/parser.c
 COMPILER_SRC = src/compiler/compiler.c
 VM_SRC = src/vm/vm.c
 MAIN_SRC = main.c
@@ -45,6 +45,53 @@ $(TARGET): $(OBJ)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# Generate perfect hash for keywords using gperf
+src/frontend/keywords_hash.c: src/frontend/keywords.gperf
+	gperf -t --output-file=$@ --lookup-function-name=keyword_lookup --compare-strncmp $<
+	@# Fix empty string entries in generated file
+	@python3 -c "import re; content = open('$@').read(); content = re.sub(r'\{\s*\"\"\s*\}', '{NULL, 0}', content); open('$@', 'w').write(content)"
+	@# Remove inline keywords and related preprocessor directives that can cause linking issues
+	@python3 scripts/fix_keywords_hash.py $@
+	@# Fix struct definition and function signature
+	@# Fix function signatures (old-style to modern C)
+	@# Cross-platform sed: macOS needs -i '', Linux needs -i
+	@# Fix function signatures (old-style to modern C)
+	@# Cross-platform sed: macOS needs -i '', Linux needs -i
+	@# Handle both 'hash' and 'keyword_hash_func' (in case Python already renamed it)
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		sed -i '' 's/^static unsigned int$$/static unsigned int/' $@; \
+		sed -i '' 's/^hash (str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i '' 's/^keyword_hash_func(str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i '' '/^     register const char \*str;$$/d' $@; \
+		sed -i '' '/^     register unsigned int len;$$/d' $@; \
+		sed -i '' 's/^struct KeywordEntry \*/const struct KeywordEntry */' $@; \
+		sed -i '' 's/^keyword_lookup (str, len)$$/keyword_lookup (register const char *str, register unsigned int len)/' $@; \
+		sed -i '' 's/static struct KeywordEntry wordlist/static const struct KeywordEntry wordlist/' $@; \
+		sed -i '' 's/unsigned int key = hash (str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i '' 's/unsigned int key = keyword_hash_func(str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i '' 's/register const char \*s = wordlist\[key\]\.name;/register const struct KeywordEntry *entry = \&wordlist[key];/' $@ || true; \
+		sed -i '' 's/if (\*str == \*s && !strncmp (str + 1, s + 1, len - 1) && s\[len\] == '\''\\0'\'')/if (entry->keyword \&\& strlen(entry->keyword) == len \&\& !strncmp(str, entry->keyword, len))/' $@ || true; \
+		sed -i '' 's/return \&wordlist\[key\];/return entry;/' $@ || true; \
+		sed -i '' 's/return 0;/return NULL;/' $@ || true; \
+	else \
+		sed -i 's/^static unsigned int$$/static unsigned int/' $@; \
+		sed -i 's/^hash (str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i 's/^keyword_hash_func(str, len)$$/keyword_hash_func (register const char *str, register unsigned int len)/' $@; \
+		sed -i '/^     register const char \*str;$$/d' $@; \
+		sed -i '/^     register unsigned int len;$$/d' $@; \
+		sed -i 's/^struct KeywordEntry \*/const struct KeywordEntry */' $@; \
+		sed -i 's/^keyword_lookup (str, len)$$/keyword_lookup (register const char *str, register unsigned int len)/' $@; \
+		sed -i 's/static struct KeywordEntry wordlist/static const struct KeywordEntry wordlist/' $@; \
+		sed -i 's/unsigned int key = hash (str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i 's/unsigned int key = keyword_hash_func(str, len);/unsigned int key = keyword_hash_func (str, len);/' $@; \
+		sed -i 's/register const char \*s = wordlist\[key\]\.name;/register const struct KeywordEntry *entry = \&wordlist[key];/' $@ || true; \
+		sed -i 's/if (\*str == \*s && !strncmp (str + 1, s + 1, len - 1) && s\[len\] == '\''\\0'\'')/if (entry->keyword \&\& strlen(entry->keyword) == len \&\& !strncmp(str, entry->keyword, len))/' $@ || true; \
+		sed -i 's/return \&wordlist\[key\];/return entry;/' $@ || true; \
+		sed -i 's/return 0;/return NULL;/' $@ || true; \
+	fi
+	@# Keep struct definition but ensure it's properly formatted
+	@echo "  Generated $@ from $<"
 
 lsp: $(LSP_SERVER_OBJ) $(LSP_OBJ)
 	$(CC) $(CFLAGS) -o kronos-lsp $^ $(LDFLAGS)

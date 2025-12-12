@@ -7,6 +7,41 @@
 // Garbage collector for reference counting and cycle detection
 
 /**
+ * @file gc.h
+ * @brief Garbage collector API for Kronos
+ *
+ * Thread-Safety Guarantees:
+ * =========================
+ *
+ * All GC functions are NOT thread-safe by default and require external
+ * synchronization. The internal mutex (`gc_mutex`) protects the GC state
+ * structure, but callers must ensure:
+ *
+ * 1. **Initialization/Shutdown**: `gc_init()` and `gc_cleanup()` must be called
+ *    from a single thread (typically the main thread) during program
+ *    initialization/shutdown. These functions are NOT safe to call
+ *    concurrently.
+ *
+ * 2. **Tracking Operations**: `gc_track()` and `gc_untrack()` use internal
+ *    mutexes for thread-safety. Multiple threads can safely call these
+ *    functions concurrently. However, the caller must ensure that the
+ *    KronosValue being tracked/untracked is not being modified concurrently.
+ *
+ * 3. **Statistics**: `gc_get_allocated_bytes()`, `gc_get_object_count()`, and
+ *    `gc_stats()` use internal mutexes and are safe to call from multiple
+ *    threads concurrently.
+ *
+ * 4. **Cycle Collection**: `gc_collect_cycles()` uses internal mutexes but
+ *    should typically be called from a single thread to avoid contention.
+ *
+ * Best Practices:
+ * - Call `gc_init()` once at program startup from the main thread
+ * - Call `gc_cleanup()` once at program shutdown from the main thread
+ * - All other functions can be called from any thread, but ensure KronosValue
+ *   objects are not modified concurrently while being tracked/untracked
+ */
+
+/**
  * @brief Initialize the garbage collector.
  *
  * Must be called once before any GC operations.
@@ -114,5 +149,30 @@ size_t gc_get_allocated_bytes(void);
  * @note Thread-safety: NOT thread-safe. Requires external synchronization.
  */
 size_t gc_get_object_count(void);
+
+/**
+ * @brief GC statistics structure
+ *
+ * Contains detailed memory and tracking statistics for debugging and
+ * monitoring.
+ */
+typedef struct {
+  size_t object_count;    /**< Number of currently tracked objects */
+  size_t allocated_bytes; /**< Total bytes allocated by tracked objects */
+  size_t array_capacity;  /**< Current capacity of the tracking array */
+  size_t
+      array_utilization; /**< Percentage utilization (count/capacity * 100) */
+} GCStats;
+
+/**
+ * @brief Get detailed GC statistics
+ *
+ * Returns comprehensive statistics about the garbage collector state.
+ * Useful for debugging memory issues and monitoring memory usage.
+ *
+ * @param stats Pointer to GCStats structure to fill (must not be NULL)
+ * @note Thread-safety: NOT thread-safe. Requires external synchronization.
+ */
+void gc_stats(GCStats *stats);
 
 #endif // KRONOS_GC_H

@@ -59,6 +59,8 @@ typedef enum {
 struct ASTNode {
   ASTNodeType type;
   int indent;
+  size_t line;   // 1-based line number where this node starts (0 if unknown)
+  size_t column; // 1-based column number where this node starts (0 if unknown)
   union {
     // Literals
     double number;
@@ -237,8 +239,26 @@ typedef struct {
   size_t capacity;
 } AST;
 
+// Error information for parsing failures
+typedef struct {
+  char *message; // Error message (heap-allocated, owned by ParseError)
+  size_t line;   // 1-based line number where error occurred (0 if unknown)
+  size_t column; // 1-based column number where error occurred (0 if unknown)
+} ParseError;
+
 // Parse tokens into AST
-AST *parse(TokenArray *tokens);
+// @param tokens Token array to parse (must not be NULL)
+// @param out_err Optional pointer to receive error details on failure.
+//                If non-NULL and an error occurs, *out_err is set to a
+//                heap-allocated ParseError (caller must free with
+//                parse_error_free()). On success, *out_err is set to NULL.
+// @return AST* on success, NULL on error (allocation failure or parse error).
+//         On error, if out_err is non-NULL, *out_err contains error details.
+AST *parse(TokenArray *tokens, ParseError **out_err);
+
+// Free a ParseError structure
+// @param err ParseError to free (may be NULL, in which case this is a no-op)
+void parse_error_free(ParseError *err);
 void ast_free(AST *ast);
 void ast_node_free(ASTNode *node);
 
