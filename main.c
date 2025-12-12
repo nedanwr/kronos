@@ -9,6 +9,11 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "include/kronos.h"
+// linenoise - Line editing library for REPL (BSD License)
+// Copyright (c) 2010-2023, Salvatore Sanfilippo <antirez at gmail dot com>
+// Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+// See linenoise.h and linenoise.c for full license and copyright information
+#include "linenoise.h"
 #include "src/compiler/compiler.h"
 #include "src/core/runtime.h"
 #include "src/frontend/parser.h"
@@ -34,6 +39,16 @@
 static volatile sig_atomic_t g_signal_received = 0;
 static KronosVM *g_repl_vm =
     NULL; // VM instance for REPL (for cleanup on signal)
+
+// Kronos keywords for tab completion
+static const char *kronos_keywords[] = {
+    "set",     "let",     "to",       "as",       "if",    "else",   "for",
+    "while",   "break",   "continue", "in",       "range", "list",   "map",
+    "at",      "from",    "end",      "function", "with",  "call",   "return",
+    "import",  "true",    "false",    "null",     "is",    "equal",  "not",
+    "greater", "less",    "than",     "and",      "or",    "print",  "plus",
+    "minus",   "times",   "divided",  "by",       "mod",   "delete", "try",
+    "catch",   "finally", "raise",    NULL};
 
 /**
  * @brief Print usage information
@@ -413,65 +428,62 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 }
 
 /**
- * @brief Read a line from stdin with dynamic buffer allocation
+ * @brief Tab completion callback for linenoise
  *
- * Reads a complete line from stdin, allocating a buffer that grows as needed.
- * The caller is responsible for freeing the returned buffer.
- *
- * @param out_len Optional pointer to store the length of the line (excluding
- * null terminator). If NULL, length is not returned.
- * @return Pointer to allocated buffer containing the line (without newline),
- *         or NULL on EOF or allocation failure. Empty lines return empty
- * string.
+ * Provides completions for Kronos keywords, function names, and variable names.
  */
-static char *read_line_dynamic(size_t *out_len) {
-  size_t capacity = 256;
-  size_t len = 0;
-  char *buffer = malloc(capacity);
-  if (!buffer)
-    return NULL;
+static void completion_callback(const char *buf, linenoiseCompletions *lc) {
+  // Get the VM instance for function/variable names
+  KronosVM *vm = g_repl_vm;
+  if (!vm) {
+    return;
+  }
 
-  int c;
-  while ((c = getchar()) != EOF && c != '\n') {
-    if (len + 1 >= capacity) {
-      // Double capacity when buffer is full
-      size_t new_capacity = capacity * 2;
-      char *new_buffer = realloc(buffer, new_capacity);
-      if (!new_buffer) {
-        free(buffer);
-        return NULL;
-      }
-      buffer = new_buffer;
-      capacity = new_capacity;
+  // Find the last word boundary (space, newline, or start of string)
+  const char *word_start = buf;
+  const char *p = buf + strlen(buf);
+  while (p > buf && p[-1] != ' ' && p[-1] != '\n' && p[-1] != '\t') {
+    p--;
+  }
+  word_start = p;
+  size_t word_len = strlen(buf) - (word_start - buf);
+
+  // Complete keywords
+  for (size_t i = 0; kronos_keywords[i] != NULL; i++) {
+    if (strncmp(word_start, kronos_keywords[i], word_len) == 0) {
+      linenoiseAddCompletion(lc, kronos_keywords[i]);
     }
-    buffer[len++] = (char)c;
   }
 
-  if (len == 0 && c == EOF) {
-    // EOF without any input
-    free(buffer);
-    return NULL;
+  // Complete function names
+  for (size_t i = 0; i < vm->function_count; i++) {
+    if (vm->functions[i] && vm->functions[i]->name) {
+      if (strncmp(word_start, vm->functions[i]->name, word_len) == 0) {
+        linenoiseAddCompletion(lc, vm->functions[i]->name);
+      }
+    }
   }
 
-  buffer[len] = '\0';
-
-  // Return length if requested
-  if (out_len) {
-    *out_len = len;
+  // Complete global variable names
+  for (size_t i = 0; i < vm->global_count; i++) {
+    if (vm->globals[i].name) {
+      if (strncmp(word_start, vm->globals[i].name, word_len) == 0) {
+        linenoiseAddCompletion(lc, vm->globals[i].name);
+      }
+    }
   }
-
-  return buffer;
 }
 
 /**
- * @brief Read multi-line input until user finishes (empty line or EOF)
+ * @brief Read multi-line input using linenoise until user finishes (empty line
+ * or EOF)
  *
- * Reads lines from stdin, accumulating them. Shows continuation prompts
- * ("... ") for additional lines. User finishes input by pressing Enter
- * on an empty line.
+ * Reads lines from stdin using linenoise for line editing and history,
+ * accumulating them. Shows continuation prompts ("... ") for additional lines.
+ * User finishes input by pressing Enter on an empty line.
  *
  * @return Pointer to allocated buffer containing the complete input, or NULL on
- * EOF
+ * EOF. Caller must free the returned buffer.
  */
 static char *read_multiline_input(void) {
   size_t capacity = 512;
@@ -484,20 +496,12 @@ static char *read_multiline_input(void) {
   bool got_empty_line = false;
 
   while (1) {
-    // Show prompt
-    if (first_line) {
-      printf(">>> ");
-      first_line = false;
-    } else {
-      printf("... ");
-    }
-    fflush(stdout);
+    // Show prompt using linenoise
+    const char *prompt = first_line ? ">>> " : "... ";
+    char *line = linenoise(prompt);
 
-    // Read a line (get length to avoid calling strlen() again)
-    size_t line_len = 0;
-    char *line = read_line_dynamic(&line_len);
     if (!line) {
-      // EOF - return what we have (might be empty)
+      // EOF (Ctrl+D) - return what we have (might be empty)
       if (len == 0) {
         free(buffer);
         return NULL;
@@ -509,30 +513,37 @@ static char *read_multiline_input(void) {
     // Support both "exit" and "quit" commands
     if (len == 0 &&
         (strcasecmp(line, "exit") == 0 || strcasecmp(line, "quit") == 0)) {
-      free(line);
+      linenoiseFree(line);
       free(buffer);
       return NULL; // Signal to exit REPL
     }
 
+    size_t line_len = strlen(line);
+
     // If we get an empty line after having content, that signals end of input
     if (line_len == 0 && len > 0) {
-      free(line);
+      linenoiseFree(line);
       break;
     }
 
     // If we got an empty line previously and this is also empty, break
     if (line_len == 0 && got_empty_line) {
-      free(line);
+      linenoiseFree(line);
       break;
     }
 
     if (line_len == 0) {
       got_empty_line = true;
-      free(line);
+      linenoiseFree(line);
       continue;
     }
 
     got_empty_line = false;
+
+    // Add non-empty line to history (only first line to avoid duplicates)
+    if (first_line) {
+      linenoiseHistoryAdd(line);
+    }
 
     // Calculate space needed: current buffer + new line + newline + null
     // terminator
@@ -546,7 +557,7 @@ static char *read_multiline_input(void) {
       }
       char *new_buffer = realloc(buffer, new_capacity);
       if (!new_buffer) {
-        free(line);
+        linenoiseFree(line);
         free(buffer);
         return NULL;
       }
@@ -562,7 +573,8 @@ static char *read_multiline_input(void) {
     len += line_len;
     buffer[len] = '\0';
 
-    free(line);
+    linenoiseFree(line);
+    first_line = false;
   }
 
   return buffer;
@@ -671,8 +683,15 @@ void kronos_repl(void) {
     return;
   }
 
-  // Store VM pointer for signal handler cleanup
+  // Store VM pointer for signal handler cleanup and completion callback
   g_repl_vm = vm;
+
+  // Set up linenoise
+  linenoiseSetCompletionCallback(completion_callback);
+  linenoiseHistorySetMaxLen(100); // Store up to 100 history entries
+
+  // Try to load history from file (ignore errors if file doesn't exist)
+  linenoiseHistoryLoad(".kronos_history");
 
   while (1) {
     // Check for signal
@@ -726,6 +745,9 @@ void kronos_repl(void) {
 
     free(input);
   }
+
+  // Save history before exiting
+  linenoiseHistorySave(".kronos_history");
 
   g_repl_vm = NULL;
   kronos_vm_free(vm);
