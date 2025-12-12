@@ -3734,6 +3734,69 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
 }
 
 /**
+ * @brief Parse a single expression from tokens (for REPL expression evaluation)
+ *
+ * Attempts to parse the token stream as a single expression. This is useful
+ * for REPL mode where expressions like "42" or "10 plus 20" should be
+ * evaluated and their results printed.
+ *
+ * @param tokens Token array to parse (must not be NULL)
+ * @param out_err Optional pointer to receive error details on failure
+ * @return AST node for the expression, or NULL on error. Caller must free
+ *         with ast_node_free().
+ */
+ASTNode *parse_expression_only(TokenArray *tokens, ParseError **out_err) {
+  // Initialize error output to NULL
+  if (out_err) {
+    *out_err = NULL;
+  }
+
+  Parser *p = parser_new(tokens, out_err);
+  if (!p) {
+    return NULL;
+  }
+
+  // Skip any leading newlines or indentation
+  while (p->pos < tokens->count) {
+    Token *tok = peek(p, 0);
+    if (!tok || tok->type == TOK_EOF) {
+      parser_free(p);
+      return NULL;
+    }
+    if (tok->type == TOK_NEWLINE || tok->type == TOK_INDENT) {
+      consume_any(p);
+      continue;
+    }
+    break;
+  }
+
+  // Try to parse as an expression
+  ASTNode *expr = parse_expression(p);
+
+  // Check if we consumed all tokens (except trailing newlines/EOF)
+  if (expr) {
+    while (p->pos < tokens->count) {
+      Token *tok = peek(p, 0);
+      if (!tok || tok->type == TOK_EOF) {
+        break;
+      }
+      if (tok->type == TOK_NEWLINE) {
+        consume_any(p);
+        continue;
+      }
+      // There are remaining tokens that weren't part of the expression
+      // This means the input wasn't a valid single expression
+      ast_node_free(expr);
+      parser_free(p);
+      return NULL;
+    }
+  }
+
+  parser_free(p);
+  return expr;
+}
+
+/**
  * @brief Free an AST node and all its children
  *
  * Recursively frees all memory associated with the node, including

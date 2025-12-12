@@ -256,6 +256,13 @@ typedef struct {
 //         On error, if out_err is non-NULL, *out_err contains error details.
 AST *parse(TokenArray *tokens, ParseError **out_err);
 
+// Parse a single expression from tokens (for REPL expression evaluation)
+// @param tokens Token array to parse (must not be NULL)
+// @param out_err Optional pointer to receive error details on failure.
+// @return AST node for the expression, or NULL on error. Caller must free with
+//         ast_node_free().
+ASTNode *parse_expression_only(TokenArray *tokens, ParseError **out_err);
+
 // Free a ParseError structure
 // @param err ParseError to free (may be NULL, in which case this is a no-op)
 void parse_error_free(ParseError *err);
