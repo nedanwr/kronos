@@ -4836,9 +4836,10 @@ static int handle_op_list_append(KronosVM *vm) {
   value_retain(value);
   list->as.list.items[list->as.list.count++] = value;
 
-  // Release our popped reference before pushing (push will retain it)
+  // Push first (retains the list), then release our popped reference
+  // Note: cleanup only releases list because value is now owned by list
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list););
   value_release(list);
-  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(value););
 
   value_release(value);
   return 0;
@@ -5519,16 +5520,24 @@ static int handle_op_list_next(KronosVM *vm) {
       // Release our popped reference (range is now on stack)
       value_release(iterable);
     } else {
-      // No more items - push false
-      KronosValue *has_more_val = value_new_bool(false);
-      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
-                                  value_release(state_val);
-                                  value_release(iterable););
-      value_release(has_more_val);
-
-      // Release our popped reference
-      value_release(state_val);
+      // No more items - push range and state back for cleanup, then has_more = false
+      // Stack should be: [range, state, has_more=false] for cleanup code
+      // Push range first (bottom of stack)
+      value_retain(iterable);
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
+                                  value_release(state_val););
       value_release(iterable);
+
+      // Push state back
+      value_retain(state_val);
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, state_val, value_release(state_val););
+      value_release(state_val);
+
+      // Push has_more = false
+      KronosValue *has_more_val = value_new_bool(false);
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
+                                  value_release(has_more_val););
+      value_release(has_more_val);
     }
   } else {
     value_release(state_val);
