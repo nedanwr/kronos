@@ -148,18 +148,15 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Command-line execution flag: `./kronos -e "print 42"` to execute code without entering REPL
   - ✅ Support multiple `-e` flags: `./kronos -e "set x to 10" -e "print x"`
 
-- 📋 **REPL Line Editing & History** - Enhanced interactive experience (planned)
+- ✅ **REPL Line Editing & History** - Enhanced interactive experience (completed)
 
-  - Arrow key navigation (up/down for history, left/right for editing)
-  - Command history (configurable size, persistent across sessions)
-  - Tab completion (keywords, function names, variable names)
-  - Basic editing (backspace, delete, home/end keys)
-  - Implementation options:
-    - **linenoise** (recommended): Lightweight, single-file library, BSD license, no external dependencies
-    - **readline**: Full-featured but requires external library and has GPL license considerations
-    - **Custom implementation**: Terminal control using termios/ANSI codes (significant effort)
-  - Current status: Basic REPL is functional; advanced editing is a nice-to-have enhancement
-  - See `docs/MAIN_ISSUES.md` Issue #11 for detailed requirements and implementation notes
+  - ✅ Arrow key navigation (up/down for history, left/right for editing)
+  - ✅ Command history (configurable size: 100 entries, persistent across sessions via `.kronos_history`)
+  - ✅ Tab completion (keywords, function names, variable names)
+  - ✅ Basic editing (backspace, delete, home/end keys)
+  - ✅ Implemented using **linenoise**: Lightweight, single-file library, BSD license, no external dependencies
+  - History is automatically saved to `.kronos_history` file in the current directory
+  - Tab completion provides suggestions for all Kronos keywords, user-defined functions, and global variables
 
 - 📝 **Code Documentation Improvements** - Improve comment quality (in progress)
 
