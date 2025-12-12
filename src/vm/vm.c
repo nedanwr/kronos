@@ -4835,9 +4835,11 @@ static int handle_op_list_append(KronosVM *vm) {
   // Append value
   value_retain(value);
   list->as.list.items[list->as.list.count++] = value;
-  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list);
-                              value_release(value););
+
+  // Release our popped reference before pushing (push will retain it)
   value_release(list);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(value););
+
   value_release(value);
   return 0;
 }
