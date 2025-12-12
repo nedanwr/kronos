@@ -5447,6 +5447,10 @@ static int handle_op_list_next(KronosVM *vm) {
       PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
                                   value_release(state_val););
       value_release(has_more_val);
+
+      // Release our popped references (values are now on stack)
+      value_release(state_val);
+      value_release(iterable);
     } else {
       // No more items - push list and index back for cleanup, then has_more =
       // false Stack should be: [list, index, has_more=false] for cleanup code
@@ -5466,6 +5470,12 @@ static int handle_op_list_next(KronosVM *vm) {
       PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
                                   value_release(has_more_val););
       value_release(has_more_val);
+
+      // Release our popped references (values are now on stack)
+      // Note: we retained before pushing and released after, so the only
+      // remaining refs are the pop refs which we release here
+      value_release(state_val);
+      value_release(iterable);
     }
   } else if (iterable->type == VAL_RANGE) {
     if (state_val->type != VAL_NUMBER) {
@@ -5517,7 +5527,8 @@ static int handle_op_list_next(KronosVM *vm) {
                                   value_release(state_val););
       value_release(has_more_val);
 
-      // Release our popped reference (range is now on stack)
+      // Release our popped references (range is now on stack)
+      value_release(state_val);
       value_release(iterable);
     } else {
       // No more items - push range and state back for cleanup, then has_more = false
@@ -5538,6 +5549,10 @@ static int handle_op_list_next(KronosVM *vm) {
       PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
                                   value_release(has_more_val););
       value_release(has_more_val);
+
+      // Release our popped references (values are now on stack)
+      value_release(state_val);
+      value_release(iterable);
     }
   } else {
     value_release(state_val);
