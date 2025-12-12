@@ -2429,7 +2429,7 @@ static int builtin_read_file(KronosVM *vm, uint8_t arg_count) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to get file size");
   }
   rewind(file);
-  if (fsize > SIZE_MAX - 1) {
+  if ((unsigned long)fsize > SIZE_MAX - 1) {
     fclose(file);
     value_release(path_val);
     return vm_errorf(vm, KRONOS_ERR_RUNTIME, "File too large");
@@ -5531,8 +5531,8 @@ static int handle_op_list_next(KronosVM *vm) {
       value_release(state_val);
       value_release(iterable);
     } else {
-      // No more items - push range and state back for cleanup, then has_more = false
-      // Stack should be: [range, state, has_more=false] for cleanup code
+      // No more items - push range and state back for cleanup, then has_more =
+      // false Stack should be: [range, state, has_more=false] for cleanup code
       // Push range first (bottom of stack)
       value_retain(iterable);
       PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
