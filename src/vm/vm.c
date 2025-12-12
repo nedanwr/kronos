@@ -5491,48 +5491,44 @@ static int handle_op_list_next(KronosVM *vm) {
 
     if (has_more) {
       // Push in order: [range, next_value, current_value, has_more]
-      value_retain(iterable);
-      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
-                                  value_release(state_val););
-      value_release(iterable);
+      // Push range back - push will retain it
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(state_val););
 
       // Calculate and push next value
       double next = current + step;
       KronosValue *next_val = value_new_number(next);
       PUSH_OR_RETURN_WITH_CLEANUP(vm, next_val, value_release(next_val);
+                                  value_release(iterable);
                                   value_release(state_val););
       value_release(next_val);
 
       // Push current value (the item)
       KronosValue *current_val = value_new_number(current);
       PUSH_OR_RETURN_WITH_CLEANUP(vm, current_val, value_release(current_val);
+                                  value_release(iterable);
                                   value_release(state_val););
       value_release(current_val);
 
       // Push has_more flag
       KronosValue *has_more_val = value_new_bool(true);
       PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
+                                  value_release(iterable);
                                   value_release(state_val););
       value_release(has_more_val);
-    } else {
-      // No more items - push range and state back for cleanup, then has_more =
-      // false Stack should be: [range, state, has_more=false] for cleanup code
-      // Push range first (bottom of stack)
-      value_retain(iterable);
-      PUSH_OR_RETURN_WITH_CLEANUP(vm, iterable, value_release(iterable);
-                                  value_release(state_val););
+
+      // Release our popped reference (range is now on stack)
       value_release(iterable);
-
-      // Push state back
-      value_retain(state_val);
-      PUSH_OR_RETURN_WITH_CLEANUP(vm, state_val, value_release(state_val););
-      value_release(state_val);
-
-      // Push has_more = false
+    } else {
+      // No more items - push false
       KronosValue *has_more_val = value_new_bool(false);
-      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val,
-                                  value_release(has_more_val););
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, has_more_val, value_release(has_more_val);
+                                  value_release(state_val);
+                                  value_release(iterable););
       value_release(has_more_val);
+
+      // Release our popped reference
+      value_release(state_val);
+      value_release(iterable);
     }
   } else {
     value_release(state_val);
@@ -5540,8 +5536,6 @@ static int handle_op_list_next(KronosVM *vm) {
     return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid iterable type");
   }
 
-  // Note: state_val and iterable are already released above
-  // (either pushed back to stack with retain, or released in error paths)
   return 0;
 }
 
