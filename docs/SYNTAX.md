@@ -1669,42 +1669,25 @@ print max
 
 ## Future Features
 
-### Version 0.3.0: "Data Structures & Control Flow" (In Progress)
+### Version 0.3.0: "Data Structures & Control Flow" ✅ Completed
 
 **Completed:**
-- ✅ Logical operators (`and`, `or`, `not`) - **COMPLETED**
+- ✅ Logical operators (`and`, `or`, `not`)
+- ✅ Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
+- ✅ String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
+- ✅ Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- ✅ Control flow - `else if`, `break`, `continue`, range-based loops
+- ✅ Range objects - First-class range support
 
-**Planned Features:**
-- 🔄 Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
-- 🔄 String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
-- 🔄 Enhanced standard library - Math, type conversion, list utilities (20+ functions)
-- 🔄 Control flow - `else if`, `break`, `continue`, range-based loops
-- 🔄 Range objects - First-class range support
-
-**Example:**
-```kronos
-# Else if (planned)
-if score is greater than 90:
-    print "A"
-else if score is greater than 80:
-    print "B"
-else:
-    print "C"
-
-# Lists (planned)
-set numbers to list 1, 2, 3, 4, 5
-set first to numbers at 0
-```
-
-### Version 0.4.0: "Modules & Error Handling" (In Progress)
+### Version 0.4.0: "Modules & Error Handling" ✅ Completed
 
 **Completed:**
-- ✅ Dictionaries/Maps - Key-value storage with full operations - **COMPLETED**
-- ✅ Exception Handling - Try/catch/finally blocks with typed exceptions - **COMPLETED**
-
-**Planned Features:**
-- Import/module system - Built-in and file-based modules, namespace management
-- File I/O operations - Complete file system interface (read, write, append, list, path ops)
+- ✅ Dictionaries/Maps - Key-value storage with full operations
+- ✅ Exception Handling - Try/catch/finally blocks with typed exceptions
+- ✅ Import/module system - Built-in and file-based modules, namespace management
+- ✅ File I/O operations - Complete file system interface (read, write, append, list, path ops)
+- ✅ Path operations - join_path, dirname, basename
+- ✅ Regular expressions - Pattern matching via regex module
 
 See the [Exception Handling](#exception-handling) section above for complete documentation.
 
@@ -1836,5 +1819,5 @@ Execute a file:
 
 ---
 
-_Last updated: November 2025_
-_Kronos Language Version: 0.3.0 (In Development)_
+_Last updated: December 2025_
+_Kronos Language Version: 0.4.0_
