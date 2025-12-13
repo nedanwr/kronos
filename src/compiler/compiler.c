@@ -2443,6 +2443,23 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_return_statement(c, node);
     break;
 
+  // Expression nodes can be used as statements (for REPL expression evaluation)
+  // Compile the expression and leave the value on the stack
+  case AST_NUMBER:
+  case AST_STRING:
+  case AST_FSTRING:
+  case AST_BOOL:
+  case AST_NULL:
+  case AST_VAR:
+  case AST_BINOP:
+  case AST_LIST:
+  case AST_RANGE:
+  case AST_MAP:
+  case AST_INDEX:
+  case AST_SLICE:
+    compile_expression(c, node);
+    break;
+
   default:
     compiler_set_error(c, "Unknown statement node type");
     break;

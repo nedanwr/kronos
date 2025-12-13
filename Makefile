@@ -8,8 +8,9 @@ FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/keywords_hash.c src/fronten
 COMPILER_SRC = src/compiler/compiler.c
 VM_SRC = src/vm/vm.c
 MAIN_SRC = main.c
+LINENOISE_SRC = linenoise.c
 
-ALL_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC) $(MAIN_SRC)
+ALL_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC) $(MAIN_SRC) $(LINENOISE_SRC)
 
 # Object files
 OBJ = $(ALL_SRC:.c=.o)
