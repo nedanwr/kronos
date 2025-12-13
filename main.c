@@ -2,6 +2,29 @@
  * @file main.c
  * @brief Main entry point for the Kronos interpreter
  *
+ * DESIGN DECISIONS:
+ * - Pipeline: tokenization -> parsing -> compilation -> execution. Each phase
+ *   is separate, allowing clear error reporting at each stage.
+ * - REPL support: Interactive mode allows evaluating expressions and statements
+ *   incrementally. Uses linenoise for line editing (history, tab completion).
+ * - Command-line flags: Uses getopt_long for POSIX-compliant argument parsing.
+ *   Supports multiple files and multiple -e flags for script-like execution.
+ * - Signal handling: Graceful shutdown on SIGINT (Ctrl+C) to prevent resource
+ *   leaks and ensure clean VM cleanup.
+ * - Error handling: All errors are reported to stderr with consistent formatting.
+ *   No calls to exit() except for fatal errors (allows library usage).
+ *
+ * EDGE CASES:
+ * - Empty input: REPL handles empty lines gracefully (no-op)
+ * - Expression statements: REPL automatically prints expression results (like
+ *   Python's interactive shell)
+ * - Multiple files: Executes each file in sequence, errors in one file don't
+ *   stop execution of subsequent files
+ * - Signal interruption: SIGINT (Ctrl+C) gracefully shuts down REPL and cleans
+ *   up VM resources
+ * - File not found: Reports error and continues (for multiple files) or exits
+ *   (for single file)
+ *
  * This file provides the public API for executing Kronos programs and manages
  * the REPL (Read-Eval-Print Loop) interface. It orchestrates the compilation
  * pipeline: tokenization -> parsing -> compilation -> execution.

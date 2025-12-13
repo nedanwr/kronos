@@ -18,10 +18,31 @@
 #include <stdlib.h>
 #include <string.h>
 
-/** Epsilon value for floating-point comparisons (handles rounding errors) */
+/**
+ * Epsilon value for floating-point comparisons
+ *
+ * WHY: Floating-point rounding errors make exact equality unreliable. Epsilon
+ * comparison handles cases like 0.1 + 0.2 != 0.3.
+ *
+ * DESIGN DECISION: 1e-9 balances precision and practicality. May be too strict
+ * for very large numbers (>1e9) or too lenient for very small (<1e-9). Relative
+ * epsilon would be more accurate (see ROADMAP.md).
+ *
+ * EDGE CASES: NaN != NaN (correct), INF comparisons handled via NaN fallback,
+ * very large numbers may have precision issues.
+ */
 #define VALUE_COMPARE_EPSILON (1e-9)
 
-/** Size of the string interning hash table */
+/**
+ * Size of the string interning hash table
+ *
+ * DESIGN DECISION: Fixed-size 1024 (~8KB) balances memory with collision rate.
+ * Linear probing handles collisions. Dynamic growth would be better for large
+ * programs (see ROADMAP.md).
+ *
+ * EDGE CASES: Collisions handled via linear probing, table full causes O(n)
+ * worst-case, thread-safe via intern_mutex.
+ */
 #define INTERN_TABLE_SIZE 1024
 
 /** Maximum depth for printing nested structures to prevent stack overflow */
@@ -50,9 +71,13 @@ static size_t runtime_refcount = 0;
 /**
  * @brief Hash function for strings (FNV-1a algorithm)
  *
- * Used for string interning to quickly find existing strings.
+ * DESIGN DECISION: FNV-1a chosen for simplicity, speed, and good distribution.
+ * 32-bit variant sufficient for 1024-entry table. Standard constants used.
  *
- * @param str String to hash
+ * EDGE CASES: Empty strings hash to initial value, NULL is undefined behavior,
+ * O(n) performance for long strings.
+ *
+ * @param str String to hash (must not be NULL)
  * @param len Length of the string
  * @return 32-bit hash value
  */
@@ -68,9 +93,12 @@ static uint32_t hash_string(const char *str, size_t len) {
 /**
  * @brief Initialize the runtime system
  *
- * Must be called before creating any values. Initializes the string
- * interning table and garbage collector. Safe to call multiple times;
- * uses reference counting to allow multiple VMs to share the runtime.
+ * DESIGN DECISION: Reference counting (vs singleton) allows proper cleanup and
+ * thread-safe sharing across multiple VMs. First call initializes, subsequent
+ * calls increment refcount.
+ *
+ * EDGE CASES: Multiple VMs share runtime, cleanup when refcount reaches 0,
+ * thread-safe via intern_mutex, must call runtime_cleanup() after all VMs freed.
  */
 void runtime_init(void) {
   pthread_mutex_lock(&intern_mutex);
@@ -143,7 +171,14 @@ void runtime_cleanup(void) {
  * Allocates a KronosValue representing a floating-point number.
  * The value is tracked by the garbage collector and uses reference counting.
  *
- * @param num The numeric value
+ * EDGE CASES:
+ * - NaN: Stored as-is; comparisons use epsilon (NaN != NaN as expected)
+ * - Infinity: Stored as-is; +/-INF handled correctly in comparisons
+ * - Subnormal numbers: Preserved (no normalization)
+ * - Zero: Both +0.0 and -0.0 are stored (IEEE 754 distinguishes them, but
+ *   our equality comparison treats them as equal via epsilon)
+ *
+ * @param num The numeric value (can be NaN, INF, or any valid double)
  * @return New value, or NULL on allocation failure
  */
 KronosValue *value_new_number(double num) {
@@ -329,12 +364,24 @@ KronosValue *value_new_channel(Channel *channel) {
  * Creates a range object representing values from start to end (inclusive)
  * with the given step. The step defaults to 1.0 if 0.0 is provided.
  *
- * Negative steps are supported for reverse iteration (e.g., range 10 to 1 by
- * -1). The iteration logic in the VM handles negative steps correctly by
- * checking the step direction. No validation is performed here as ranges with
- * mismatched step direction and start/end relationship simply result in empty
- * ranges (e.g., range 1 to 10 by -1 produces no values, which is correct
- * behavior).
+ * DESIGN DECISION: We store the range parameters (start, end, step) rather than
+ * pre-computing all values. This allows lazy evaluation during iteration and
+ * supports very large ranges without memory overhead. The VM's iteration logic
+ * handles the actual value generation.
+ *
+ * EDGE CASES:
+ * - Step of 0.0: Invalid (would cause infinite loop), defaults to 1.0 with warning
+ * - Negative steps: Supported for reverse iteration (e.g., range 10 to 1 by -1)
+ * - Empty ranges: range 1 to 10 by -1 produces no values (correct behavior)
+ * - Floating-point steps: Supported (e.g., range 0 to 1 by 0.1)
+ * - Very large ranges: No memory overhead (values computed on-demand)
+ * - NaN/Infinity: Stored as-is; iteration logic must handle these cases
+ *
+ * Negative steps are supported for reverse iteration. The iteration logic in
+ * the VM handles negative steps correctly by checking the step direction. No
+ * validation is performed here as ranges with mismatched step direction and
+ * start/end relationship simply result in empty ranges (e.g., range 1 to 10 by
+ * -1 produces no values, which is correct behavior).
  *
  * @param start Starting value (inclusive)
  * @param end Ending value (inclusive)
@@ -368,10 +415,14 @@ KronosValue *value_new_range(double start, double end, double step) {
 /**
  * @brief Hash function for map keys
  *
- * Computes a hash value for any KronosValue to use as a map key.
- * Supports: strings, numbers, booleans, null.
+ * DESIGN DECISIONS: Strings use pre-computed hash, numbers hash bit
+ * representation (handles NaN/INF), booleans 0/1, null constant 0xDEADBEEF,
+ * lists/maps content-based, functions/channels pointer-based (reference equality).
  *
- * @param key Key value to hash
+ * EDGE CASES: NULL returns 0, NaN hashes by bits, empty collections hash to
+ * initial FNV value, circular refs not handled (caller must avoid cycles).
+ *
+ * @param key Key value to hash (should not be NULL)
  * @return 32-bit hash value
  */
 static uint32_t hash_value(KronosValue *key) {
@@ -440,10 +491,15 @@ static uint32_t hash_value(KronosValue *key) {
   case VAL_FUNCTION:
   case VAL_CHANNEL:
   default:
-    // For functions and channels, use pointer hash since they are reference
-    // types. Two different function/channel objects should be considered
-    // different even if they have the same content, as they represent distinct
-    // instances.
+    // WHY: Functions and channels are reference types - identity matters more
+    // than content. Two functions with identical bytecode are still different
+    // function objects (they may have different closures, different creation
+    // contexts, etc.). Using pointer hashing ensures reference equality
+    // semantics.
+    //
+    // DESIGN DECISION: We multiply by a large prime (2654435761u, from Knuth's
+    // multiplicative hash) to improve distribution of pointer addresses, which
+    // are often aligned and can cluster.
     return (uint32_t)((uintptr_t)key * 2654435761u);
   }
 }
@@ -484,8 +540,11 @@ KronosValue *value_new_map(size_t initial_capacity) {
 /**
  * @brief Increment the reference count of a value
  *
- * Call this when storing a value in a new location. Must be paired
- * with value_release() when the reference is no longer needed.
+ * DESIGN DECISION: Saturating arithmetic prevents overflow (saturates at
+ * UINT32_MAX with warning). Safer than freeing prematurely. Overflow extremely
+ * unlikely in practice.
+ *
+ * EDGE CASES: NULL is no-op, overflow saturates with warning, not thread-safe.
  *
  * @param val Value to retain (safe to pass NULL)
  */
@@ -589,9 +648,12 @@ void value_finalize(KronosValue *val) {
 /**
  * @brief Decrement the reference count of a value
  *
- * Call this when removing a reference to a value. When the refcount
- * reaches zero, the value and its owned memory are automatically freed.
- * Uses iterative release to handle nested structures (lists containing lists).
+ * DESIGN DECISION: Iterative (stack-based) approach avoids stack overflow with
+ * deeply nested structures. Falls back to recursion if stack growth fails
+ * (prevents memory leak, may overflow stack).
+ *
+ * EDGE CASES: NULL is no-op, underflow logged (double-free bug), circular refs
+ * require GC cycle detection (see gc_collect_cycles()).
  *
  * @param val Value to release (safe to pass NULL)
  */
@@ -979,17 +1041,14 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
 /**
  * @brief Check if two values are equal
  *
- * Performs deep equality checking:
- * - Same pointer: always equal
- * - Different types: never equal
- * - Numbers: compared with epsilon tolerance for floating-point
- * - Strings: byte-by-byte comparison
- * - Lists: recursive element-by-element comparison
- * - Maps: recursive key-value comparison
- * - Other types: pointer equality
+ * DESIGN DECISIONS: Pointer equality first (fast path), different types never
+ * equal, numbers use epsilon, strings byte-by-byte, lists element-by-element,
+ * maps order-independent, functions/channels pointer equality, depth limiting
+ * prevents stack overflow, cycle detection prevents infinite recursion.
  *
- * Uses depth limiting and cycle detection to prevent stack overflow and
- * infinite recursion from deeply nested or circular structures.
+ * EDGE CASES: NULL == NULL true, NaN != NaN, INF handled correctly, empty list
+ * != null (different types), circular refs detected as equal, max depth 64
+ * falls back to pointer equality.
  *
  * @param a First value
  * @param b Second value
@@ -1012,10 +1071,14 @@ bool value_equals(KronosValue *a, KronosValue *b) {
 /**
  * @brief Find entry index in map for a given key
  *
- * Uses linear probing to find the entry for a key.
+ * DESIGN DECISION: Linear probing (vs chaining) chosen for simplicity and cache
+ * locality. Clustering possible but hash functions provide good distribution.
  *
- * @param map Map to search in
- * @param key Key to find
+ * EDGE CASES: Collisions handled via linear probing, tombstones tracked for
+ * reuse, full table returns tombstone/hash index, NULL key returns false.
+ *
+ * @param map Map to search in (must be VAL_MAP type)
+ * @param key Key to find (must not be NULL)
  * @param out_index Output parameter for the index (set even if not found)
  * @return true if key found, false otherwise
  */
@@ -1063,8 +1126,14 @@ static bool map_find_entry(KronosValue *map, KronosValue *key,
 /**
  * @brief Grow map capacity and rehash all entries
  *
- * @param map Map to grow
- * @return 0 on success, -1 on failure
+ * DESIGN DECISION: Double capacity each time (common strategy), balances memory
+ * and rehashing frequency. O(n) rehashing amortized over insertions.
+ *
+ * EDGE CASES: Allocation failure returns -1, empty map still grows, tombstones
+ * not reinserted (cleanup), exponential memory growth acceptable for typical use.
+ *
+ * @param map Map to grow (must be VAL_MAP type)
+ * @return 0 on success, -1 on allocation failure
  */
 static int map_grow(KronosValue *map) {
   size_t old_capacity = map->as.map.capacity;
@@ -1104,8 +1173,14 @@ static int map_grow(KronosValue *map) {
 /**
  * @brief Get value from map by key
  *
- * @param map Map to get from
- * @param key Key to look up
+ * DESIGN DECISION: Returns NULL for missing keys (vs sentinel), consistent with
+ * common map APIs. Allows distinguishing "not found" from "null value".
+ *
+ * EDGE CASES: NULL key returns NULL, wrong type returns NULL, caller must
+ * retain if keeping reference beyond map lifetime.
+ *
+ * @param map Map to get from (must be VAL_MAP type)
+ * @param key Key to look up (must not be NULL)
  * @return Value if found, NULL otherwise (caller must retain if keeping)
  */
 KronosValue *map_get(KronosValue *map, KronosValue *key) {
@@ -1124,16 +1199,24 @@ KronosValue *map_get(KronosValue *map, KronosValue *key) {
 /**
  * @brief Set value in map by key
  *
- * @param map Map to set in
- * @param key Key to set
- * @param value Value to set
- * @return 0 on success, -1 on failure
+ * DESIGN DECISION: Grow when load factor > 0.75 (count * 4 >= capacity * 3,
+ * integer arithmetic to avoid floating-point). Balances memory and performance.
+ *
+ * EDGE CASES: Existing key updates value, new key inserts, tombstone reuse,
+ * allocation failure returns -1, NULL key returns -1, both key/value retained.
+ *
+ * @param map Map to set in (must be VAL_MAP type)
+ * @param key Key to set (must not be NULL)
+ * @param value Value to set (can be NULL, though not currently used)
+ * @return 0 on success, -1 on failure (allocation error or invalid input)
  */
 int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
   if (map->type != VAL_MAP || !key)
     return -1;
 
-  // Grow if load factor > 0.75
+  // WHY: Grow if load factor > 0.75 to maintain good performance
+  // Using integer arithmetic: count * 4 >= capacity * 3 is equivalent to
+  // count / capacity >= 0.75, but avoids floating-point
   if (map->as.map.count * 4 >= map->as.map.capacity * 3) {
     if (map_grow(map) != 0)
       return -1;
@@ -1169,8 +1252,15 @@ int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
 /**
  * @brief Delete key from map
  *
- * @param map Map to delete from
- * @param key Key to delete
+ * DESIGN DECISION: Tombstone marking (lazy deletion) avoids breaking linear
+ * probing chains. Immediate removal would break chains and lose access to
+ * entries inserted after deleted one. Tombstones cleaned up during map_grow().
+ *
+ * EDGE CASES: Key not found returns false, idempotent, NULL key returns false,
+ * releases key/value refs, tombstones cleaned up on next grow.
+ *
+ * @param map Map to delete from (must be VAL_MAP type)
+ * @param key Key to delete (must not be NULL)
  * @return true if key was found and deleted, false otherwise
  */
 bool map_delete(KronosValue *map, KronosValue *key) {
@@ -1203,12 +1293,12 @@ bool map_delete(KronosValue *map, KronosValue *key) {
 /**
  * @brief Intern a string (deduplicate identical strings)
  *
- * Returns an existing string value if one with the same content exists,
- * otherwise creates a new one. This reduces memory usage when the same
- * string appears multiple times (e.g., variable names, keywords).
+ * DESIGN DECISION: Fixed-size hash table (1024) with linear probing, shared
+ * across VMs. Falls back to non-interned string if table full.
  *
- * Uses linear probing for collision resolution. Falls back to creating
- * a non-interned string if the table is full.
+ * EDGE CASES: Collisions via linear probing, table full falls back, thread-safe
+ * via intern_mutex, NULL treated as empty, caller must retain if keeping beyond
+ * runtime_cleanup().
  *
  * @param str String to intern
  * @param len Length of the string

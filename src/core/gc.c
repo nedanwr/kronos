@@ -88,7 +88,13 @@ static void gc_report_allocation_failure(void) {
 /**
  * @brief Hash function for object pointers
  *
- * Uses pointer address as hash key. Simple multiplicative hash.
+ * DESIGN DECISION: Multiplicative hash (Knuth's prime 2654435761u) improves
+ * distribution of aligned pointers which would otherwise cluster.
+ *
+ * EDGE CASES: NULL returns 0, prime multiplier spreads aligned pointers.
+ *
+ * @param ptr Object pointer to hash
+ * @return Hash value for the pointer
  */
 static size_t gc_hash_pointer(KronosValue *ptr) {
   uintptr_t addr = (uintptr_t)ptr;
@@ -158,13 +164,16 @@ static size_t gc_find_slot_locked(KronosValue *object, bool insert) {
 /**
  * @brief Ensure hash table has sufficient capacity
  *
- * Grows the hash table when load factor exceeds 75%.
- * Rehashes all entries after growth.
+ * DESIGN DECISION: Grow when load factor > 75% (count * 4 > capacity * 3,
+ * integer arithmetic). Double capacity each time for good amortized performance.
  *
- * @return true on success, false on allocation failure
+ * EDGE CASES: Starts at 64 if capacity 0, checks SIZE_MAX/2 for overflow,
+ * allocation failure returns false, rehashing skips tombstones, must hold mutex.
+ *
+ * @return true on success, false on allocation failure or overflow
  */
 static bool gc_ensure_capacity_locked(void) {
-  // Grow when load factor > 75%
+  // Grow when load factor > 75% (integer arithmetic avoids floating-point)
   if (gc_state.capacity == 0 || (gc_state.count * 4 > gc_state.capacity * 3)) {
     size_t old_capacity = gc_state.capacity;
     size_t new_capacity =
@@ -211,9 +220,12 @@ static bool gc_ensure_capacity_locked(void) {
 /**
  * @brief Shrink the hash table if it's significantly underutilized
  *
- * Shrinks the hash table when count < capacity / 4 and capacity >
- * INITIAL_TRACKED_CAPACITY. This prevents the table from staying large after
- * many deallocations. Must be called with gc_mutex locked.
+ * DESIGN DECISION: Shrink when count < capacity / 4 (25%) and capacity >
+ * INITIAL_TRACKED_CAPACITY. Shrink to max(count * 2, INITIAL_TRACKED_CAPACITY)
+ * for headroom. Allocation failure keeps larger capacity (wastes memory, not fatal).
+ *
+ * EDGE CASES: Never shrinks below initial capacity, rehashing skips tombstones,
+ * must hold mutex.
  */
 static void gc_shrink_if_needed_locked(void) {
   // Only shrink if:
@@ -258,8 +270,12 @@ static void gc_shrink_if_needed_locked(void) {
 /**
  * @brief Initialize the garbage collector
  *
- * Allocates the initial object tracking array. Safe to call multiple times
- * (will clean up previous state first).
+ * DESIGN DECISION: Idempotent - cleans up previous state before reinitializing
+ * (finalizes objects with refcount == 1). Allows reinitialization without
+ * explicit cleanup.
+ *
+ * EDGE CASES: Mutex init fatal if fails, allocation failure aborts, only
+ * finalizes refcount == 1 objects, not thread-safe (call from main thread).
  */
 void gc_init(void) {
   // Initialize mutex if not already initialized
@@ -316,8 +332,13 @@ void gc_init(void) {
 /**
  * @brief Cleanup the garbage collector
  *
- * Releases all tracked objects and frees the tracking array.
- * Should only be called when no more values are in use.
+ * DESIGN DECISION: Uses value_finalize() (not value_release()) to avoid
+ * use-after-free. Finalize doesn't recursively release children (prevents
+ * double-free). Only finalizes refcount == 1 objects (external refs cleaned
+ * up naturally).
+ *
+ * EDGE CASES: Destroys mutex, idempotent after first call, not thread-safe
+ * (call from main thread).
  */
 void gc_cleanup(void) {
   pthread_mutex_lock(&gc_mutex);
