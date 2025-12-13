@@ -431,8 +431,14 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
  * @brief Tab completion callback for linenoise
  *
  * Provides completions for Kronos keywords, function names, and variable names.
+ * Only works in TTY mode (interactive terminal).
  */
 static void completion_callback(const char *buf, linenoiseCompletions *lc) {
+  // Only provide completions in TTY mode
+  if (!isatty(STDIN_FILENO)) {
+    return;
+  }
+
   // Get the VM instance for function/variable names
   KronosVM *vm = g_repl_vm;
   if (!vm) {
@@ -541,7 +547,8 @@ static char *read_multiline_input(void) {
     got_empty_line = false;
 
     // Add non-empty line to history (only first line to avoid duplicates)
-    if (first_line) {
+    // Only add to history if we're in TTY mode (interactive terminal)
+    if (first_line && isatty(STDIN_FILENO)) {
       linenoiseHistoryAdd(line);
     }
 
@@ -686,12 +693,17 @@ void kronos_repl(void) {
   // Store VM pointer for signal handler cleanup and completion callback
   g_repl_vm = vm;
 
-  // Set up linenoise
-  linenoiseSetCompletionCallback(completion_callback);
-  linenoiseHistorySetMaxLen(100); // Store up to 100 history entries
+  // Set up linenoise only if stdin is a TTY (interactive terminal)
+  // When stdin is a pipe (e.g., in CI), linenoise will handle it automatically
+  // but we should only set up history/completion for interactive use
+  bool is_tty = isatty(STDIN_FILENO) != 0;
+  if (is_tty) {
+    linenoiseSetCompletionCallback(completion_callback);
+    linenoiseHistorySetMaxLen(100); // Store up to 100 history entries
 
-  // Try to load history from file (ignore errors if file doesn't exist)
-  linenoiseHistoryLoad(".kronos_history");
+    // Try to load history from file (ignore errors if file doesn't exist)
+    linenoiseHistoryLoad(".kronos_history");
+  }
 
   while (1) {
     // Check for signal
@@ -746,8 +758,10 @@ void kronos_repl(void) {
     free(input);
   }
 
-  // Save history before exiting
-  linenoiseHistorySave(".kronos_history");
+  // Save history before exiting (only if we're in TTY mode)
+  if (isatty(STDIN_FILENO)) {
+    linenoiseHistorySave(".kronos_history");
+  }
 
   g_repl_vm = NULL;
   kronos_vm_free(vm);
