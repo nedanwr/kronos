@@ -14,16 +14,16 @@ A comprehensive overview of the Kronos programming language implementation.
 
 ## Status & Statistics
 
-**Version:** 0.3.0 (In Development)
-**Status:** Core Features Complete ✅ | Logical Operators Implemented
+**Version:** 0.4.0
+**Status:** Core Features Complete ✅ | All Major Features Implemented
 
 ```
 Language:        C
-Binary Size:     ~57KB
+Binary Size:     ~58KB
 LOC (Source):    ~3,500 lines
 File Extension:  .kr
 Standards:       C11
-Test Coverage:   71 tests (42 pass, 29 fail)
+Test Coverage:   129 tests (83 pass, 46 fail)
 ```
 
 ## Implemented Features
@@ -535,6 +535,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Core Features Complete (v0.3.0 In Progress)
-**Last Updated:** November 2025
-**Version:** 0.3.0 (Development)
+**Project Status:** ✅ Core Features Complete (v0.4.0)
+**Last Updated:** December 2025
+**Version:** 0.4.0
