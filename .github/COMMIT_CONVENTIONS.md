@@ -1,117 +1,168 @@
-# Commit Message Conventions
+# Git Commit Message Convention
 
-This document outlines the commit message conventions used in the Kronos project.
+> This convention is adapted from [Angular's commit convention](https://github.com/conventional-changelog/conventional-changelog/tree/master/packages/conventional-changelog-angular)
+> and inspired by discord.js' commit convention:
+> https://github.com/discordjs/discord.js/blob/main/.github/COMMIT_CONVENTION.md
+>
+> Kronos follows the same overall structure with project-specific scopes and
+> rules below.
 
-## Format
+## TL;DR
 
-All commit messages should follow this format:
+Messages must match the following regex:
 
+```js
+/^(revert: )?(feat|fix|docs|style|refactor|perf|test|build|ci|chore|types)(\([^)]+\))?!?: .{1,72}$/;
 ```
-(Type): description
-
-Optional body with more details
-```
-
-## Commit Types
-
-Use one of the following types in parentheses:
-
-- **`(Feat)`**: New features or functionality
-- **`(Fix)`**: Bug fixes
-- **`(Docs)`**: Documentation changes (README, docs/, comments)
-- **`(Test)`**: Adding or modifying tests
-- **`(Refactor)`**: Code refactoring without changing functionality
-- **`(Chore)`**: Maintenance tasks, build system changes, dependencies
 
 ## Examples
 
-### Feature Addition
+Appears under "Features" header, `std` scope:
 
-```
-(Feat): add exception handling with try/catch/finally and typed exceptions (#16)
-```
-
-### Bug Fix
-
-```
-(Fix): error handling in `vm_load_module` to ensure proper memory management and error reporting for module file reads
+```text
+feat(std): add read_file() builtin (#22)
 ```
 
-### Documentation
+Appears under "Bug Fixes" header, `runtime` scope, closing an issue:
 
-```
-(Docs): expand exception handling section in SYNTAX.md and QUICKREF.md with detailed examples and explanations for try/catch/finally blocks, raising exceptions, and handling specific error types
-```
+```text
+fix(runtime): prevent to_string heap over-read
 
-### Tests
-
-```
-(Test): add integration tests for map key deletion and list index assignment scenarios
+Closes #12
 ```
 
-### Refactoring
+Appears under "Performance Improvements" header, and under "Breaking Changes":
 
-```
-(Refactor): enhance value release logic in `vm_execute` by removing redundant release calls for iterable, improving memory management
-```
+```text
+perf(core)!: improve patching by removing 'bar' option
 
-### Chores
-
-```
-(Chore): define `_POSIX_C_SOURCE` for compatibility with `POSIX` standards
+BREAKING CHANGE: The 'bar' option has been removed.
 ```
 
-## Guidelines
+Reverts do not appear in the changelog if they are under the same release
+as the reverted commit. If not, the revert commit appears under the
+"Reverts" header.
 
-1. **Use imperative mood**: Write "add feature" not "added feature" or "adds feature"
-2. **Keep it concise**: The first line should be a brief summary (50-72 characters recommended)
-3. **Be descriptive**: Clearly describe what the commit does
-4. **Reference issues/PRs**: Include issue or PR numbers when applicable: `(#16)`
-5. **Use lowercase**: Start the description with lowercase (unless it's a proper noun)
-6. **Add body if needed**: For complex changes, add a blank line and provide more details
+```text
+revert: feat(std): add read_file() builtin
 
-## Multi-line Commits
-
-For more complex changes, use a multi-line format:
-
-```
-(Feat): implement file-based module system with LSP support (#13)
-
-- Add module loading and management in VM
-- Enhance document state to support imported modules
-- Implement `OP_IMPORT` instruction for module imports
-- Add current file path management for relative imports
+This reverts commit 667ecc1654a317a13331b17617d973392f415f02.
 ```
 
-## Breaking Changes
+## Full Message Format
 
-If your commit introduces a breaking change, indicate it clearly:
+A commit message consists of a **header**, **body**, and **footer**. The
+header has a **type**, **scope**, and **subject**:
 
-```
-(Feat): change function signature for `value_new_string`
+```text
+<type>(<scope>)!: <subject>
 
-BREAKING CHANGE: `value_new_string` now requires a length parameter
-```
+<BLANK LINE>
 
-## Why These Conventions?
+<body>
 
-- **Consistency**: Makes it easy to scan commit history
-- **Automation**: Enables automated changelog generation
-- **Clarity**: Quickly understand what each commit does
-- **Filtering**: Easy to filter commits by type (e.g., `git log --grep="(Feat)"`)
+<BLANK LINE>
 
-## Tools
-
-You can use these git aliases to filter commits by type:
-
-```bash
-# View only features
-git log --grep="(Feat)"
-
-# View only bug fixes
-git log --grep="(Fix)"
-
-# View only documentation changes
-git log --grep="(Docs)"
+<footer>
 ```
 
+The **header** is mandatory and the **scope** of the header is optional.
+If the commit contains **Breaking Changes**, a `!` can be added before the
+`:` as an indicator.
+
+## Revert
+
+If the commit reverts a previous commit, it should begin with `revert:`,
+followed by the header of the reverted commit. In the body, it should say:
+
+```text
+This reverts commit <hash>.
+```
+
+## Type
+
+The `type` must be one of:
+
+- `feat`: new feature
+- `fix`: bug fix
+- `docs`: documentation changes
+- `style`: formatting only (no code behavior change)
+- `refactor`: refactor (no user-visible behavior change)
+- `perf`: performance improvement
+- `test`: tests only
+- `build`: build system / dependencies
+- `ci`: CI/workflow changes
+- `chore`: maintenance tasks
+- `types`: type-only changes (if applicable)
+
+Notes:
+
+- If the prefix is `feat`, `fix`, or `perf`, it will appear in the changelog.
+- If there is any [BREAKING CHANGE](#breaking-changes), the commit will always
+  appear in the changelog.
+
+## Scope
+
+The scope could be anything specifying the place of the change.
+
+Recommended scopes for Kronos:
+
+- `compiler`
+- `runtime`
+- `vm`
+- `gc`
+- `std`
+- `docs`
+- `build`
+- `ci`
+
+Examples:
+
+```text
+fix(vm): handle errors in vm_load_module
+feat(compiler): support typed exceptions
+```
+
+## Subject
+
+The subject contains a succinct description of the change:
+
+- use the imperative, present tense: "change" not "changed" nor "changes"
+- don't capitalize the first letter (unless proper noun/acronym)
+- no dot (`.`) at the end
+- keep the header at 72 characters max (per regex)
+
+## Body
+
+Just as in the **subject**, use the imperative, present tense: "change"
+not "changed" nor "changes".
+
+The body should include the motivation for the change and contrast this
+with previous behavior.
+
+## Footer
+
+The footer should contain any information about **Breaking Changes** and
+is also the place to reference GitHub issues that this commit **Closes**
+(or otherwise references).
+
+### Issue references
+
+Use GitHub keywords so issues close automatically when appropriate:
+
+```text
+Closes #12
+Fixes #17
+Refs #18
+```
+
+### Breaking Changes
+
+Breaking changes should start with the words `BREAKING CHANGE:` followed
+by an explanation:
+
+```text
+feat(runtime)!: change function signature for value_new_string
+
+BREAKING CHANGE: value_new_string now requires an explicit length parameter.
+```
