@@ -59,7 +59,7 @@ Full IDE support:
 
 Test suite documentation:
 
-- 71 comprehensive tests (42 passing, 29 error cases)
+- 129 comprehensive tests (83 passing, 46 error cases)
 - Test runner usage
 - CI/CD integration
 
