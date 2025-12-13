@@ -2,6 +2,30 @@
  * @file parser.c
  * @brief Parser for Kronos source code
  *
+ * DESIGN DECISIONS:
+ * - Recursive descent: Each grammar rule maps to a function, making the parser
+ *   easy to understand and maintain. Trade-off is that left-recursive grammars
+ *   require transformation (we use iteration for left-associative operators).
+ * - AST representation: Preserves source structure with line/column information
+ *   for error reporting. More memory than bytecode but easier to
+ * analyze/transform.
+ * - Indentation-based blocks: Kronos uses indentation (like Python) rather than
+ *   braces. The parser tracks indentation levels to determine block boundaries.
+ * - Error recovery: On parse error, returns NULL with error details. No attempt
+ *   at error recovery (keeps parser simple, errors are clear).
+ * - Recursion depth limit: MAX_RECURSION_DEPTH prevents stack overflow from
+ *   deeply nested expressions (e.g., ((((1+2)+3)+4)...)).
+ *
+ * EDGE CASES:
+ * - Stack overflow: MAX_RECURSION_DEPTH (512) prevents stack exhaustion
+ * - Malformed input: Returns NULL with ParseError containing line/column info
+ * - Indentation errors: Detected when indentation decreases unexpectedly
+ * - Missing tokens: Detected when expected token not found (e.g., missing "to"
+ *   in assignment)
+ * - F-string parsing: Embedded expressions are re-tokenized (see ROADMAP.md for
+ *   future optimization)
+ * - Empty blocks: Allowed (e.g., empty function body, empty if block)
+ *
  * Implements recursive descent parsing to build an Abstract Syntax Tree (AST)
  * from tokens. Handles all Kronos language constructs:
  * - Expressions (arithmetic, comparisons, logical operators)
@@ -19,20 +43,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Maximum recursion depth to prevent stack exhaustion
+/**
+ * Maximum recursion depth to prevent stack exhaustion
+ *
+ * DESIGN DECISION: 512 balances reasonable nesting depth with overflow
+ * prevention. Most code has depth < 100. Limit hit likely indicates bug or
+ * malicious input.
+ */
 #define MAX_RECURSION_DEPTH 512
 
-// Initial capacity for dynamically growing arrays
+/**
+ * Initial capacity for dynamically growing arrays
+ *
+ * DESIGN DECISION: 4 balances memory waste vs reallocation frequency. Arrays
+ * double when full (amortized O(1) append).
+ */
 #define INITIAL_ARRAY_CAPACITY 4
 
 /**
  * @brief Generic function to grow a pointer array
  *
- * Doubles the capacity of an array and reallocates it. Updates both the array
- * pointer and capacity variable. Returns false on allocation failure.
+ * DESIGN DECISION: Doubling capacity provides amortized O(1) append. Check
+ * growth needed before reallocating. void** works with any pointer type.
  *
- * @param arr Pointer to the array pointer (void** to work with any pointer
- * type)
+ * EDGE CASES: Sufficient capacity returns true (no-op), allocation failure
+ * returns false, overflow not checked (extremely unlikely).
+ *
+ * @param arr Pointer to the array pointer (void** to work with any pointer type)
  * @param count Current count (used for bounds checking)
  * @param capacity Pointer to capacity variable
  * @param element_size Size of each element in bytes

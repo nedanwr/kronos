@@ -2,6 +2,27 @@
  * @file vm.c
  * @brief Virtual machine for executing Kronos bytecode
  *
+ * DESIGN DECISIONS:
+ * - Stack-based: Simpler than register-based, easier to implement, good for
+ *   interpreted languages. Trade-off is more instructions for complex operations.
+ * - Fixed-size stacks: STACK_MAX, CALL_STACK_MAX, etc. prevent unbounded growth
+ *   but limit program complexity. Overflow is detected and reported as errors.
+ * - Hash tables for variables: O(1) lookup for globals/locals/functions using
+ *   linear probing. Faster than linear search for large programs.
+ * - Module isolation: Each module has its own VM instance for namespace
+ *   isolation (separate globals, functions).
+ * - Exception handling: Stack-based exception handlers (try/catch/finally)
+ *   stored in VM, allowing proper unwinding and cleanup.
+ *
+ * EDGE CASES:
+ * - Stack overflow: Detected and reported as runtime error
+ * - Call stack overflow: Detected before creating new frame
+ * - Variable lookup: Locals checked first, then globals (lexical scoping)
+ * - Module imports: Circular imports detected via loading_modules stack
+ * - Exception handling: Handlers stored on stack, properly unwound on errors
+ * - Break/continue: Implemented via OP_JUMP with patched offsets (no separate
+ *   opcodes to keep instruction set small)
+ *
  * Implements a stack-based virtual machine that executes compiled bytecode.
  * Features:
  * - Stack-based execution model
@@ -240,14 +261,15 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode);
 /**
  * @brief Call a function in an external module
  *
- * Handles all the complexity of calling a function defined in another module:
- * - Sets up the call frame in the module's VM
- * - Transfers arguments from the caller's VM
- * - Executes the function
- * - Retrieves the return value
- * - Cleans up all state
+ * DESIGN DECISION: Each module has its own VM for namespace isolation. Create
+ * call frame in module's VM (not caller's) so module functions access their
+ * own globals.
  *
- * @param caller_vm The VM making the call
+ * EDGE CASES: Call stack overflow checked, errors propagated to caller_vm,
+ * arguments released by this function (ownership to module VM), return IP NULL
+ * (indicates module call, not bytecode jump).
+ *
+ * @param caller_vm The VM making the call (for error reporting)
  * @param mod The module containing the function
  * @param mod_func The function to call
  * @param args Array of arguments (will be released by this function)

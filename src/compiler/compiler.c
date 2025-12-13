@@ -2,6 +2,33 @@
  * @file compiler.c
  * @brief Bytecode compiler for Kronos
  *
+ * DESIGN DECISIONS:
+ * - Single-pass compilation: AST is traversed once, generating bytecode
+ *   directly. Simpler than multi-pass but requires forward references for
+ *   jumps (we use placeholder offsets and patch them later).
+ * - Constant pool: Shared constants (numbers, strings) are stored once in a
+ *   pool and referenced by index. Reduces bytecode size and enables constant
+ *   deduplication.
+ * - Jump offset patching: Forward jumps (if, while, break, continue) require
+ *   patching offsets after the target is known. We maintain lists of pending
+ *   jumps and patch them when targets are compiled.
+ * - Break/continue handling: Uses a loop stack to track active loops. Break/
+ *   continue statements emit OP_JUMP with placeholder offsets, which are
+ *   patched when the loop ends.
+ * - No separate opcodes for break/continue: OP_BREAK/OP_CONTINUE are reserved
+ *   but never emitted. We use OP_JUMP with patched offsets instead (keeps
+ *   instruction set small).
+ *
+ * EDGE CASES:
+ * - Forward references: Jump offsets patched after target compilation
+ * - Nested loops: Loop stack tracks multiple active loops (break/continue
+ *   applies to innermost loop)
+ * - Jump offset overflow: INT16_MAX limit for jump offsets (would require
+ *   larger bytecode, but extremely unlikely)
+ * - Empty functions: Valid (emits OP_RETURN_VAL with nil if no return)
+ * - Constant pool overflow: Not checked (would require SIZE_MAX check, but
+ *   extremely unlikely)
+ *
  * Converts Abstract Syntax Trees into bytecode instructions for the virtual
  * machine. Handles:
  * - Expression compilation (arithmetic, comparisons, logical operators)
@@ -19,7 +46,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Capacity constants for dynamic arrays
+/**
+ * Capacity constants for dynamic arrays
+ *
+ * DESIGN DECISIONS: 256 for bytecode (typical function < 256 bytes), 8/32 for
+ * constant pool (grows to 32 on first constant), 4 for jump arrays (most loops
+ * < 4 break/continue). All double when full (amortized O(1) append).
+ */
 #define BYTECODE_INITIAL_CAPACITY 256
 #define CONSTANT_POOL_INITIAL_CAPACITY 8
 #define CONSTANT_POOL_DEFAULT_CAPACITY 32
@@ -27,7 +60,10 @@
 
 /**
  * Tracks a pending jump instruction that needs patching
- * Used for break/continue statements where the target isn't known yet
+ *
+ * DESIGN DECISION: Linked list per loop for forward references. Emit OP_JUMP
+ * with placeholder, patch when target known. Allows multiple break/continue
+ * per loop.
  */
 typedef struct BreakContinueJump {
   size_t jump_pos; // Position of jump offset byte that needs patching
@@ -37,7 +73,9 @@ typedef struct BreakContinueJump {
 
 /**
  * Tracks information about a loop for break/continue handling
- * Maintains a stack of active loops
+ *
+ * DESIGN DECISION: Stack-based (linked list) for arbitrary nesting. Each loop
+ * pushes info, break/continue uses top, loop end pops. Matches lexical scoping.
  */
 typedef struct LoopInfo {
   size_t loop_start;    // Position of loop start (for continue in while loops)
