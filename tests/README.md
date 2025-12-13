@@ -35,7 +35,7 @@ tests/
 
 ### Passing Tests (`tests/integration/pass/`)
 
-The test suite includes 42 passing integration tests covering:
+The test suite includes 83 passing integration tests covering:
 
 - Variables (immutable, mutable, typed)
 - Arithmetic operations
@@ -52,7 +52,7 @@ The test suite includes 42 passing integration tests covering:
 
 ### Error Tests (`tests/integration/fail/`)
 
-The test suite includes 29 error tests covering:
+The test suite includes 46 error tests covering:
 
 - Immutability violations
 - Type mismatches
@@ -62,7 +62,7 @@ The test suite includes 29 error tests covering:
 - Wrong argument counts/types
 - Invalid operations
 
-Together these cover 71 comprehensive tests (42 passing + 29 error cases).
+Together these cover 129 comprehensive tests (83 passing + 46 error cases).
 
 ## Test Coverage
 
