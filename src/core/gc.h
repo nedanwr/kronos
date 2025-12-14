@@ -136,7 +136,9 @@ void gc_untrack(KronosValue *val);
  *
  * @note Currently not fully implemented - reference counting handles most
  * cases.
- * @note Thread-safety: NOT thread-safe. Requires external synchronization.
+ * @note Thread-safety: Thread-safe. Uses internal mutexes and collects
+ * objects to finalize while holding the lock, then finalizes them after
+ * releasing to prevent race conditions.
  */
 void gc_collect_cycles(void);
 

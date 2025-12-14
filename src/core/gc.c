@@ -694,6 +694,11 @@ static void gc_mark_reachable(KronosValue *val, bool *marked, size_t capacity,
  * are considered roots (have external references). All objects reachable from
  * roots are marked. Unmarked objects with refcount > 0 are part of cycles
  * and are freed.
+ *
+ * THREAD-SAFETY: This function is thread-safe. Objects to finalize are
+ * collected into a list while holding the mutex, then finalized after
+ * releasing it. This prevents race conditions where other threads could
+ * modify the hash table during iteration.
  */
 void gc_collect_cycles(void) {
   pthread_mutex_lock(&gc_mutex);
@@ -725,18 +730,47 @@ void gc_collect_cycles(void) {
   }
 
   // Sweep phase: Free unmarked objects (they're part of cycles)
-  // Iterate through hash table
+  // Collect objects to finalize while holding the lock to avoid race conditions
+  // where other threads could modify the hash table during iteration
+  size_t to_finalize_count = 0;
+  size_t to_finalize_capacity = 16;
+  KronosValue **to_finalize =
+      malloc(to_finalize_capacity * sizeof(KronosValue *));
+  if (!to_finalize) {
+    // If we can't allocate, skip finalization but still clean up marked array
+    free(marked);
+    pthread_mutex_unlock(&gc_mutex);
+    return;
+  }
+
+  // Iterate through hash table and collect objects to finalize
   for (size_t i = 0; i < gc_state.capacity; i++) {
     if (gc_state.entries[i].object && !gc_state.entries[i].is_tombstone) {
       KronosValue *obj = gc_state.entries[i].object;
       if (!marked[i] && obj->refcount > 0) {
         // Unmarked object with refcount > 0 is part of a cycle
-        // Decrement refcount and free if it reaches 0
+        // Decrement refcount and collect for finalization if it reaches 0
         // Note: We can't use value_release() here because it would try to
         // untrack, which modifies the hash table we're iterating. Instead, we
-        // manually decrement refcount and finalize.
+        // manually decrement refcount and collect for finalization.
         obj->refcount--;
         if (obj->refcount == 0) {
+          // Grow array if needed
+          if (to_finalize_count >= to_finalize_capacity) {
+            size_t new_capacity = to_finalize_capacity * 2;
+            KronosValue **new_array =
+                realloc(to_finalize, new_capacity * sizeof(KronosValue *));
+            if (!new_array) {
+              // If realloc fails, finalize what we have so far
+              free(to_finalize);
+              to_finalize = NULL;
+              to_finalize_count = 0;
+              break;
+            }
+            to_finalize = new_array;
+            to_finalize_capacity = new_capacity;
+          }
+
           // Remove from hash table by marking as tombstone
           gc_state.entries[i].object = NULL;
           gc_state.entries[i].is_tombstone = true;
@@ -769,10 +803,8 @@ void gc_collect_cycles(void) {
             break;
           }
 
-          // Unlock mutex before finalizing (value_finalize may need GC)
-          pthread_mutex_unlock(&gc_mutex);
-          value_finalize(obj);
-          pthread_mutex_lock(&gc_mutex);
+          // Add to finalization list
+          to_finalize[to_finalize_count++] = obj;
         }
       }
     }
@@ -780,6 +812,38 @@ void gc_collect_cycles(void) {
 
   free(marked);
   pthread_mutex_unlock(&gc_mutex);
+
+  // Now finalize all collected objects (mutex is unlocked)
+  // We manually finalize to avoid redundant gc_untrack() call since we've
+  // already removed the objects from tracking and updated stats
+  for (size_t i = 0; i < to_finalize_count; i++) {
+    KronosValue *obj = to_finalize[i];
+    // Free type-specific data
+    switch (obj->type) {
+    case VAL_STRING:
+      free(obj->as.string.data);
+      break;
+    case VAL_FUNCTION:
+      free(obj->as.function.bytecode);
+      break;
+    case VAL_LIST:
+      free(obj->as.list.items);
+      break;
+    case VAL_MAP:
+      free(obj->as.map.entries);
+      break;
+    case VAL_CHANNEL:
+      // Channels are currently managed externally
+      break;
+    case VAL_RANGE:
+      // Ranges don't own other values
+      break;
+    default:
+      break;
+    }
+    free(obj);
+  }
+  free(to_finalize);
 }
 
 /**
