@@ -182,9 +182,25 @@ void handle_completion(const char *id, const char *body) {
   // Add document symbols (variables and functions)
   if (g_doc && g_doc->symbols) {
     Symbol *sym = g_doc->symbols;
-    while (sym && pos < remaining - 200) {
-      if (!first)
-        pos += snprintf(completions + pos, remaining - pos, ",");
+    while (sym) {
+      size_t available = remaining - pos;
+      if (available == 0) {
+        break; // No space left
+      }
+
+      // Add comma if needed
+      if (!first) {
+        int n = snprintf(completions + pos, available, ",");
+        if (n < 0 || (size_t)n >= available) {
+          break; // Error or buffer full
+        }
+        pos += (size_t)n;
+        remaining -= (size_t)n;
+        available = remaining - pos;
+        if (available == 0) {
+          break; // No space left after comma
+        }
+      }
       first = false;
 
       const char *kind_str = "6"; // Variable
@@ -198,9 +214,14 @@ void handle_completion(const char *id, const char *body) {
       char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
       json_escape(detail, escaped_detail, sizeof(escaped_detail));
 
-      pos += snprintf(completions + pos, remaining - pos,
-                      "{\"label\":\"%s\",\"kind\":%s,\"detail\":\"%s\"}",
-                      escaped, kind_str, escaped_detail);
+      int n = snprintf(completions + pos, available,
+                       "{\"label\":\"%s\",\"kind\":%s,\"detail\":\"%s\"}",
+                       escaped, kind_str, escaped_detail);
+      if (n < 0 || (size_t)n >= available) {
+        break; // Error or buffer full
+      }
+      pos += (size_t)n;
+      remaining -= (size_t)n;
       sym = sym->next;
     }
   }
