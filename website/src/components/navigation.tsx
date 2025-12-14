@@ -18,10 +18,10 @@ export function Navigation() {
 
   const navLinks = [
     { name: "Learn", href: "#learn" },
-    { name: "Docs", href: "#docs" },
-    { name: "Playground", href: "#playground" },
-    { name: "Community", href: "#community" },
-    { name: "Blog", href: "#blog" },
+    { name: "Docs", href: "/docs" },
+    // { name: "Playground", href: "#playground" },
+    // { name: "Community", href: "#community" },
+    // { name: "Blog", href: "#blog" },
   ];
 
   return (
