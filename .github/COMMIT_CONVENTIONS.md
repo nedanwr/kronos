@@ -1,8 +1,7 @@
 # Git Commit Message Convention
 
 > This convention is adapted from [Angular's commit convention](https://github.com/conventional-changelog/conventional-changelog/tree/master/packages/conventional-changelog-angular)
-> and inspired by discord.js' commit convention:
-> https://github.com/discordjs/discord.js/blob/main/.github/COMMIT_CONVENTION.md
+> and inspired by [discord.js' commit convention](https://github.com/discordjs/discord.js/blob/main/.github/COMMIT_CONVENTION.md)
 >
 > Kronos follows the same overall structure with project-specific scopes and
 > rules below.
