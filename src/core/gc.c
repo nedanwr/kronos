@@ -276,6 +276,11 @@ static void gc_shrink_if_needed_locked(void) {
  *
  * EDGE CASES: Mutex init fatal if fails, allocation failure aborts, only
  * finalizes refcount == 1 objects, not thread-safe (call from main thread).
+ *
+ * THREAD-SAFETY: This function must be called from the main thread before any
+ * other threads start calling gc_track(). The mutex is kept locked during
+ * cleanup to prevent race conditions where another thread could call gc_track()
+ * and corrupt the hash table state during reinitialization.
  */
 void gc_init(void) {
   // Initialize mutex if not already initialized
@@ -297,22 +302,49 @@ void gc_init(void) {
     gc_state.count = 0;
     gc_state.capacity = 0;
     gc_state.allocated_bytes = 0;
-    pthread_mutex_unlock(&gc_mutex);
 
     // Finalize all tracked objects (similar to gc_cleanup)
     // Only finalize objects with refcount == 1 (only GC tracking reference)
+    // NOTE: We keep the mutex locked during finalization to prevent race
+    // conditions. Another thread calling gc_track() during this window could
+    // allocate a new hash table while we're still iterating over the old one.
+    // We manually finalize objects (inline value_finalize logic) to avoid
+    // deadlock since value_finalize() -> gc_untrack() would try to lock the
+    // mutex again. Since gc_state.entries is NULL, untracking is not needed.
     for (size_t i = 0; i < capacity; i++) {
       if (entries[i].object && !entries[i].is_tombstone) {
         KronosValue *obj = entries[i].object;
         if (obj->refcount == 1) {
-          value_finalize(obj);
+          // Manually finalize without calling value_finalize() to avoid
+          // deadlock (value_finalize() -> gc_untrack() would try to lock mutex)
+          // Free type-specific data
+          switch (obj->type) {
+          case VAL_STRING:
+            free(obj->as.string.data);
+            break;
+          case VAL_FUNCTION:
+            free(obj->as.function.bytecode);
+            break;
+          case VAL_LIST:
+            free(obj->as.list.items);
+            break;
+          case VAL_MAP:
+            free(obj->as.map.entries);
+            break;
+          case VAL_CHANNEL:
+            // Channels are currently managed externally
+            break;
+          case VAL_RANGE:
+            // Ranges don't own other values
+            break;
+          default:
+            break;
+          }
+          free(obj);
         }
       }
     }
     free(entries);
-
-    // Re-acquire mutex for initialization
-    pthread_mutex_lock(&gc_mutex);
   } else if (gc_state.entries) {
     // Hash table exists but is empty, just free it
     free(gc_state.entries);
@@ -332,13 +364,17 @@ void gc_init(void) {
 /**
  * @brief Cleanup the garbage collector
  *
- * DESIGN DECISION: Uses value_finalize() (not value_release()) to avoid
- * use-after-free. Finalize doesn't recursively release children (prevents
- * double-free). Only finalizes refcount == 1 objects (external refs cleaned
- * up naturally).
+ * DESIGN DECISION: Uses manual finalization (not value_finalize()) to avoid
+ * deadlock and race conditions. Finalize doesn't recursively release children
+ * (prevents double-free). Only finalizes refcount == 1 objects (external refs
+ * cleaned up naturally).
  *
  * EDGE CASES: Destroys mutex, idempotent after first call, not thread-safe
  * (call from main thread).
+ *
+ * THREAD-SAFETY: This function must be called from the main thread. The mutex
+ * is kept locked during cleanup to prevent race conditions where another thread
+ * could call gc_track() and corrupt the hash table state during shutdown.
  */
 void gc_cleanup(void) {
   pthread_mutex_lock(&gc_mutex);
@@ -348,16 +384,28 @@ void gc_cleanup(void) {
   gc_state.count = 0;
   gc_state.capacity = 0;
   gc_state.allocated_bytes = 0;
-  pthread_mutex_unlock(&gc_mutex);
 
-  if (!entries)
+  if (!entries) {
+    pthread_mutex_unlock(&gc_mutex);
+    // Destroy the mutex to prevent resource leak
+    if (gc_mutex_initialized) {
+      pthread_mutex_destroy(&gc_mutex);
+      gc_mutex_initialized = false;
+    }
     return;
+  }
 
   // Finalize all objects without releasing children to avoid use-after-free.
   // Children will be finalized separately when we encounter them in the hash
   // table. Only finalize objects with refcount == 1 (only GC tracking
   // reference). Objects with refcount > 1 have external references and should
   // not be freed.
+  // NOTE: We keep the mutex locked during finalization to prevent race
+  // conditions. Another thread calling gc_track() during this window could
+  // allocate a new hash table while we're still iterating over the old one.
+  // We manually finalize objects (inline value_finalize logic) to avoid
+  // deadlock since value_finalize() -> gc_untrack() would try to lock the
+  // mutex again. Since gc_state.entries is NULL, untracking is not needed.
   for (size_t i = 0; i < capacity; i++) {
     if (entries[i].object && !entries[i].is_tombstone) {
       KronosValue *obj = entries[i].object;
@@ -365,11 +413,38 @@ void gc_cleanup(void) {
         // Only GC tracking reference, safe to finalize
         // Objects with refcount > 1 have external references and will be
         // cleaned up naturally when their refcount reaches 0
-        value_finalize(obj);
+        // Manually finalize without calling value_finalize() to avoid
+        // deadlock (value_finalize() -> gc_untrack() would try to lock mutex)
+        // Free type-specific data
+        switch (obj->type) {
+        case VAL_STRING:
+          free(obj->as.string.data);
+          break;
+        case VAL_FUNCTION:
+          free(obj->as.function.bytecode);
+          break;
+        case VAL_LIST:
+          free(obj->as.list.items);
+          break;
+        case VAL_MAP:
+          free(obj->as.map.entries);
+          break;
+        case VAL_CHANNEL:
+          // Channels are currently managed externally
+          break;
+        case VAL_RANGE:
+          // Ranges don't own other values
+          break;
+        default:
+          break;
+        }
+        free(obj);
       }
     }
   }
   free(entries);
+
+  pthread_mutex_unlock(&gc_mutex);
 
   // Destroy the mutex to prevent resource leak
   if (gc_mutex_initialized) {

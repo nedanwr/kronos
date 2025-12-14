@@ -45,7 +45,11 @@
  * @brief Initialize the garbage collector.
  *
  * Must be called once before any GC operations.
- * Thread-safety: NOT thread-safe. Call from main thread during initialization.
+ *
+ * Thread-safety: NOT thread-safe. This function MUST be called from the main
+ * thread before any other threads start calling gc_track(). The mutex is kept
+ * locked during cleanup to prevent race conditions where another thread could
+ * call gc_track() and corrupt the hash table state during reinitialization.
  */
 void gc_init(void);
 
@@ -53,7 +57,11 @@ void gc_init(void);
  * @brief Clean up and release all GC resources.
  *
  * Should be called once at program shutdown.
- * Thread-safety: NOT thread-safe. Call from main thread during shutdown.
+ *
+ * Thread-safety: NOT thread-safe. This function MUST be called from the main
+ * thread. The mutex is kept locked during cleanup to prevent race conditions
+ * where another thread could call gc_track() and corrupt the hash table state
+ * during shutdown.
  */
 void gc_cleanup(void);
 
