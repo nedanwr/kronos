@@ -36,7 +36,7 @@ Thank you for your interest in contributing to Kronos! This document provides gu
 1. **Fork and clone the repository:**
 
    ```bash
-   git clone https://github.com/nednawr/kronos.git
+   git clone https://github.com/nedanwr/kronos.git
    cd kronos
    ```
 

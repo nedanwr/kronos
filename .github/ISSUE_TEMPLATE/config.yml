@@ -1,15 +1,15 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Discussions
-    url: https://github.com/nednawr/kronos/discussions
+    url: https://github.com/nedanwr/kronos/discussions
     about: Ask questions and discuss ideas with the community
   - name: 📖 Documentation
-    url: https://github.com/nednawr/kronos/tree/main/docs
+    url: https://github.com/nedanwr/kronos/tree/main/docs
     about: Check the documentation for answers
   - name: 🐛 Bug Report
-    url: https://github.com/nednawr/kronos/issues/new?template=bug_report.md
+    url: https://github.com/nedanwr/kronos/issues/new?template=bug_report.md
     about: Report a bug or unexpected behavior
   - name: ✨ Feature Request
-    url: https://github.com/nednawr/kronos/issues/new?template=feature_request.md
+    url: https://github.com/nedanwr/kronos/issues/new?template=feature_request.md
     about: Suggest a new feature or enhancement
 
