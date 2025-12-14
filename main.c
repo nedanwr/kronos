@@ -480,7 +480,16 @@ static void completion_callback(const char *buf, linenoiseCompletions *lc) {
   // Complete keywords
   for (size_t i = 0; kronos_keywords[i] != NULL; i++) {
     if (strncmp(word_start, kronos_keywords[i], word_len) == 0) {
-      linenoiseAddCompletion(lc, kronos_keywords[i]);
+      // Build the full line with the completed keyword
+      size_t prefix_len = word_start - buf;
+      size_t keyword_len = strlen(kronos_keywords[i]);
+      char *completion = malloc(prefix_len + keyword_len + 1);
+      if (completion) {
+        memcpy(completion, buf, prefix_len);
+        memcpy(completion + prefix_len, kronos_keywords[i], keyword_len + 1);
+        linenoiseAddCompletion(lc, completion);
+        free(completion);
+      }
     }
   }
 
@@ -488,7 +497,16 @@ static void completion_callback(const char *buf, linenoiseCompletions *lc) {
   for (size_t i = 0; i < vm->function_count; i++) {
     if (vm->functions[i] && vm->functions[i]->name) {
       if (strncmp(word_start, vm->functions[i]->name, word_len) == 0) {
-        linenoiseAddCompletion(lc, vm->functions[i]->name);
+        // Build the full line with the completed function name
+        size_t prefix_len = word_start - buf;
+        size_t func_name_len = strlen(vm->functions[i]->name);
+        char *completion = malloc(prefix_len + func_name_len + 1);
+        if (completion) {
+          memcpy(completion, buf, prefix_len);
+          memcpy(completion + prefix_len, vm->functions[i]->name, func_name_len + 1);
+          linenoiseAddCompletion(lc, completion);
+          free(completion);
+        }
       }
     }
   }
@@ -497,7 +515,16 @@ static void completion_callback(const char *buf, linenoiseCompletions *lc) {
   for (size_t i = 0; i < vm->global_count; i++) {
     if (vm->globals[i].name) {
       if (strncmp(word_start, vm->globals[i].name, word_len) == 0) {
-        linenoiseAddCompletion(lc, vm->globals[i].name);
+        // Build the full line with the completed variable name
+        size_t prefix_len = word_start - buf;
+        size_t var_name_len = strlen(vm->globals[i].name);
+        char *completion = malloc(prefix_len + var_name_len + 1);
+        if (completion) {
+          memcpy(completion, buf, prefix_len);
+          memcpy(completion + prefix_len, vm->globals[i].name, var_name_len + 1);
+          linenoiseAddCompletion(lc, completion);
+          free(completion);
+        }
       }
     }
   }
