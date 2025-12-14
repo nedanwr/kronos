@@ -40,25 +40,56 @@ void handle_did_open(const char *uri, const char *text) {
   // Update or create document state
   if (g_doc) {
     free_document_state(g_doc);
+    g_doc = NULL;
   }
+
+  // Allocate document state structure
   g_doc = malloc(sizeof(DocumentState));
-  if (g_doc) {
-    g_doc->uri = strdup(uri);
-    g_doc->text = strdup(text);
-    g_doc->symbols = NULL;
-    g_doc->ast = NULL;
-    g_doc->imported_modules = NULL;
+  if (!g_doc) {
+    fprintf(stderr, "LSP server: failed to allocate DocumentState\n");
+    return;
   }
+
+  // Allocate URI and text into temporary pointers first
+  char *uri_copy = strdup(uri);
+  if (!uri_copy) {
+    fprintf(stderr, "LSP server: failed to allocate URI string\n");
+    free(g_doc);
+    g_doc = NULL;
+    return;
+  }
+
+  char *text_copy = strdup(text);
+  if (!text_copy) {
+    fprintf(stderr, "LSP server: failed to allocate text string\n");
+    free(uri_copy);
+    free(g_doc);
+    g_doc = NULL;
+    return;
+  }
+
+  // All allocations succeeded - set fields
+  g_doc->uri = uri_copy;
+  g_doc->text = text_copy;
+  g_doc->symbols = NULL;
+  g_doc->ast = NULL;
+  g_doc->imported_modules = NULL;
+
   check_diagnostics(uri, text);
 }
 
 void handle_did_change(const char *uri, const char *text) {
   // Update document text
   if (g_doc && g_doc->uri && strcmp(g_doc->uri, uri) == 0) {
+    char *text_copy = strdup(text);
+    if (!text_copy) {
+      fprintf(stderr, "LSP server: failed to allocate text string for did_change\n");
+      return;
+    }
     free(g_doc->text);
-    g_doc->text = strdup(text);
+    g_doc->text = text_copy;
+    check_diagnostics(uri, text);
   }
-  check_diagnostics(uri, text);
 }
 
 void handle_code_action(const char *id, const char *body) {
