@@ -111,35 +111,35 @@ static uint32_t hash_string(const char *str, size_t len) {
  */
 void runtime_init(void) {
   pthread_mutex_lock(&intern_mutex);
-  
+
   // Wait if initialization is in progress
   while (init_in_progress) {
     pthread_cond_wait(&init_cond, &intern_mutex);
   }
-  
+
   if (runtime_refcount == 0) {
     // First initialization - clear intern table and initialize GC
     memset(intern_table, 0, sizeof(intern_table));
-    
+
     // Set flag to indicate initialization is in progress
     init_in_progress = true;
     pthread_mutex_unlock(&intern_mutex);
-    
+
     // Call gc_init() without holding the mutex (may be long-running)
     gc_init();
-    
+
     // Re-acquire mutex to update state
     pthread_mutex_lock(&intern_mutex);
     init_in_progress = false;
     runtime_refcount++;
-    
+
     // Signal waiting threads that initialization is complete
     pthread_cond_broadcast(&init_cond);
   } else {
     // Runtime already initialized, just increment refcount
     runtime_refcount++;
   }
-  
+
   pthread_mutex_unlock(&intern_mutex);
 }
 
