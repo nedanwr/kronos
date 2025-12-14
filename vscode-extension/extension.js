@@ -9,7 +9,7 @@ function activate(context) {
   console.log('Kronos extension activating...');
 
   const config = vscode.workspace.getConfiguration('kronos');
-  
+
   if (!config.get('lsp.enabled')) {
     console.log('Kronos LSP is disabled in settings');
     return;
@@ -60,7 +60,7 @@ function activate(context) {
 
     // Start the client (which starts the server)
     client.start();
-    
+
     console.log('Kronos LSP client started');
 
     context.subscriptions.push(

@@ -43,19 +43,19 @@ if [[ -z "$CMD_IN_CONTAINER" ]]; then
       set -e
       make clean
       make -j\$(nproc)
-      
+
       check_with_valgrind() {
         local file=\$1
         local name=\$2
         local expect_error=\${3:-false}
         local logfile=\"/tmp/valgrind_\${name}.log\"
-        
+
         if [ \"\$expect_error\" = \"true\" ]; then
           valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 --log-file=\"\$logfile\" ./kronos \"\$file\" > /dev/null 2>&1 || true
         else
           valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 --log-file=\"\$logfile\" ./kronos \"\$file\" > /dev/null 2>&1
         fi
-        
+
         if grep -q \"All heap blocks were freed -- no leaks are possible\" \"\$logfile\" || \
            (grep -q \"definitely lost: 0 bytes in 0 blocks\" \"\$logfile\" && \
             grep -q \"indirectly lost: 0 bytes in 0 blocks\" \"\$logfile\"); then
@@ -69,9 +69,9 @@ if [[ -z "$CMD_IN_CONTAINER" ]]; then
           return 1
         fi
       }
-      
+
       failed_count=0
-      
+
       echo \"=== Checking Passing Tests ===\"
       for test_file in tests/integration/pass/*.kr; do
         if [ -f \"\$test_file\" ]; then
@@ -81,7 +81,7 @@ if [[ -z "$CMD_IN_CONTAINER" ]]; then
           fi
         fi
       done
-      
+
       echo \"\"
       echo \"=== Checking Expected Fail Tests ===\"
       for test_file in tests/integration/fail/*.kr; do
@@ -92,7 +92,7 @@ if [[ -z "$CMD_IN_CONTAINER" ]]; then
           fi
         fi
       done
-      
+
       echo \"\"
       echo \"=== Memory Check Summary ===\"
       if [ \$failed_count -eq 0 ]; then
