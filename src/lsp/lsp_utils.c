@@ -237,11 +237,16 @@ Symbol *load_module_exports(const char *file_path) {
         // Try to find actual position in source
         if (source_for_pos) {
           char pattern[LSP_PATTERN_BUFFER_SIZE];
-          snprintf(pattern, sizeof(pattern), "function %s", sym->name);
-          find_node_position(node, source_for_pos, pattern, &sym->line,
-                             &sym->column);
-          if (sym->line == 1 && sym->column == 0) {
-            // Fallback to approximate
+          int n = snprintf(pattern, sizeof(pattern), "function %s", sym->name);
+          if (n >= 0 && (size_t)n < sizeof(pattern)) {
+            find_node_position(node, source_for_pos, pattern, &sym->line,
+                               &sym->column);
+            if (sym->line == 1 && sym->column == 0) {
+              // Fallback to approximate
+              get_node_position(node, &sym->line, &sym->column);
+            }
+          } else {
+            // Pattern too long, use approximate position
             get_node_position(node, &sym->line, &sym->column);
           }
         } else {
@@ -266,16 +271,23 @@ Symbol *load_module_exports(const char *file_path) {
         // Try to find actual position in source
         if (source_for_pos) {
           char pattern[LSP_PATTERN_BUFFER_SIZE];
-          snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
-          find_node_position(node, source_for_pos, pattern, &sym->line,
-                             &sym->column);
-          if (sym->line == 1 && sym->column == 0) {
-            snprintf(pattern, sizeof(pattern), "set %s to", sym->name);
+          int n = snprintf(pattern, sizeof(pattern), "let %s to", sym->name);
+          if (n >= 0 && (size_t)n < sizeof(pattern)) {
             find_node_position(node, source_for_pos, pattern, &sym->line,
                                &sym->column);
-          }
-          if (sym->line == 1 && sym->column == 0) {
-            // Fallback to approximate
+            if (sym->line == 1 && sym->column == 0) {
+              n = snprintf(pattern, sizeof(pattern), "set %s to", sym->name);
+              if (n >= 0 && (size_t)n < sizeof(pattern)) {
+                find_node_position(node, source_for_pos, pattern, &sym->line,
+                                   &sym->column);
+              }
+            }
+            if (sym->line == 1 && sym->column == 0) {
+              // Fallback to approximate
+              get_node_position(node, &sym->line, &sym->column);
+            }
+          } else {
+            // Pattern too long, use approximate position
             get_node_position(node, &sym->line, &sym->column);
           }
         } else {
@@ -311,57 +323,165 @@ char *get_module_hover_info(ImportedModule *mod) {
   }
 
   // Build hover text
-  char *hover_text = malloc(4096);
+  const size_t buffer_size = 4096;
+  char *hover_text = malloc(buffer_size);
   if (!hover_text)
     return NULL;
 
   size_t pos = 0;
-  pos +=
-      snprintf(hover_text + pos, 4096 - pos, "**module** `%s`\n\n", mod->name);
+  int n;
+
+  // Write module name
+  if (pos < buffer_size) {
+    size_t available = buffer_size - pos;
+    n = snprintf(hover_text + pos, available, "**module** `%s`\n\n", mod->name);
+    if (n < 0 || (size_t)n >= available) {
+      // Buffer full or error - truncate at current position
+      hover_text[buffer_size - 1] = '\0';
+      return hover_text;
+    }
+    pos += (size_t)n;
+  }
 
   if (mod->file_path) {
-    pos += snprintf(hover_text + pos, 4096 - pos, "**Path:** `%s`\n\n",
-                    mod->file_path);
+    if (pos < buffer_size) {
+      size_t available = buffer_size - pos;
+      n = snprintf(hover_text + pos, available, "**Path:** `%s`\n\n",
+                   mod->file_path);
+      if (n < 0 || (size_t)n >= available) {
+        hover_text[buffer_size - 1] = '\0';
+        return hover_text;
+      }
+      pos += (size_t)n;
+    }
   } else {
-    pos +=
-        snprintf(hover_text + pos, 4096 - pos, "**Type:** Built-in module\n\n");
+    if (pos < buffer_size) {
+      size_t available = buffer_size - pos;
+      n = snprintf(hover_text + pos, available,
+                   "**Type:** Built-in module\n\n");
+      if (n < 0 || (size_t)n >= available) {
+        hover_text[buffer_size - 1] = '\0';
+        return hover_text;
+      }
+      pos += (size_t)n;
+    }
   }
 
   if (mod->exports) {
-    pos += snprintf(hover_text + pos, 4096 - pos, "**Exports:**\n\n");
+    if (pos < buffer_size) {
+      size_t available = buffer_size - pos;
+      n = snprintf(hover_text + pos, available, "**Exports:**\n\n");
+      if (n < 0 || (size_t)n >= available) {
+        hover_text[buffer_size - 1] = '\0';
+        return hover_text;
+      }
+      pos += (size_t)n;
+    }
     Symbol *sym = mod->exports;
     int func_count = 0;
     int var_count = 0;
     while (sym) {
       if (sym->type == SYMBOL_FUNCTION) {
         func_count++;
-        pos += snprintf(hover_text + pos, 4096 - pos, "• `%s` (function",
-                        sym->name);
-        if (sym->param_count > 0) {
-          pos += snprintf(hover_text + pos, 4096 - pos, ", %zu parameter%s",
-                          sym->param_count, sym->param_count == 1 ? "" : "s");
-        } else {
-          pos += snprintf(hover_text + pos, 4096 - pos, ", no parameters");
+        if (pos < buffer_size) {
+          size_t available = buffer_size - pos;
+          n = snprintf(hover_text + pos, available, "• `%s` (function",
+                       sym->name);
+          if (n < 0 || (size_t)n >= available) {
+            hover_text[buffer_size - 1] = '\0';
+            return hover_text;
+          }
+          pos += (size_t)n;
         }
-        pos += snprintf(hover_text + pos, 4096 - pos, ")\n");
+        if (sym->param_count > 0) {
+          if (pos < buffer_size) {
+            size_t available = buffer_size - pos;
+            n = snprintf(hover_text + pos, available, ", %zu parameter%s",
+                         sym->param_count, sym->param_count == 1 ? "" : "s");
+            if (n < 0 || (size_t)n >= available) {
+              hover_text[buffer_size - 1] = '\0';
+              return hover_text;
+            }
+            pos += (size_t)n;
+          }
+        } else {
+          if (pos < buffer_size) {
+            size_t available = buffer_size - pos;
+            n = snprintf(hover_text + pos, available, ", no parameters");
+            if (n < 0 || (size_t)n >= available) {
+              hover_text[buffer_size - 1] = '\0';
+              return hover_text;
+            }
+            pos += (size_t)n;
+          }
+        }
+        if (pos < buffer_size) {
+          size_t available = buffer_size - pos;
+          n = snprintf(hover_text + pos, available, ")\n");
+          if (n < 0 || (size_t)n >= available) {
+            hover_text[buffer_size - 1] = '\0';
+            return hover_text;
+          }
+          pos += (size_t)n;
+        }
       } else if (sym->type == SYMBOL_VARIABLE) {
         var_count++;
-        pos += snprintf(hover_text + pos, 4096 - pos, "• `%s` (%s variable",
-                        sym->name, sym->is_mutable ? "mutable" : "immutable");
-        if (sym->type_name) {
-          pos += snprintf(hover_text + pos, 4096 - pos, ", type: `%s`",
-                          sym->type_name);
+        if (pos < buffer_size) {
+          size_t available = buffer_size - pos;
+          n = snprintf(hover_text + pos, available, "• `%s` (%s variable",
+                       sym->name, sym->is_mutable ? "mutable" : "immutable");
+          if (n < 0 || (size_t)n >= available) {
+            hover_text[buffer_size - 1] = '\0';
+            return hover_text;
+          }
+          pos += (size_t)n;
         }
-        pos += snprintf(hover_text + pos, 4096 - pos, ")\n");
+        if (sym->type_name) {
+          if (pos < buffer_size) {
+            size_t available = buffer_size - pos;
+            n = snprintf(hover_text + pos, available, ", type: `%s`",
+                         sym->type_name);
+            if (n < 0 || (size_t)n >= available) {
+              hover_text[buffer_size - 1] = '\0';
+              return hover_text;
+            }
+            pos += (size_t)n;
+          }
+        }
+        if (pos < buffer_size) {
+          size_t available = buffer_size - pos;
+          n = snprintf(hover_text + pos, available, ")\n");
+          if (n < 0 || (size_t)n >= available) {
+            hover_text[buffer_size - 1] = '\0';
+            return hover_text;
+          }
+          pos += (size_t)n;
+        }
       }
       sym = sym->next;
     }
     if (func_count == 0 && var_count == 0) {
-      pos += snprintf(hover_text + pos, 4096 - pos, "No exports found\n");
+      if (pos < buffer_size) {
+        size_t available = buffer_size - pos;
+        n = snprintf(hover_text + pos, available, "No exports found\n");
+        if (n < 0 || (size_t)n >= available) {
+          hover_text[buffer_size - 1] = '\0';
+          return hover_text;
+        }
+        pos += (size_t)n;
+      }
     }
   } else if (mod->file_path) {
-    pos +=
-        snprintf(hover_text + pos, 4096 - pos, "**Exports:** Unable to load\n");
+    if (pos < buffer_size) {
+      size_t available = buffer_size - pos;
+      n = snprintf(hover_text + pos, available,
+                   "**Exports:** Unable to load\n");
+      if (n < 0 || (size_t)n >= available) {
+        hover_text[buffer_size - 1] = '\0';
+        return hover_text;
+      }
+      pos += (size_t)n;
+    }
   }
 
   return hover_text;
@@ -846,7 +966,11 @@ void find_call_position(const char *text, const char *func_name, size_t *line,
 
   // Search for "call <func_name> with" pattern
   char pattern[256];
-  snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    // Pattern too long, cannot search
+    return;
+  }
 
   const char *pos = text;
   while ((pos = strstr(pos, pattern)) != NULL) {
@@ -892,7 +1016,11 @@ bool find_call_argument_position(const char *text, const char *func_name,
 
   // Find "call <func_name> with" pattern
   char pattern[256];
-  snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    // Pattern too long, cannot search
+    return false;
+  }
   const char *with_pos = strstr(text, pattern);
   if (!with_pos)
     return false;
@@ -1052,8 +1180,16 @@ bool find_nth_occurrence(const char *text, const char *varname, size_t n,
   // Build patterns: both "let <varname> to" and "set <varname> to"
   char pattern_let[256];
   char pattern_set[256];
-  snprintf(pattern_let, sizeof(pattern_let), "let %s to", varname);
-  snprintf(pattern_set, sizeof(pattern_set), "set %s to", varname);
+  int n_let = snprintf(pattern_let, sizeof(pattern_let), "let %s to", varname);
+  int n_set = snprintf(pattern_set, sizeof(pattern_set), "set %s to", varname);
+
+  // Check if patterns were truncated
+  if (n_let < 0 || (size_t)n_let >= sizeof(pattern_let) || n_set < 0 ||
+      (size_t)n_set >= sizeof(pattern_set)) {
+    // Pattern too long, cannot search
+    return false;
+  }
+
   size_t pattern_let_len = strlen(pattern_let);
   size_t pattern_set_len = strlen(pattern_set);
 
