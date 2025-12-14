@@ -64,9 +64,15 @@ static KronosValue *intern_table[INTERN_TABLE_SIZE] = {0};
 /** Mutex for thread-safe intern table operations */
 static pthread_mutex_t intern_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/** Condition variable for waiting on initialization completion */
+static pthread_cond_t init_cond = PTHREAD_COND_INITIALIZER;
+
 /** Reference counter for runtime initialization (allows multiple VMs to share
  * runtime) */
 static size_t runtime_refcount = 0;
+
+/** Flag indicating that initialization is currently in progress */
+static bool init_in_progress = false;
 
 /**
  * @brief Hash function for strings (FNV-1a algorithm)
@@ -98,18 +104,42 @@ static uint32_t hash_string(const char *str, size_t len) {
  * calls increment refcount.
  *
  * EDGE CASES: Multiple VMs share runtime, cleanup when refcount reaches 0,
- * thread-safe via intern_mutex, must call runtime_cleanup() after all VMs freed.
+ * thread-safe via intern_mutex and init_cond, must call runtime_cleanup() after
+ * all VMs freed. Uses init_in_progress flag and condition variable to prevent
+ * double-initialization race condition when multiple threads call runtime_init()
+ * concurrently.
  */
 void runtime_init(void) {
   pthread_mutex_lock(&intern_mutex);
+  
+  // Wait if initialization is in progress
+  while (init_in_progress) {
+    pthread_cond_wait(&init_cond, &intern_mutex);
+  }
+  
   if (runtime_refcount == 0) {
     // First initialization - clear intern table and initialize GC
     memset(intern_table, 0, sizeof(intern_table));
+    
+    // Set flag to indicate initialization is in progress
+    init_in_progress = true;
     pthread_mutex_unlock(&intern_mutex);
+    
+    // Call gc_init() without holding the mutex (may be long-running)
     gc_init();
+    
+    // Re-acquire mutex to update state
     pthread_mutex_lock(&intern_mutex);
+    init_in_progress = false;
+    runtime_refcount++;
+    
+    // Signal waiting threads that initialization is complete
+    pthread_cond_broadcast(&init_cond);
+  } else {
+    // Runtime already initialized, just increment refcount
+    runtime_refcount++;
   }
-  runtime_refcount++;
+  
   pthread_mutex_unlock(&intern_mutex);
 }
 
