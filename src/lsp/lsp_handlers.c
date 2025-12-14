@@ -84,6 +84,8 @@ void handle_did_change(const char *uri, const char *text) {
     char *text_copy = strdup(text);
     if (!text_copy) {
       fprintf(stderr, "LSP server: failed to allocate text string for did_change\n");
+      // Use existing g_doc->text as fallback for diagnostics
+      check_diagnostics(uri, g_doc->text);
       return;
     }
     free(g_doc->text);
