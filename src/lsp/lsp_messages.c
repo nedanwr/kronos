@@ -503,6 +503,19 @@ void json_escape_markdown(const char *input, char *output, size_t output_size) {
 }
 
 void json_escape(const char *input, char *output, size_t output_size) {
+  // Handle NULL input: write empty string if output is valid
+  if (!input) {
+    if (output && output_size > 0) {
+      output[0] = '\0';
+    }
+    return;
+  }
+
+  // Validate output buffer to avoid writing past it
+  if (!output || output_size == 0) {
+    return;
+  }
+
   size_t out_pos = 0;
   for (size_t i = 0; input[i] != '\0' && out_pos < output_size - 1; i++) {
     switch (input[i]) {
