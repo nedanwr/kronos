@@ -83,7 +83,7 @@ if [[ -z "$CMD_IN_CONTAINER" ]]; then
       done
       
       echo \"\"
-      echo \"=== Checking Error Tests ===\"
+      echo \"=== Checking Expected Fail Tests ===\"
       for test_file in tests/integration/fail/*.kr; do
         if [ -f \"\$test_file\" ]; then
           test_name=\$(basename \"\$test_file\" .kr)

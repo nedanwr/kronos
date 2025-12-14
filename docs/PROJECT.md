@@ -23,7 +23,7 @@ Binary Size:     ~58KB
 LOC (Source):    ~3,500 lines
 File Extension:  .kr
 Standards:       C11
-Test Coverage:   129 tests (83 pass, 46 fail)
+Test Coverage:   129 tests (83 pass, 46 expected fail)
 ```
 
 ## Implemented Features
@@ -282,7 +282,7 @@ tests/
 │   ├── 14_builtins_math.kr
 │   ├── 15_booleans.kr
 │   └── 16_null_values.kr
-└── fail/                        # Tests that should error (12 tests)
+└── fail/                        # Expected fail tests (tests that should error)
     ├── 01_immutable_reassign.kr
     ├── 02_type_mismatch.kr
     ├── 03_undefined_variable.kr

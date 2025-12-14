@@ -8,7 +8,7 @@ Comprehensive test suite for the Kronos programming language.
 tests/
 ├── integration/
 │   ├── pass/    # Tests that should execute successfully
-│   └── fail/    # Tests that should produce errors
+│   └── fail/    # Expected fail tests (tests that should produce errors)
 ├── unit/        # Unit tests for individual components
 └── framework/   # Test framework code
 ```
@@ -27,7 +27,7 @@ tests/
 # Run only passing tests
 ./kronos tests/integration/pass/*.kr
 
-# Run only error tests (each will produce an error)
+# Run only expected fail tests (each will produce an error)
 ./kronos tests/integration/fail/immutable_reassign.kr
 ```
 
@@ -50,9 +50,9 @@ The test suite includes 83 passing integration tests covering:
 - Range objects
 - Module imports
 
-### Error Tests (`tests/integration/fail/`)
+### Expected Fail Tests (`tests/integration/fail/`)
 
-The test suite includes 46 error tests covering:
+The test suite includes 46 expected fail tests covering:
 
 - Immutability violations
 - Type mismatches
@@ -62,7 +62,7 @@ The test suite includes 46 error tests covering:
 - Wrong argument counts/types
 - Invalid operations
 
-Together these cover 129 comprehensive tests (83 passing + 46 error cases).
+Together these cover 129 comprehensive tests (83 passing + 46 expected fail cases).
 
 ## Test Coverage
 
@@ -148,7 +148,7 @@ set greeting to "Hello, " plus "World!"
 print greeting
 ```
 
-### For Error Tests
+### For Expected Fail Tests
 
 1. Create a new file in `tests/integration/fail/` with a descriptive name
 2. Add a comment describing the expected error
@@ -182,7 +182,7 @@ Running passing tests...
 ✓ PASS: 02_variables_mutable
 ...
 
-Running error tests...
+Running expected fail tests...
 ────────────────────────────────────────────────────────────
 ✓ PASS: 01_immutable_reassign
    ↳ Error: Cannot reassign immutable variable 'x'
@@ -205,7 +205,7 @@ Success rate: 59%
 
 ## Debugging Failed Tests
 
-If a test fails:
+If a test execution fails (unexpected failure):
 
 1. Run the specific test file directly:
 

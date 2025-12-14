@@ -59,7 +59,7 @@ Full IDE support:
 
 Test suite documentation:
 
-- 129 comprehensive tests (83 passing, 46 error cases)
+- 129 comprehensive tests (83 passing, 46 expected fail cases)
 - Test runner usage
 - CI/CD integration
 
@@ -73,6 +73,6 @@ When adding features:
 
 1. Update SYNTAX.md with new syntax
 2. Add examples to examples/
-3. Create tests in tests/integration/pass/ or tests/integration/fail/
+3. Create tests in tests/integration/pass/ or tests/integration/fail/ (expected fail tests)
 4. Run `./scripts/run_tests.sh` to verify
 5. Update PROJECT.md if architecture changes

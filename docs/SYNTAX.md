@@ -1532,7 +1532,7 @@ finally:
 ✅ **Protected Constants** - Pi cannot be modified
 ✅ **Exception Handling** - Try/catch/finally for error management
 
-See examples in `tests/fail/` directory for all error cases.
+See examples in `tests/integration/fail/` directory for all expected fail test cases.
 
 ---
 

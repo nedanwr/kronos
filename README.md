@@ -31,7 +31,7 @@ A high-performance programming language built in C with human-readable syntax, f
 
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
 - **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
-- **Comprehensive Testing**: 129 tests (83 passing, 46 error cases) ensuring reliability
+- **Comprehensive Testing**: 129 tests (83 passing, 46 expected fail cases) ensuring reliability
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ Run the comprehensive test suite:
 ./scripts/run_tests.sh
 ```
 
-This runs 129 tests (83 passing, 46 error cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs 129 tests (83 passing, 46 expected fail cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
