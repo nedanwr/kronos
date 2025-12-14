@@ -2,22 +2,182 @@
  * @file main.c
  * @brief Main entry point for the Kronos interpreter
  *
+ * DESIGN DECISIONS:
+ * - Pipeline: tokenization -> parsing -> compilation -> execution. Each phase
+ *   is separate, allowing clear error reporting at each stage.
+ * - REPL support: Interactive mode allows evaluating expressions and statements
+ *   incrementally. Uses linenoise for line editing (history, tab completion).
+ * - Command-line flags: Uses getopt_long for POSIX-compliant argument parsing.
+ *   Supports multiple files and multiple -e flags for script-like execution.
+ * - Signal handling: Graceful shutdown on SIGINT (Ctrl+C) to prevent resource
+ *   leaks and ensure clean VM cleanup.
+ * - Error handling: All errors are reported to stderr with consistent formatting.
+ *   No calls to exit() except for fatal errors (allows library usage).
+ *
+ * EDGE CASES:
+ * - Empty input: REPL handles empty lines gracefully (no-op)
+ * - Expression statements: REPL automatically prints expression results (like
+ *   Python's interactive shell)
+ * - Multiple files: Executes each file in sequence, errors in one file don't
+ *   stop execution of subsequent files
+ * - Signal interruption: SIGINT (Ctrl+C) gracefully shuts down REPL and cleans
+ *   up VM resources
+ * - File not found: Reports error and continues (for multiple files) or exits
+ *   (for single file)
+ *
  * This file provides the public API for executing Kronos programs and manages
  * the REPL (Read-Eval-Print Loop) interface. It orchestrates the compilation
  * pipeline: tokenization -> parsing -> compilation -> execution.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include "include/kronos.h"
+// linenoise - Line editing library for REPL (BSD License)
+// Copyright (c) 2010-2023, Salvatore Sanfilippo <antirez at gmail dot com>
+// Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+// See linenoise.h and linenoise.c for full license and copyright information
+#include "linenoise.h"
 #include "src/compiler/compiler.h"
 #include "src/core/runtime.h"
 #include "src/frontend/parser.h"
 #include "src/frontend/tokenizer.h"
 #include "src/vm/vm.h"
+#include <getopt.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <unistd.h>
+
+// Version information
+#define KRONOS_VERSION_MAJOR 0
+#define KRONOS_VERSION_MINOR 4
+#define KRONOS_VERSION_PATCH 0
+#define KRONOS_VERSION_STRING "0.4.0"
+
+// Global flag for graceful shutdown on signals
+static volatile sig_atomic_t g_signal_received = 0;
+static KronosVM *g_repl_vm =
+    NULL; // VM instance for REPL (for cleanup on signal)
+
+// Kronos keywords for tab completion
+static const char *kronos_keywords[] = {
+    "set",     "let",     "to",       "as",       "if",    "else",   "for",
+    "while",   "break",   "continue", "in",       "range", "list",   "map",
+    "at",      "from",    "end",      "function", "with",  "call",   "return",
+    "import",  "true",    "false",    "null",     "is",    "equal",  "not",
+    "greater", "less",    "than",     "and",      "or",    "print",  "plus",
+    "minus",   "times",   "divided",  "by",       "mod",   "delete", "try",
+    "catch",   "finally", "raise",    NULL};
+
+/**
+ * @brief Print usage information
+ */
+static void print_usage(const char *program_name) {
+  printf("Usage: %s [OPTIONS] [FILE...]\n", program_name);
+  printf("\n");
+  printf("Options:\n");
+  printf("  -h, --help          Show this help message and exit\n");
+  printf("  -v, --version       Show version information and exit\n");
+  printf("  -d, --debug         Enable debug mode (future use)\n");
+  printf("  -n, --no-color      Disable colored output (future use)\n");
+  printf("  -e, --execute CODE  Execute CODE as Kronos code (can be used "
+         "multiple times)\n");
+  printf("\n");
+  printf("If FILE is provided, executes the specified Kronos file(s).\n");
+  printf("If -e is provided, executes the code and exits (does not start "
+         "REPL).\n");
+  printf("If no FILE or -e is provided, starts the interactive REPL.\n");
+  printf("\n");
+  printf("Examples:\n");
+  printf("  %s                    # Start REPL\n", program_name);
+  printf("  %s script.kr          # Execute script.kr\n", program_name);
+  printf("  %s -e \"print 42\"      # Execute code without entering REPL\n",
+         program_name);
+  printf("  %s -e \"set x to 10\" -e \"print x\"  # Execute multiple -e "
+         "commands\n",
+         program_name);
+  printf("  %s file1.kr file2.kr # Execute multiple files\n", program_name);
+}
+
+/**
+ * @brief Print version information
+ */
+static void print_version(void) {
+  printf("Kronos %s\n", KRONOS_VERSION_STRING);
+}
+
+/**
+ * @brief Print error message with consistent formatting
+ *
+ * All errors are prefixed with "Error: " for consistency.
+ *
+ * @param message Error message to print (must not be NULL)
+ */
+static void print_error(const char *message) {
+  fprintf(stderr, "Error: %s\n", message);
+}
+
+/**
+ * @brief Print error message with file context
+ *
+ * Used when an error occurs while processing a specific file.
+ *
+ * @param filepath Path to the file where error occurred
+ * @param message Error message to print
+ */
+static void print_error_with_file(const char *filepath, const char *message) {
+  fprintf(stderr, "Error in %s: %s\n", filepath, message);
+}
+
+/**
+ * @brief Signal handler for SIGINT (Ctrl+C)
+ *
+ * Sets a flag to indicate graceful shutdown should occur.
+ */
+static void handle_sigint(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  g_signal_received = 1;
+  // Print newline to move cursor after ^C
+  fprintf(stderr, "\n");
+}
+
+/**
+ * @brief Signal handler for SIGTERM
+ *
+ * Sets a flag to indicate graceful shutdown should occur.
+ */
+static void handle_sigterm(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  g_signal_received = 1;
+}
+
+/**
+ * @brief Signal handler for SIGPIPE
+ *
+ * Handles broken pipe gracefully (e.g., when output is piped and reader
+ * closes).
+ */
+static void handle_sigpipe(int sig) {
+  (void)sig; // Suppress unused parameter warning
+  // Ignore SIGPIPE - exit gracefully
+  // The write operation will fail with EPIPE, which we can handle
+  g_signal_received = 1;
+}
+
+/**
+ * @brief Set up signal handlers for graceful shutdown
+ *
+ * Registers handlers for SIGINT, SIGTERM, and SIGPIPE.
+ */
+static void setup_signal_handlers(void) {
+  signal(SIGINT, handle_sigint);
+  signal(SIGTERM, handle_sigterm);
+  signal(SIGPIPE, handle_sigpipe);
+}
 
 /**
  * @brief Create a new Kronos VM instance
@@ -74,7 +234,8 @@ const char *kronos_get_last_error(KronosVM *vm) {
  * @brief Get the last error code from the VM
  *
  * Returns the error code for the most recent error. Use this to distinguish
- * between different types of errors (tokenization, parsing, compilation, runtime).
+ * between different types of errors (tokenization, parsing, compilation,
+ * runtime).
  *
  * @param vm The VM instance
  * @return Error code, or KRONOS_ERR_INVALID_ARGUMENT if vm is NULL
@@ -105,7 +266,8 @@ void kronos_set_error_callback(KronosVM *vm, KronosErrorCallback callback) {
  *
  * Compiles and executes Kronos source code in a single call. This function
  * handles the full pipeline: tokenization, parsing, compilation, and execution.
- * Errors are stored in the VM and can be retrieved with kronos_get_last_error().
+ * Errors are stored in the VM and can be retrieved with
+ * kronos_get_last_error().
  *
  * @param vm The VM instance to use for execution
  * @param source The Kronos source code to execute (must not be NULL)
@@ -124,7 +286,7 @@ int kronos_run_string(KronosVM *vm, const char *source) {
   }
 
   // Step 2: Parse - Build Abstract Syntax Tree from tokens
-  AST *ast = parse(tokens);
+  AST *ast = parse(tokens, NULL);
   token_array_free(tokens);
 
   if (!ast) {
@@ -143,6 +305,8 @@ int kronos_run_string(KronosVM *vm, const char *source) {
 
   // Step 4: Execute - Run bytecode on the virtual machine
   int result = vm_execute(vm, bytecode);
+  // Clear stack before freeing bytecode to ensure constants aren't retained
+  vm_clear_stack(vm);
   bytecode_free(bytecode);
 
   if (result < 0 && vm->last_error_code == KRONOS_OK) {
@@ -168,12 +332,31 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 
   vm_clear_error(vm);
 
-  // Open file for reading
+  // Open file for reading (need to open first to canonicalize path)
   FILE *file = fopen(filepath, "r");
   if (!file) {
     return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open file: %s",
                      filepath);
   }
+
+  // Canonicalize the file path (resolve . and .. components, symlinks, etc.)
+  // This ensures consistent paths for relative imports
+  char *canonical_path = realpath(filepath, NULL);
+  if (!canonical_path) {
+    // realpath failed (e.g., file was deleted between open and realpath)
+    // Fall back to original path, but this shouldn't happen in normal usage
+    fclose(file);
+    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to canonicalize file path: %s",
+                     filepath);
+  }
+
+  // Set current file path for relative imports (use canonicalized path)
+  // Free previous path if it exists (safe to free NULL, but check for clarity)
+  if (vm->current_file_path) {
+    free(vm->current_file_path);
+    vm->current_file_path = NULL;
+  }
+  vm->current_file_path = canonical_path; // realpath already allocated this
 
   // Determine file size by seeking to end
   if (fseek(file, 0, SEEK_END) != 0) {
@@ -241,6 +424,25 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
   source[read_size] = '\0';
   fclose(file);
 
+  // Strip shebang line if present (e.g., #!/usr/bin/env kronos)
+  // Shebang must be the first line and start with #!
+  if (read_size >= 2 && source[0] == '#' && source[1] == '!') {
+    // Find the end of the shebang line (first newline or end of string)
+    char *shebang_end = strchr(source, '\n');
+    if (shebang_end) {
+      // Skip the shebang line including the newline
+      size_t shebang_len = (size_t)(shebang_end - source) + 1;
+      size_t remaining_len = read_size - shebang_len;
+
+      // Move the remaining content to the start of the buffer
+      memmove(source, source + shebang_len, remaining_len);
+      source[remaining_len] = '\0';
+    } else {
+      // No newline found - entire file is shebang, set to empty string
+      source[0] = '\0';
+    }
+  }
+
   // Execute the source code
   int result = kronos_run_string(vm, source);
   free(source);
@@ -249,102 +451,545 @@ int kronos_run_file(KronosVM *vm, const char *filepath) {
 }
 
 /**
- * @brief Start the Kronos REPL (Read-Eval-Print Loop)
+ * @brief Tab completion callback for linenoise
  *
- * Provides an interactive command-line interface for executing Kronos code.
- * Reads input line by line, executes it, and prints results or errors.
- * Type 'exit' to quit the REPL.
+ * Provides completions for Kronos keywords, function names, and variable names.
+ * Only works in TTY mode (interactive terminal).
  */
-void kronos_repl(void) {
-  printf("Kronos REPL - Type 'exit' to quit\n");
-
-  KronosVM *vm = kronos_vm_new();
-  if (!vm) {
-    fprintf(stderr, "Failed to create VM\n");
+static void completion_callback(const char *buf, linenoiseCompletions *lc) {
+  // Only provide completions in TTY mode
+  if (!isatty(STDIN_FILENO)) {
     return;
   }
 
-  char line[1024];
+  // Get the VM instance for function/variable names
+  KronosVM *vm = g_repl_vm;
+  if (!vm) {
+    return;
+  }
 
-  while (1) {
-    printf(">>> ");
-    fflush(stdout);
+  // Find the last word boundary (space, newline, or start of string)
+  const char *word_start = buf;
+  const char *p = buf + strlen(buf);
+  while (p > buf && p[-1] != ' ' && p[-1] != '\n' && p[-1] != '\t') {
+    p--;
+  }
+  word_start = p;
+  size_t word_len = strlen(buf) - (word_start - buf);
 
-    if (!fgets(line, sizeof(line), stdin)) {
-      break;
-    }
-
-    // Check if input was truncated (line too long for buffer)
-    // If no newline found and not at EOF, the line was truncated
-    size_t len = strlen(line);
-    if (len > 0 && line[len - 1] != '\n' && !feof(stdin)) {
-      fprintf(stderr, "Warning: Input line truncated (max %zu chars)\n",
-              sizeof(line) - 1);
-      int c;
-      while ((c = getchar()) != '\n' && c != EOF)
-        ;
-    }
-
-    // Remove trailing newline character
-    if (len > 0 && line[len - 1] == '\n') {
-      line[len - 1] = '\0';
-    }
-
-    // Check for exit command
-    if (strcmp(line, "exit") == 0) {
-      break;
-    }
-
-    // Skip empty lines (user just pressed Enter)
-    if (strlen(line) == 0) {
-      continue;
-    }
-
-    // Execute the line and print any errors
-    if (kronos_run_string(vm, line) < 0) {
-      const char *err = kronos_get_last_error(vm);
-      if (err && *err) {
-        fprintf(stderr, "Error: %s\n", err);
+  // Complete keywords
+  for (size_t i = 0; kronos_keywords[i] != NULL; i++) {
+    if (strncmp(word_start, kronos_keywords[i], word_len) == 0) {
+      // Build the full line with the completed keyword
+      size_t prefix_len = word_start - buf;
+      size_t keyword_len = strlen(kronos_keywords[i]);
+      char *completion = malloc(prefix_len + keyword_len + 1);
+      if (completion) {
+        memcpy(completion, buf, prefix_len);
+        memcpy(completion + prefix_len, kronos_keywords[i], keyword_len + 1);
+        linenoiseAddCompletion(lc, completion);
+        free(completion);
       }
     }
   }
 
+  // Complete function names
+  for (size_t i = 0; i < vm->function_count; i++) {
+    if (vm->functions[i] && vm->functions[i]->name) {
+      if (strncmp(word_start, vm->functions[i]->name, word_len) == 0) {
+        // Build the full line with the completed function name
+        size_t prefix_len = word_start - buf;
+        size_t func_name_len = strlen(vm->functions[i]->name);
+        char *completion = malloc(prefix_len + func_name_len + 1);
+        if (completion) {
+          memcpy(completion, buf, prefix_len);
+          memcpy(completion + prefix_len, vm->functions[i]->name, func_name_len + 1);
+          linenoiseAddCompletion(lc, completion);
+          free(completion);
+        }
+      }
+    }
+  }
+
+  // Complete global variable names
+  for (size_t i = 0; i < vm->global_count; i++) {
+    if (vm->globals[i].name) {
+      if (strncmp(word_start, vm->globals[i].name, word_len) == 0) {
+        // Build the full line with the completed variable name
+        size_t prefix_len = word_start - buf;
+        size_t var_name_len = strlen(vm->globals[i].name);
+        char *completion = malloc(prefix_len + var_name_len + 1);
+        if (completion) {
+          memcpy(completion, buf, prefix_len);
+          memcpy(completion + prefix_len, vm->globals[i].name, var_name_len + 1);
+          linenoiseAddCompletion(lc, completion);
+          free(completion);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * @brief Read multi-line input using linenoise until user finishes (empty line
+ * or EOF)
+ *
+ * Reads lines from stdin using linenoise for line editing and history,
+ * accumulating them. Shows continuation prompts ("... ") for additional lines.
+ * User finishes input by pressing Enter on an empty line.
+ *
+ * @return Pointer to allocated buffer containing the complete input, or NULL on
+ * EOF. Caller must free the returned buffer.
+ */
+static char *read_multiline_input(void) {
+  size_t capacity = 512;
+  size_t len = 0;
+  char *buffer = malloc(capacity);
+  if (!buffer)
+    return NULL;
+
+  bool first_line = true;
+  bool got_empty_line = false;
+
+  while (1) {
+    // Show prompt using linenoise
+    const char *prompt = first_line ? ">>> " : "... ";
+    char *line = linenoise(prompt);
+
+    if (!line) {
+      // EOF (Ctrl+D) - return what we have (might be empty)
+      if (len == 0) {
+        free(buffer);
+        return NULL;
+      }
+      break;
+    }
+
+    // Check for exit command (only on first line) - case-insensitive
+    // Support both "exit" and "quit" commands
+    if (len == 0 &&
+        (strcasecmp(line, "exit") == 0 || strcasecmp(line, "quit") == 0)) {
+      linenoiseFree(line);
+      free(buffer);
+      return NULL; // Signal to exit REPL
+    }
+
+    size_t line_len = strlen(line);
+
+    // If we get an empty line after having content, that signals end of input
+    if (line_len == 0 && len > 0) {
+      linenoiseFree(line);
+      break;
+    }
+
+    // If we got an empty line previously and this is also empty, break
+    if (line_len == 0 && got_empty_line) {
+      linenoiseFree(line);
+      break;
+    }
+
+    if (line_len == 0) {
+      got_empty_line = true;
+      linenoiseFree(line);
+      continue;
+    }
+
+    got_empty_line = false;
+
+    // Add non-empty line to history (only first line to avoid duplicates)
+    // Only add to history if we're in TTY mode (interactive terminal)
+    if (first_line && isatty(STDIN_FILENO)) {
+      linenoiseHistoryAdd(line);
+    }
+
+    // Calculate space needed: current buffer + new line + newline + null
+    // terminator
+    size_t needed = len + line_len + 2; // +2 for newline and null terminator
+
+    // Expand buffer if needed
+    if (needed >= capacity) {
+      size_t new_capacity = capacity;
+      while (new_capacity < needed) {
+        new_capacity *= 2;
+      }
+      char *new_buffer = realloc(buffer, new_capacity);
+      if (!new_buffer) {
+        linenoiseFree(line);
+        free(buffer);
+        return NULL;
+      }
+      buffer = new_buffer;
+      capacity = new_capacity;
+    }
+
+    // Append line to buffer
+    if (len > 0) {
+      buffer[len++] = '\n'; // Add newline between lines
+    }
+    memcpy(buffer + len, line, line_len);
+    len += line_len;
+    buffer[len] = '\0';
+
+    linenoiseFree(line);
+    first_line = false;
+  }
+
+  return buffer;
+}
+
+/**
+ * @brief Execute Kronos code as an expression and return the result value
+ *
+ * Attempts to parse and execute the source code as a single expression.
+ * If execution succeeds, returns the evaluated value. The caller is responsible
+ * for releasing the returned value.
+ *
+ * @param vm The VM instance to use for execution
+ * @param source The Kronos source code to execute (must not be NULL)
+ * @return Pointer to the result value if an expression was evaluated, NULL
+ *         otherwise (not an expression or error). Caller must call
+ *         value_release() on the returned value.
+ */
+static KronosValue *kronos_run_expression(KronosVM *vm, const char *source) {
+  if (!vm || !source)
+    return NULL;
+
+  vm_clear_error(vm);
+
+  // Step 1: Tokenize - Convert source code into tokens
+  TokenArray *tokens = tokenize(source, NULL);
+  if (!tokens) {
+    return NULL;
+  }
+
+  // Step 2: Parse as expression - Build AST node for the expression
+  ASTNode *expr_node = parse_expression_only(tokens, NULL);
+  token_array_free(tokens);
+
+  if (!expr_node) {
+    // Not a valid expression
+    return NULL;
+  }
+
+  // Step 3: Compile - Generate bytecode from expression AST node
+  // We need to create a minimal AST with just this expression node
+  AST *ast = malloc(sizeof(AST));
+  if (!ast) {
+    ast_node_free(expr_node);
+    return NULL;
+  }
+  ast->capacity = 1;
+  ast->count = 1;
+  ast->statements = malloc(sizeof(ASTNode *));
+  if (!ast->statements) {
+    free(ast);
+    ast_node_free(expr_node);
+    return NULL;
+  }
+  ast->statements[0] = expr_node;
+
+  const char *compile_err = NULL;
+  Bytecode *bytecode = compile(ast, &compile_err);
+  ast_free(ast); // This will free expr_node too
+
+  if (!bytecode) {
+    return NULL;
+  }
+
+  // Step 4: Execute - Run bytecode on the virtual machine
+  int result = vm_execute(vm, bytecode);
+  if (result < 0) {
+    // Execution failed - clear stack and return NULL
+    vm_clear_stack(vm);
+    bytecode_free(bytecode);
+    return NULL;
+  }
+
+  // Check if there's a value on the stack (expression result)
+  KronosValue *expr_result = NULL;
+  if (vm->stack_top > vm->stack) {
+    // There's a value on the stack - this was an expression
+    expr_result = vm->stack_top[-1];
+    vm->stack_top--;
+    // Retain the value since we're taking ownership
+    value_retain(expr_result);
+  }
+
+  // Clear any remaining stack values
+  vm_clear_stack(vm);
+  bytecode_free(bytecode);
+
+  return expr_result;
+}
+
+/**
+ * @brief Start the Kronos REPL (Read-Eval-Print Loop)
+ *
+ * Provides an interactive command-line interface for executing Kronos code.
+ * Supports multi-line input with continuation prompts. Reads input until a
+ * complete statement is formed, then executes it.
+ * Automatically prints expression results (like Python's interactive shell).
+ * Type 'exit' to quit the REPL.
+ */
+void kronos_repl(void) {
+  printf("Kronos REPL - Type 'exit' or 'quit' to quit (or Ctrl+C)\n");
+
+  KronosVM *vm = kronos_vm_new();
+  if (!vm) {
+    print_error("Failed to create VM");
+    return;
+  }
+
+  // Store VM pointer for signal handler cleanup and completion callback
+  g_repl_vm = vm;
+
+  // Set up linenoise only if stdin is a TTY (interactive terminal)
+  // When stdin is a pipe (e.g., in CI), linenoise will handle it automatically
+  // but we should only set up history/completion for interactive use
+  bool is_tty = isatty(STDIN_FILENO) != 0;
+  if (is_tty) {
+    linenoiseSetCompletionCallback(completion_callback);
+    linenoiseHistorySetMaxLen(100); // Store up to 100 history entries
+
+    // Try to load history from file (ignore errors if file doesn't exist)
+    linenoiseHistoryLoad(".kronos_history");
+  }
+
+  while (1) {
+    // Check for signal
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Exiting...\n");
+      break;
+    }
+
+    // Read multi-line input
+    char *input = read_multiline_input();
+    if (!input) {
+      // EOF or exit command
+      break;
+    }
+
+    // Check for signal again after reading input
+    if (g_signal_received) {
+      free(input);
+      fprintf(stderr, "\nInterrupted. Exiting...\n");
+      break;
+    }
+
+    // Skip empty input
+    if (strlen(input) == 0) {
+      free(input);
+      continue;
+    }
+
+    // Try to execute as an expression first (for REPL auto-printing)
+    KronosValue *expr_result = kronos_run_expression(vm, input);
+    if (expr_result) {
+      // Successfully evaluated as expression - print result
+      value_fprint(stdout, expr_result);
+      printf("\n");
+      value_release(expr_result);
+    } else {
+      // Not an expression - try as statement
+      // Clear any error state from expression attempt
+      vm_clear_error(vm);
+      int result = kronos_run_string(vm, input);
+      if (result < 0) {
+        // Statement execution also failed - show error
+        const char *err = kronos_get_last_error(vm);
+        if (err && *err) {
+          print_error(err);
+        }
+      }
+      // If statement execution succeeded, no need to print (statements don't
+      // return values)
+    }
+
+    free(input);
+  }
+
+  // Save history before exiting (only if we're in TTY mode)
+  if (isatty(STDIN_FILENO)) {
+    linenoiseHistorySave(".kronos_history");
+  }
+
+  g_repl_vm = NULL;
   kronos_vm_free(vm);
 }
 
 /**
  * @brief Main entry point for the Kronos interpreter
  *
- * If a file path is provided as a command-line argument, executes that file.
- * Otherwise, starts the interactive REPL.
+ * Parses command-line arguments and either executes files or starts the REPL.
  *
  * @param argc Number of command-line arguments
- * @param argv Command-line arguments (argv[1] is optional file path)
+ * @param argv Command-line arguments
  * @return 0 on success, 1 on error
  */
 int main(int argc, char **argv) {
-  if (argc > 1) {
-    // File execution mode: compile and run the specified file
+  // Set up signal handlers for graceful shutdown
+  setup_signal_handlers();
+
+  // Command-line options
+  static struct option long_options[] = {
+      {"help", no_argument, 0, 'h'},          {"version", no_argument, 0, 'v'},
+      {"debug", no_argument, 0, 'd'},         {"no-color", no_argument, 0, 'n'},
+      {"execute", required_argument, 0, 'e'}, {0, 0, 0, 0}};
+
+  int opt;
+  int option_index = 0;
+  // Flags for future use (currently parsed but not implemented)
+  __attribute__((unused)) bool debug_mode = false;
+  __attribute__((unused)) bool no_color = false;
+
+  // Collect -e arguments (can have multiple)
+  char **execute_args = NULL;
+  size_t execute_count = 0;
+  size_t execute_capacity = 0;
+
+  // Parse command-line options
+  while ((opt = getopt_long(argc, argv, "hvdne:", long_options,
+                            &option_index)) != -1) {
+    switch (opt) {
+    case 'h':
+      print_usage(argv[0]);
+      return 0;
+    case 'v':
+      print_version();
+      return 0;
+    case 'd':
+      debug_mode = true;
+      // TODO: Implement debug mode
+      break;
+    case 'n':
+      no_color = true;
+      // TODO: Implement no-color mode
+      break;
+    case 'e':
+      // Collect execute argument
+      if (execute_count >= execute_capacity) {
+        size_t new_capacity = execute_capacity == 0 ? 4 : execute_capacity * 2;
+        char **new_args = realloc(execute_args, new_capacity * sizeof(char *));
+        if (!new_args) {
+          fprintf(stderr,
+                  "Error: Failed to allocate memory for -e arguments\n");
+          if (execute_args) {
+            free(execute_args);
+          }
+          return 1;
+        }
+        execute_args = new_args;
+        execute_capacity = new_capacity;
+      }
+      execute_args[execute_count++] = optarg;
+      break;
+    case '?':
+      // Invalid option - getopt already printed error message
+      if (execute_args) {
+        free(execute_args);
+      }
+      return 1;
+    default:
+      if (execute_args) {
+        free(execute_args);
+      }
+      return 1;
+    }
+  }
+
+  // If -e flags were provided, execute them and exit
+  if (execute_count > 0) {
     KronosVM *vm = kronos_vm_new();
     if (!vm) {
-      fprintf(stderr, "Failed to create VM\n");
+      print_error("Failed to create VM");
+      if (execute_args) {
+        free(execute_args);
+      }
       return 1;
     }
 
-    int result = kronos_run_file(vm, argv[1]);
-    if (result < 0) {
-      const char *err = kronos_get_last_error(vm);
-      if (err && *err) {
-        fprintf(stderr, "Error: %s\n", err);
+    int exit_code = 0;
+    for (size_t i = 0; i < execute_count; i++) {
+      // Check for signal before processing each -e argument
+      if (g_signal_received) {
+        fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+        exit_code = 130; // Standard exit code for SIGINT
+        break;
+      }
+
+      int result = kronos_run_string(vm, execute_args[i]);
+      if (result < 0) {
+        const char *err = kronos_get_last_error(vm);
+        if (err && *err) {
+          fprintf(stderr, "Error executing -e argument %zu: %s\n", i + 1, err);
+        }
+        exit_code = 1;
+      }
+
+      // Check for signal after processing each -e argument
+      if (g_signal_received) {
+        fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+        exit_code = 130; // Standard exit code for SIGINT
+        break;
       }
     }
-    kronos_vm_free(vm);
 
-    // Convert negative error codes to standard exit code 1
-    return (result < 0) ? 1 : result;
-  } else {
+    kronos_vm_free(vm);
+    if (execute_args) {
+      free(execute_args);
+    }
+    return exit_code;
+  }
+
+  // Remaining arguments are file paths
+  int file_count = argc - optind;
+
+  if (file_count == 0) {
     // REPL mode: start interactive interpreter
     kronos_repl();
     return 0;
   }
+
+  // File execution mode: execute each specified file
+  KronosVM *vm = kronos_vm_new();
+  if (!vm) {
+    print_error("Failed to create VM");
+    return 1;
+  }
+
+  int exit_code = 0;
+  for (int i = optind; i < argc; i++) {
+    // Check for signal before processing each file
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+      exit_code = 130; // Standard exit code for SIGINT
+      break;
+    }
+
+    int result = kronos_run_file(vm, argv[i]);
+    if (result != 0) {
+      // Handle any non-zero result (errors return negative, but handle positive
+      // values defensively)
+      const char *err = kronos_get_last_error(vm);
+      if (err && *err) {
+        print_error_with_file(argv[i], err);
+      }
+      // Convert any non-zero result to standard exit code 1
+      // (kronos_run_file should only return 0 or negative, but be defensive)
+      exit_code = 1;
+    }
+
+    // Check for signal after processing each file
+    if (g_signal_received) {
+      fprintf(stderr, "\nInterrupted. Cleaning up...\n");
+      exit_code = 130; // Standard exit code for SIGINT
+      break;
+    }
+  }
+
+  kronos_vm_free(vm);
+  if (execute_args) {
+    free(execute_args);
+  }
+  return exit_code;
 }

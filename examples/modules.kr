@@ -1,0 +1,14 @@
+print "=== Modules Example ==="
+print ""
+
+# Import a module from a file
+import utils from "examples/utils_module.kr"
+print "Module imported successfully"
+print ""
+
+# Note: Function calls from modules are still being refined
+# For now, modules can define functions and variables that are
+# executed when the module is loaded
+
+print "=== End of Modules Example ==="
+

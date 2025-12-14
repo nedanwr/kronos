@@ -1,0 +1,57 @@
+%{
+#include "tokenizer.h"
+#include <string.h>
+
+struct KeywordEntry {
+  const char *keyword;
+  TokenType type;
+};
+%}
+struct KeywordEntry;
+%%
+set,TOK_SET
+let,TOK_LET
+to,TOK_TO
+as,TOK_AS
+if,TOK_IF
+else,TOK_ELSE
+for,TOK_FOR
+while,TOK_WHILE
+break,TOK_BREAK
+continue,TOK_CONTINUE
+in,TOK_IN
+range,TOK_RANGE
+list,TOK_LIST
+map,TOK_MAP
+at,TOK_AT
+from,TOK_FROM
+end,TOK_END
+function,TOK_FUNCTION
+with,TOK_WITH
+call,TOK_CALL
+return,TOK_RETURN
+import,TOK_IMPORT
+true,TOK_TRUE
+false,TOK_FALSE
+null,TOK_NULL
+undefined,TOK_UNDEFINED
+is,TOK_IS
+equal,TOK_EQUAL
+not,TOK_NOT
+greater,TOK_GREATER
+less,TOK_LESS
+than,TOK_THAN
+and,TOK_AND
+or,TOK_OR
+print,TOK_PRINT
+plus,TOK_PLUS
+minus,TOK_MINUS
+times,TOK_TIMES
+divided,TOK_DIVIDED
+by,TOK_BY
+mod,TOK_MOD
+delete,TOK_DELETE
+try,TOK_TRY
+catch,TOK_CATCH
+finally,TOK_FINALLY
+raise,TOK_RAISE

@@ -12,6 +12,11 @@
 #define FUNCTIONS_MAX 128
 #define CALL_STACK_MAX 256
 #define LOCALS_MAX 64
+#define MODULES_MAX 64
+#define EXCEPTION_HANDLERS_MAX 64
+// Maximum import depth to prevent C stack exhaustion from recursive module loading
+// This is more conservative than MODULES_MAX to account for C stack usage
+#define IMPORT_DEPTH_MAX 32
 
 // Function definition
 typedef struct {
@@ -21,6 +26,17 @@ typedef struct {
   Bytecode bytecode; // Full bytecode structure
 } Function;
 
+// Module definition (for file-based modules)
+typedef struct {
+  char *name;      // Module name (namespace)
+  char *file_path; // Source file path
+  KronosVM *
+      module_vm; // VM instance for this module (contains its globals/functions)
+  KronosVM
+      *root_vm; // Root VM that owns this module (for circular import detection)
+  bool is_loaded; // Whether module has been loaded
+} Module;
+
 // Call frame for function calls
 typedef struct {
   Function *function;
@@ -29,13 +45,18 @@ typedef struct {
   KronosValue **frame_start; // Start of this frame's stack
 
   // Local variables (includes parameters)
-  struct {
+  struct LocalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
     char *type_name; // NULL if no type restriction
   } locals[LOCALS_MAX];
   size_t local_count;
+
+  // Local variable hash table for O(1) lookup
+  // Stores pointers to local variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct LocalVar *local_hash[LOCALS_MAX];
 } CallFrame;
 
 // Virtual machine state
@@ -50,7 +71,7 @@ typedef struct KronosVM {
   CallFrame *current_frame;
 
   // Global variables
-  struct {
+  struct GlobalVar {
     char *name;
     KronosValue *value;
     bool is_mutable;
@@ -58,9 +79,34 @@ typedef struct KronosVM {
   } globals[GLOBALS_MAX];
   size_t global_count;
 
+  // Global variable hash table for O(1) lookup
+  // Stores pointers to global variable entries, NULL if empty slot
+  // Collisions handled by linear probing
+  struct GlobalVar *global_hash[GLOBALS_MAX];
+
   // Functions
   Function *functions[FUNCTIONS_MAX];
   size_t function_count;
+
+  // Function hash table for O(1) lookup
+  // Simple hash table: array of Function pointers, NULL if empty
+  // Collisions are handled by linear probing (next available slot)
+  Function *function_hash[FUNCTIONS_MAX];
+
+  // Modules (file-based modules)
+  Module *modules[MODULES_MAX];
+  size_t module_count;
+
+  // Module loading tracking (for circular import detection)
+  char *loading_modules[MODULES_MAX]; // Stack of modules currently being loaded
+  size_t loading_count;
+
+  // Current file path (for relative import resolution)
+  char *current_file_path;
+
+  // Root VM reference (for module VMs - points to the VM that created this
+  // module)
+  KronosVM *root_vm_ref; // NULL for root VM, non-NULL for module VMs
 
   // Instruction pointer
   uint8_t *ip;
@@ -70,8 +116,20 @@ typedef struct KronosVM {
 
   // Error tracking
   char *last_error_message;
+  char *last_error_type; // Error type name (e.g., "ValueError")
   KronosErrorCode last_error_code;
   KronosErrorCallback error_callback;
+
+  // Exception handler stack (for try/catch/finally)
+  struct {
+    uint8_t *handler_ip;     // IP of exception handler (catch or finally)
+    uint8_t *try_start_ip;   // IP where try block started
+    uint8_t *catch_start_ip; // IP where catch blocks start
+    size_t catch_count;      // Number of catch blocks
+    bool has_finally;        // Whether finally block exists
+    uint8_t *finally_ip;     // IP of finally block (if exists)
+  } exception_handlers[EXCEPTION_HANDLERS_MAX];
+  size_t exception_handler_count;
 } KronosVM;
 
 // VM API Error Handling Strategy:
@@ -103,6 +161,16 @@ KronosVM *vm_new(void);
  * @note Thread-safety: VM is NOT thread-safe. Caller must synchronize access.
  */
 void vm_free(KronosVM *vm);
+
+/**
+ * @brief Clear the VM stack, releasing all values
+ *
+ * This should be called before freeing bytecode to ensure constants
+ * aren't retained on the stack, which would prevent them from being freed.
+ *
+ * @param vm VM instance
+ */
+void vm_clear_stack(KronosVM *vm);
 
 /**
  * @brief Execute compiled bytecode in the VM.

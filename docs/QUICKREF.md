@@ -4,7 +4,13 @@ Fast reference guide for Kronos syntax.
 
 ## Imports
 ```kronos
+# Built-in modules
 import math
+
+# File-based modules
+import utils from "utils.kr"
+import helpers from "lib/helpers.kr"
+
 # String functions are global (no import needed)
 ```
 
@@ -19,6 +25,7 @@ set name to value
 - **Booleans:** `true`, `false`
 - **Null:** `null`
 - **Lists:** `list 1, 2, 3`
+- **Maps:** `map key: value, key2: value2`
 
 ## Print
 ```kronos
@@ -98,6 +105,91 @@ call reverse with original         # [3, 2, 1]
 call sort with list 3, 1, 2        # [1, 2, 3]
 ```
 
+## File I/O Operations
+```kronos
+# Read file
+set content to call read_file with "data.txt"
+
+# Write file
+call write_file with "output.txt", "Hello, World!"
+
+# Read lines
+set lines to call read_lines with "data.txt"
+
+# Check if file exists
+set exists to call file_exists with "data.txt"
+
+# List files in directory
+set files to call list_files with "."
+```
+
+## Path Operations
+```kronos
+# Join paths
+set path to call join_path with "dir", "file.txt"
+
+# Get directory name
+set dir to call dirname with "/path/to/file.txt"
+
+# Get file name
+set file to call basename with "/path/to/file.txt"
+```
+
+## Regular Expressions
+```kronos
+# Check if pattern matches entire string
+set matches to call regex.match with "hello", "h.*o"
+
+# Find first match
+set result to call regex.search with "hello world", "world"
+
+# Find all matches
+set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
+```
+
+## List Index Assignment
+```kronos
+let nums to list 1, 2, 3
+let nums at 0 to 10                # Modify first element: [10, 2, 3]
+let nums at -1 to 50               # Modify last element: [10, 2, 50]
+let nums at 1 to 5 plus 5          # Modify with expression: [10, 10, 50]
+```
+
+## Maps
+```kronos
+# Create map
+set person to map name: "Alice", age: 30
+
+# Access values
+print person at "name"             # "Alice"
+print person at "age"              # 30
+
+# Number keys
+set scores to map 1: 100, 2: 200
+print scores at 1                  # 100
+
+# Boolean keys
+set flags to map true: "yes", false: "no"
+print flags at true                # "yes"
+
+# Empty map
+set empty to map
+```
+
+## Map Key Deletion
+```kronos
+let person to map name: "Alice", age: 30, city: "NYC"
+delete person at "age"             # Remove age key
+delete person at "city"            # Remove city key
+
+# Works with any key type
+let scores to map 1: 100, 2: 200
+delete scores at 2                 # Remove key 2
+
+let flags to map true: "yes", false: "no"
+delete flags at true               # Remove boolean key
+```
+
 ## Arithmetic
 | Operation | Syntax | Example |
 |-----------|--------|---------|
@@ -105,6 +197,8 @@ call sort with list 3, 1, 2        # [1, 2, 3]
 | Subtraction | `a minus b` | `set diff to 10 minus 4` |
 | Multiplication | `a times b` | `set prod to 6 times 7` |
 | Division | `a divided by b` | `set quot to 20 divided by 4` |
+| Modulo | `a mod b` | `set rem to 10 mod 3` |
+| Unary Negation | `-a` | `set neg to -5` |
 
 ## Comparisons
 | Operation | Syntax |
@@ -133,6 +227,39 @@ for variable in range start to end:
 ```kronos
 while condition:
     statement
+```
+
+## Exception Handling
+```kronos
+# Basic exception handling
+try:
+    raise "Error message"
+catch error:
+    print error
+
+# Typed exceptions
+try:
+    raise ValueError "Invalid input"
+catch ValueError as e:
+    print e
+
+# Multiple catch blocks
+try:
+    raise RuntimeError "Runtime issue"
+catch ValueError as e:
+    print "ValueError"
+catch RuntimeError as e:
+    print "RuntimeError"
+catch error:
+    print "Other error"
+
+# Finally block
+try:
+    raise "error"
+catch e:
+    print e
+finally:
+    print "Cleanup"
 ```
 
 ## Code Blocks
@@ -243,6 +370,7 @@ while x is less than 100:
 - `times` - Multiplication
 - `divided` - Division
 - `by` - Division operator
+- `mod` - Modulo operator
 - `is` - Comparison start
 - `equal` - Equality
 - `not` - Negation

@@ -1,0 +1,77 @@
+# Data Processing Example
+# Demonstrates practical data manipulation and processing
+
+print "=== Data Processing Example ==="
+print ""
+
+# 1. Processing a list of numbers
+print "1. Processing Number Lists:"
+set numbers to list 10, 25, 5, 30, 15, 20
+set sorted_nums to call sort with numbers
+set min_val to call min with 10, 25, 5, 30, 15, 20
+set max_val to call max with 10, 25, 5, 30, 15, 20
+print "   Original list:"
+print numbers
+print "   Sorted list:"
+print sorted_nums
+print f"   Min: {min_val}, Max: {max_val}"
+print ""
+
+# 2. String processing
+print "2. String Processing:"
+set text to "  Hello, World!  "
+set trimmed to call trim with text
+set upper to call uppercase with trimmed
+set lower to call lowercase with trimmed
+print f"   Original: '{text}'"
+print f"   Trimmed: '{trimmed}'"
+print f"   Uppercase: '{upper}'"
+print f"   Lowercase: '{lower}'"
+
+# Split and join
+set csv_data to "apple,banana,cherry"
+set fruits to call split with csv_data, ","
+print f"   Split '{csv_data}':"
+print fruits
+set joined to call join with fruits, " | "
+print f"   Joined: '{joined}'"
+print ""
+
+# 3. Filtering and searching
+print "3. Filtering Data:"
+set words to list "apple", "banana", "cherry", "date", "elderberry"
+print "   Words starting with 'a' or 'b':"
+for word in words:
+    let check_a to call starts_with with word, "a"
+    let check_b to call starts_with with word, "b"
+    if check_a or check_b:
+        print f"   Found: {word}"
+
+# Search in strings
+set sentence to "The quick brown fox jumps over the lazy dog"
+set has_fox to call contains with sentence, "fox"
+set has_cat to call contains with sentence, "cat"
+print f"   Contains 'fox': {has_fox}"
+print f"   Contains 'cat': {has_cat}"
+print ""
+
+# 4. Data transformation
+print "4. Data Transformation:"
+set values to list 1, 2, 3, 4, 5
+print "   Squared values:"
+for val in values:
+    let squared_val to call power with val, 2
+    print f"     {val}² = {squared_val}"
+print ""
+
+# 5. Working with ranges
+print "5. Range Operations:"
+set r to range 1 to 10
+set range_len to call len with r
+print f"   Range length: {range_len}"
+print "   Range values:"
+for i in r:
+    print f"     {i}"
+print ""
+
+print "=== Example Complete ==="

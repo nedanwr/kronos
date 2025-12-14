@@ -1,0 +1,4 @@
+# Test error handling for missing module file
+import missing from "nonexistent.kr"
+# Expected: Runtime error - Module file not found
+

@@ -1,0 +1,19 @@
+# Test: Basic modulo operations
+# Expected: Pass
+
+# Simple modulo
+set result to 10 mod 3
+print result
+
+# Modulo with larger numbers
+set result2 to 100 mod 7
+print result2
+
+# Modulo in expression
+set result3 to 5 plus 3 mod 2
+print result3
+
+# Modulo with precedence
+set result4 to 10 mod 3 times 2
+print result4
+

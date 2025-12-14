@@ -6,8 +6,11 @@ Comprehensive test suite for the Kronos programming language.
 
 ```
 tests/
-├── pass/        # Tests that should execute successfully
-└── fail/        # Tests that should produce errors
+├── integration/
+│   ├── pass/    # Tests that should execute successfully
+│   └── fail/    # Expected fail tests (tests that should produce errors)
+├── unit/        # Unit tests for individual components
+└── framework/   # Test framework code
 ```
 
 ## Running Tests
@@ -15,58 +18,51 @@ tests/
 ### Run All Tests
 
 ```bash
-./run_tests.sh
+./scripts/run_tests.sh
 ```
 
 ### Run Specific Category
 
 ```bash
 # Run only passing tests
-./kronos tests/pass/*.kr
+./kronos tests/integration/pass/*.kr
 
-# Run only error tests (each will produce an error)
-./kronos tests/fail/01_immutable_reassign.kr
+# Run only expected fail tests (each will produce an error)
+./kronos tests/integration/fail/immutable_reassign.kr
 ```
 
 ## Test Categories
 
-### Passing Tests (`tests/pass/`)
+### Passing Tests (`tests/integration/pass/`)
 
-| Test File                 | Description                        |
-| ------------------------- | ---------------------------------- |
-| `variables_immutable.kr`  | Immutable variables with `set`     |
-| `variables_mutable.kr`    | Mutable variables with `let`       |
-| `variables_typed.kr`      | Type-annotated variables           |
-| `arithmetic_basic.kr`     | Basic arithmetic operations        |
-| `arithmetic_complex.kr`   | Complex arithmetic expressions     |
-| `comparisons.kr`          | Comparison operations              |
-| `conditionals.kr`         | If statements                      |
-| `functions_simple.kr`     | Simple function definitions        |
-| `functions_params.kr`     | Functions with multiple parameters |
-| `functions_local_vars.kr` | Functions with local variables     |
-| `builtins_pi.kr`          | Pi constant usage                  |
-| `builtins_math.kr`        | Built-in math functions            |
-| `booleans.kr`             | Boolean literals                   |
-| `null_values.kr`          | Null values                        |
+The test suite includes 83 passing integration tests covering:
 
-### Error Tests (`tests/fail/`)
+- Variables (immutable, mutable, typed)
+- Arithmetic operations
+- Comparisons and logical operators
+- Control flow (if, for, while, break, continue)
+- Functions (simple, parameters, local variables)
+- Built-in constants and functions
+- Lists (creation, indexing, slicing, iteration)
+- Strings (operations, functions, methods)
+- F-strings (string interpolation)
+- Type conversion
+- Range objects
+- Module imports
 
-| Test File                   | Expected Error                     |
-| --------------------------- | ---------------------------------- |
-| `immutable_reassign.kr`     | Cannot reassign immutable variable |
-| `type_mismatch.kr`          | Type mismatch for typed variable   |
-| `undefined_variable.kr`     | Undefined variable                 |
-| `division_by_zero.kr`       | Cannot divide by zero              |
-| `type_error_arithmetic.kr`  | Type error in arithmetic           |
-| `function_too_many_args.kr` | Function called with too many args |
-| `function_too_few_args.kr`  | Function called with too few args  |
-| `undefined_function.kr`     | Undefined function                 |
-| `pi_reassign.kr`            | Cannot reassign Pi constant        |
-| `builtin_wrong_args.kr`     | Built-in with wrong arg count      |
-| `builtin_wrong_types.kr`    | Built-in with wrong arg types      |
-| `comparison_type_error.kr`  | Comparison type error              |
+### Expected Fail Tests (`tests/integration/fail/`)
 
-Together these cover 26 comprehensive tests (14 passing + 12 error cases).
+The test suite includes 46 expected fail tests covering:
+
+- Immutability violations
+- Type mismatches
+- Undefined variables and functions
+- Division by zero
+- Index out of bounds
+- Wrong argument counts/types
+- Invalid operations
+
+Together these cover 129 comprehensive tests (83 passing + 46 expected fail cases).
 
 ## Test Coverage
 
@@ -137,10 +133,10 @@ See `.github/workflows/test.yml` for the CI configuration.
 
 ### For Passing Tests
 
-1. Create a new file in `tests/pass/` with a descriptive name
+1. Create a new file in `tests/integration/pass/` with a descriptive name
 2. Add a comment describing what the test validates
 3. Write Kronos code that should execute successfully
-4. Run `./run_tests.sh` to verify
+4. Run `./scripts/run_tests.sh` to verify
 
 Example:
 
@@ -152,12 +148,12 @@ set greeting to "Hello, " plus "World!"
 print greeting
 ```
 
-### For Error Tests
+### For Expected Fail Tests
 
-1. Create a new file in `tests/fail/` with a descriptive name
+1. Create a new file in `tests/integration/fail/` with a descriptive name
 2. Add a comment describing the expected error
 3. Write Kronos code that should produce an error
-4. Run `./run_tests.sh` to verify
+4. Run `./scripts/run_tests.sh` to verify
 
 Example:
 
@@ -186,7 +182,7 @@ Running passing tests...
 ✓ PASS: 02_variables_mutable
 ...
 
-Running error tests...
+Running expected fail tests...
 ────────────────────────────────────────────────────────────
 ✓ PASS: 01_immutable_reassign
    ↳ Error: Cannot reassign immutable variable 'x'
@@ -198,23 +194,23 @@ Running error tests...
                     TEST RESULTS
 ════════════════════════════════════════════════════════════
 
-Total tests:  26
-Passed:       14
-Failed:       12
+Total tests:  71
+Passed:       42
+Failed:       29
 
-Success rate: 54%
+Success rate: 59%
 
 ✓ TESTS COMPLETED
 ```
 
 ## Debugging Failed Tests
 
-If a test fails:
+If a test execution fails (unexpected failure):
 
 1. Run the specific test file directly:
 
    ```bash
-   ./kronos tests/pass/01_variables_immutable.kr
+   ./kronos tests/integration/pass/variables_immutable.kr
    ```
 
 2. Check the output and error messages
@@ -229,6 +225,6 @@ For performance testing, use the dedicated `benchmarks/` directory (future).
 
 ## Related Documentation
 
-- [SAFETY_CHECKS.md](../docs/SAFETY_CHECKS.md) - All safety checks and error messages
 - [SYNTAX.md](../docs/SYNTAX.md) - Language syntax reference
-- [PROJECT.md](../docs/PROJECT.md) - Feature implementation status and roadmap
+- [PROJECT.md](../docs/PROJECT.md) - Architecture and implementation details
+- [COVERAGE_ANALYSIS.md](COVERAGE_ANALYSIS.md) - Test coverage analysis

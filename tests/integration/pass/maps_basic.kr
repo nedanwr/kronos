@@ -1,0 +1,52 @@
+# Test basic map operations
+
+# Empty map
+set m1 to map
+print m1
+# Expected: {}
+
+# Map with string keys
+set person to map name: "Alice", age: 30, city: "NYC"
+print person
+# Expected: {name: Alice, age: 30, city: NYC}
+
+# Access map values
+print person at "name"
+# Expected: Alice
+
+print person at "age"
+# Expected: 30
+
+print person at "city"
+# Expected: NYC
+
+# Map with number keys
+set scores to map 1: 100, 2: 200, 3: 300
+print scores at 1
+# Expected: 100
+
+print scores at 2
+# Expected: 200
+
+# Map with boolean keys
+set flags to map true: "yes", false: "no"
+print flags at true
+# Expected: yes
+
+print flags at false
+# Expected: no
+
+# Map with mixed value types
+set mixed to map key1: "string", key2: 42, key3: true, key4: null
+print mixed at "key1"
+# Expected: string
+
+print mixed at "key2"
+# Expected: 42
+
+print mixed at "key3"
+# Expected: true
+
+print mixed at "key4"
+# Expected: null
+

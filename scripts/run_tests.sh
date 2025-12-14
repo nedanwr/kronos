@@ -63,7 +63,7 @@ echo ""
 if [ -f "tests/unit/kronos_unit_tests" ]; then
     ./tests/unit/kronos_unit_tests
     unit_exit_code=$?
-    
+
     if [ $unit_exit_code -eq 0 ]; then
         echo ""
         echo "${GREEN}✓ Unit tests passed${NC}"
@@ -143,8 +143,8 @@ for test_file in tests/integration/pass/*.kr; do
 done
 echo ""
 
-# Run integration tests that should fail
-echo "${BLUE}Running error integration tests...${NC}"
+# Run integration tests that should fail (expected fail tests)
+echo "${BLUE}Running expected fail integration tests...${NC}"
 echo "────────────────────────────────────────────────────────────"
 for test_file in tests/integration/fail/*.kr; do
     if [ -f "$test_file" ]; then

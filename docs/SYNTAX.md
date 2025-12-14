@@ -15,9 +15,10 @@ Complete syntax guide for the Kronos programming language - a human-readable lan
 9. [Built-in Constants and Functions](#built-in-constants-and-functions)
 10. [Functions](#functions)
 11. [String Operations](#string-operations)
-12. [Safety & Error Handling](#safety--error-handling)
-13. [Comments](#comments)
-14. [Indentation](#indentation)
+12. [Lists and Maps](#lists-and-maps)
+13. [Safety & Error Handling](#safety--error-handling)
+14. [Comments](#comments)
+15. [Indentation](#indentation)
 
 ---
 
@@ -78,6 +79,8 @@ let <variable_name> to <value> as <type>
 - `string` - Text values
 - `boolean` - `true` or `false`
 - `null` - Represents no value
+- `list` - Ordered collections of values
+- `map` - Key-value collections
 
 **Examples:**
 ```kronos
@@ -254,6 +257,46 @@ set quotient to 20 divided by 4
 print quotient
 ```
 
+### Modulo
+
+```
+<value> mod <value>
+```
+
+Returns the remainder after division.
+
+```kronos
+set remainder to 10 mod 3
+print remainder  # 1
+
+set result to 100 mod 7
+print result  # 2
+```
+
+**Note:** Modulo by zero will result in an error.
+
+### Unary Negation
+
+```
+-<value>
+```
+
+Negates a number (makes it negative if positive, or positive if negative).
+
+```kronos
+set neg to -5
+print neg  # -5
+
+set x to 10
+set neg_x to -x
+print neg_x  # -10
+
+set result to -5 plus 3
+print result  # -2
+```
+
+**Note:** Double negation (`--x`) is supported for multiple levels of negation.
+
 ### Complex Expressions
 
 Operations are evaluated left to right. Use variables to control order:
@@ -277,11 +320,13 @@ set sum to x plus y
 set diff to x minus y
 set prod to x times y
 set quot to x divided by y
+set rem to x mod y
 
 print sum
 print diff
 print prod
 print quot
+print rem
 ```
 
 ---
@@ -715,9 +760,9 @@ for i in range 1 to 10:
 
 ## Modules and Imports
 
-Kronos supports importing built-in modules to organize functions into namespaces.
+Kronos supports importing both built-in modules and file-based modules to organize code into namespaces.
 
-### Importing Modules
+### Importing Built-in Modules
 
 **Syntax:**
 ```
@@ -733,6 +778,51 @@ import <module_name>
 ```kronos
 import math
 # String functions are global (no import needed)
+```
+
+### Importing File-based Modules
+
+You can import code from other `.kr` files to organize your code into reusable modules.
+
+**Syntax:**
+```
+import <module_name> from "<file_path>"
+```
+
+**Examples:**
+```kronos
+# Import a module from a file
+import utils from "utils.kr"
+import math_utils from "lib/math_utils.kr"
+
+# Relative paths are supported
+import helpers from "./helpers.kr"
+```
+
+**Module File Execution:**
+When a module is imported, the entire module file is executed in its own VM context. This means:
+- All top-level statements in the module file are executed
+- Functions and variables defined in the module are available through the module namespace
+- Modules are cached - importing the same module multiple times only loads it once
+
+**Example Module File (`utils.kr`):**
+```kronos
+# Utility functions module
+print "Loading utils module..."
+
+function greet name:
+    print "Hello, " + name + "!"
+
+set version to "1.0.0"
+```
+
+**Using the Module:**
+```kronos
+import utils from "utils.kr"
+# Module code executes here (prints "Loading utils module...")
+
+# Access module functions (when fully implemented)
+# call utils.greet with "Alice"
 ```
 
 ### Using Module Functions
@@ -878,6 +968,85 @@ set words to list "zebra", "apple", "banana"
 set sorted_words to call sort with words      # Returns ["apple", "banana", "zebra"]
 ```
 
+**File I/O Operations:**
+
+- `read_file(path)` - Reads entire file content as a string
+- `write_file(path, content)` - Writes string content to a file (returns nil on success)
+- `read_lines(path)` - Reads file and returns a list of lines (one string per line)
+- `file_exists(path)` - Checks if a file or directory exists (returns boolean)
+- `list_files(path)` - Lists files in a directory (returns list of file names as strings)
+
+**Examples:**
+
+```kronos
+# Read a file
+set content to call read_file with "data.txt"
+print content
+
+# Write to a file
+call write_file with "output.txt", "Hello, World!"
+
+# Read file line by line
+set lines to call read_lines with "data.txt"
+for line in lines:
+    print line
+
+# Check if file exists
+set exists to call file_exists with "data.txt"
+if exists:
+    print "File exists!"
+
+# List files in directory
+set files to call list_files with "."
+for file in files:
+    print file
+```
+
+**Path Operations:**
+
+- `join_path(path1, path2)` - Joins two path components with appropriate separator
+- `dirname(path)` - Returns the directory name from a file path
+- `basename(path)` - Returns the file name from a file path
+
+**Examples:**
+
+```kronos
+# Join paths
+set full_path to call join_path with "dir", "file.txt"        # Returns "dir/file.txt"
+set full_path2 to call join_path with "/path/to", "file.txt"  # Returns "/path/to/file.txt"
+
+# Get directory name
+set dir to call dirname with "/path/to/file.txt"  # Returns "/path/to"
+set dir2 to call dirname with "file.txt"          # Returns "."
+
+# Get file name
+set file to call basename with "/path/to/file.txt"  # Returns "file.txt"
+set file2 to call basename with "dir/subdir"        # Returns "subdir"
+```
+
+**Regular Expressions:**
+
+The `regex` module provides pattern matching using POSIX extended regular expressions.
+
+- `regex.match(string, pattern)` - Returns `true` if pattern matches entire string, `false` otherwise
+- `regex.search(string, pattern)` - Returns first matched substring or `null` if no match
+- `regex.findall(string, pattern)` - Returns list of all matched substrings (empty list if no matches)
+
+**Examples:**
+```kronos
+# Check if pattern matches entire string
+set matches to call regex.match with "hello", "h.*o"
+print matches  # Prints: true
+
+# Find first match
+set result to call regex.search with "hello world", "world"
+print result  # Prints: world
+
+# Find all matches
+set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
+print all_matches  # Prints: [cat, bat, sat]
+```
+
 **Notes:**
 
 - Built-in functions require exact argument counts
@@ -885,6 +1054,11 @@ set sorted_words to call sort with words      # Returns ["apple", "banana", "zeb
 - String functions require string arguments (except `len` which also works with lists)
 - Division by zero returns nil and prints an error
 - Function names are reserved and cannot be used as variable names
+- File I/O functions will raise errors if files cannot be opened or read
+- Path operations work with both absolute and relative paths
+- `list_files` excludes `.` and `..` entries
+- Regex functions use POSIX Extended Regular Expression syntax
+- Invalid regex patterns will raise a `RuntimeError` with details
 
 ---
 
@@ -1117,9 +1291,151 @@ For complete list of string built-in functions, see [Built-in Constants and Func
 
 ---
 
+## Lists and Maps
+
+Kronos provides two collection data types: lists (arrays) and maps (dictionaries).
+
+### Lists
+
+Lists are ordered collections of values. They support indexing, slicing, and iteration.
+
+**Syntax:**
+```
+list <value1>, <value2>, ...
+```
+
+**Examples:**
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set fruits to list "apple", "banana", "cherry"
+set mixed to list 1, "hello", true, 3.14
+set empty to list
+```
+
+**List Indexing:**
+```kronos
+set numbers to list 10, 20, 30
+set first to numbers at 0      # Returns 10
+set last to numbers at -1      # Returns 30 (negative index from end)
+```
+
+**List Slicing:**
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set slice1 to numbers from 1 to 3    # Returns [2, 3]
+set slice2 to numbers from 2 to end  # Returns [3, 4, 5]
+```
+
+**List Iteration:**
+```kronos
+set fruits to list "apple", "banana", "cherry"
+for fruit in fruits:
+    print fruit
+```
+
+**List Index Assignment:**
+Lists can be modified using `let` with index assignment:
+```kronos
+let numbers to list 1, 2, 3, 4, 5
+let numbers at 0 to 10      # Modify first element: [10, 2, 3, 4, 5]
+let numbers at -1 to 50     # Modify last element (negative index): [10, 2, 3, 4, 50]
+let numbers at 2 to 5 plus 5  # Modify with expression: [10, 2, 10, 4, 50]
+```
+
+**Notes:**
+- Only mutable lists (created with `let`) can be modified
+- Index must be within bounds (0 to length-1, or negative index from -1 to -length)
+- Attempting to modify an immutable list (created with `set`) will result in an error
+- Index assignment modifies the list in-place
+
+### Maps
+
+Maps are key-value collections that store pairs of keys and values. Keys can be strings, numbers, booleans, or null.
+
+**Syntax:**
+```
+map <key1>: <value1>, <key2>: <value2>, ...
+```
+
+**Examples:**
+```kronos
+# Map with string keys
+set person to map name: "Alice", age: 30, city: "NYC"
+
+# Map with number keys
+set scores to map 1: 100, 2: 200, 3: 300
+
+# Map with boolean keys
+set flags to map true: "yes", false: "no"
+
+# Empty map
+set empty_map to map
+
+# Mixed value types
+set mixed to map key1: "string", key2: 42, key3: true, key4: null
+```
+
+**Map Indexing:**
+```kronos
+set person to map name: "Alice", age: 30
+set name to person at "name"    # Returns "Alice"
+set age to person at "age"      # Returns 30
+
+# Number keys
+set scores to map 1: 100, 2: 200
+set score1 to scores at 1       # Returns 100
+
+# Boolean keys
+set flags to map true: "yes"
+set yes_value to flags at true  # Returns "yes"
+```
+
+**Map Key Deletion:**
+Map keys can be removed using the `delete` statement:
+```kronos
+let person to map name: "Alice", age: 30, city: "NYC"
+delete person at "age"      # Remove age key: {name: Alice, city: NYC}
+delete person at "city"     # Remove city key: {name: Alice}
+
+# Works with any key type
+let scores to map 1: 100, 2: 200, 3: 300
+delete scores at 2           # Remove key 2: {1: 100, 3: 300}
+
+let flags to map true: "yes", false: "no"
+delete flags at true         # Remove boolean key: {false: no}
+```
+
+**Notes:**
+- Map keys can be any type: strings, numbers, booleans, or null
+- Keys in map literals can be identifiers (automatically converted to strings) or expressions
+- Accessing a non-existent key results in a runtime error
+- Deleting a non-existent key results in a runtime error
+- Maps are printed in the format `{key: value, key2: value2}` (order may vary)
+- Key deletion modifies the map in-place
+
+**Examples:**
+```kronos
+# Create a map
+set person to map name: "Bob", age: 25
+
+# Access values
+print person at "name"    # Prints: Bob
+print person at "age"     # Prints: 25
+
+# Map with number keys
+set lookup to map 42: "answer", 100: "century"
+print lookup at 42        # Prints: answer
+
+# Map with boolean keys
+set options to map true: "enabled", false: "disabled"
+print options at true     # Prints: enabled
+```
+
+---
+
 ## Safety & Error Handling
 
-Kronos provides comprehensive safety checks with human-readable error messages.
+Kronos provides comprehensive safety checks with human-readable error messages and exception handling.
 
 ### Error Format
 
@@ -1130,17 +1446,93 @@ Error: Function 'greet' expects 1 argument, but got 2
 Error: Cannot divide by zero
 ```
 
+### Exception Handling
+
+Kronos supports Python-style exception handling with `try`, `catch`, and `finally` blocks. You can raise exceptions with specific error types and catch them selectively.
+
+**Basic Syntax:**
+```kronos
+try:
+    # Code that might raise an exception
+    raise "Error message"
+catch error:
+    # Handle the exception
+    print f"Caught: {error}"
+finally:
+    # Optional cleanup code (always executes)
+    print "Cleanup"
+```
+
+**Raising Exceptions:**
+```kronos
+# Raise a generic error
+raise "Something went wrong"
+
+# Raise a typed error
+raise ValueError "Invalid input value"
+raise RuntimeError "Runtime error occurred"
+```
+
+**Catching Specific Error Types:**
+```kronos
+try:
+    raise ValueError "Invalid value"
+catch ValueError as e:
+    print f"Caught ValueError: {e}"
+catch RuntimeError as e:
+    print f"Caught RuntimeError: {e}"
+catch error:
+    # Catch-all for any other error type
+    print f"Caught other error: {error}"
+```
+
+**Multiple Catch Blocks:**
+You can have multiple `catch` blocks to handle different error types. The first matching catch block will handle the exception:
+
+```kronos
+try:
+    raise RuntimeError "Runtime issue"
+catch ValueError as e:
+    print "This won't catch RuntimeError"
+catch RuntimeError as e:
+    print f"Caught RuntimeError: {e}"  # This will catch it
+catch error:
+    print f"Fallback: {error}"
+```
+
+**Finally Blocks:**
+The `finally` block always executes, whether an exception occurred or not:
+
+```kronos
+try:
+    raise "error"
+catch e:
+    print e
+finally:
+    print "This always runs"
+```
+
+**Available Error Types:**
+- `RuntimeError` - General runtime errors
+- `ValueError` - Invalid argument values
+- `TypeError` - Type mismatch errors
+- `NameError` - Undefined variable/function errors
+- `SyntaxError` - Syntax/parse errors
+- `CompileError` - Compilation errors
+- `Error` - Generic error (default if no type specified)
+
 ### Key Safety Features
 
-✅ **Type Safety** - Operations check types before executing  
-✅ **Immutability** - `set` variables cannot be reassigned  
-✅ **Type Annotations** - Optional `as <type>` enforces types  
-✅ **Function Validation** - Argument count and types checked  
-✅ **Undefined Detection** - Variables and functions must exist  
-✅ **Division by Zero** - Caught before execution  
-✅ **Protected Constants** - Pi cannot be modified  
+✅ **Type Safety** - Operations check types before executing
+✅ **Immutability** - `set` variables cannot be reassigned
+✅ **Type Annotations** - Optional `as <type>` enforces types
+✅ **Function Validation** - Argument count and types checked
+✅ **Undefined Detection** - Variables and functions must exist
+✅ **Division by Zero** - Caught before execution
+✅ **Protected Constants** - Pi cannot be modified
+✅ **Exception Handling** - Try/catch/finally for error management
 
-See examples in `tests/fail/` directory for all error cases.
+See examples in `tests/integration/fail/` directory for all expected fail test cases.
 
 ---
 
@@ -1277,49 +1669,27 @@ print max
 
 ## Future Features
 
-### Version 0.3.0: "Data Structures & Control Flow" (In Progress)
+### Version 0.3.0: "Data Structures & Control Flow" ✅ Completed
 
 **Completed:**
-- ✅ Logical operators (`and`, `or`, `not`) - **COMPLETED**
+- ✅ Logical operators (`and`, `or`, `not`)
+- ✅ Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
+- ✅ String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
+- ✅ Enhanced standard library - Math, type conversion, list utilities (20+ functions)
+- ✅ Control flow - `else if`, `break`, `continue`, range-based loops
+- ✅ Range objects - First-class range support
 
-**Planned Features:**
-- 🔄 Lists/Arrays - Full operations (indexing, slicing, iteration, append, list methods)
-- 🔄 String operations - Complete manipulation suite (concatenation, indexing, slicing, built-ins)
-- 🔄 Enhanced standard library - Math, type conversion, list utilities (20+ functions)
-- 🔄 Control flow - `else if`, `break`, `continue`, range-based loops
-- 🔄 Range objects - First-class range support
+### Version 0.4.0: "Modules & Error Handling" ✅ Completed
 
-**Example:**
-```kronos
-# Else if (planned)
-if score is greater than 90:
-    print "A"
-else if score is greater than 80:
-    print "B"
-else:
-    print "C"
+**Completed:**
+- ✅ Dictionaries/Maps - Key-value storage with full operations
+- ✅ Exception Handling - Try/catch/finally blocks with typed exceptions
+- ✅ Import/module system - Built-in and file-based modules, namespace management
+- ✅ File I/O operations - Complete file system interface (read, write, append, list, path ops)
+- ✅ Path operations - join_path, dirname, basename
+- ✅ Regular expressions - Pattern matching via regex module
 
-# Lists (planned)
-set numbers to list 1, 2, 3, 4, 5
-set first to numbers at 0
-```
-
-### Version 0.4.0: "Modules & Error Handling" (Planned)
-
-**Planned Features:**
-- Dictionaries/Maps - Key-value storage with full operations and iteration
-- Import/module system - Built-in and file-based modules, namespace management
-- Exception handling - `try`/`catch`/`finally`, exception types, custom exceptions
-- File I/O operations - Complete file system interface (read, write, append, list, path ops)
-
-**Example:**
-```kronos
-# Exception handling (planned)
-try:
-    set result to x divided by 0
-catch error:
-    print "Division by zero"
-```
+See the [Exception Handling](#exception-handling) section above for complete documentation.
 
 ### Version 0.5.0: "Advanced Language Features" (Planned)
 
@@ -1449,5 +1819,5 @@ Execute a file:
 
 ---
 
-_Last updated: November 2025_
-_Kronos Language Version: 0.3.0 (In Development)_
+_Last updated: December 2025_
+_Kronos Language Version: 0.4.0_

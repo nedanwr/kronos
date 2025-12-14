@@ -1,0 +1,27 @@
+# Test: Unary negation with literals
+# Expected: Pass
+
+# Negate positive number
+set neg1 to -5
+print neg1
+
+# Negate negative number
+set neg2 to --10
+print neg2
+
+# Negate zero
+set neg3 to -0
+print neg3
+
+# Negate in expression
+set result1 to -5 plus 3
+print result1
+
+# Negate with precedence
+set result2 to -2 times 3
+print result2
+
+# Multiple negations
+set result3 to ---5
+print result3
+

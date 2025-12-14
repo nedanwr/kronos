@@ -4,7 +4,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.4.0  
+**Current Version:** 0.4.0
 **Status:** ✅ Stable - Core language features complete
 
 ### What's Available Now
@@ -28,8 +28,8 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.4.0: "Modules & Error Handling"
 
-**Target:** Q4 2025  
-**Status:** 🚧 In Progress
+**Target:** Q4 2025
+**Status:** ✅ Completed
 
 #### Planned Features
 
@@ -101,25 +101,25 @@ This document outlines the planned features and release schedule for Kronos.
       print "Cleanup"
   ```
 
-- 🔄 **File I/O Operations** - Complete file system interface
+- ✅ **File I/O Operations** - Complete file system interface (completed)
 
   ```kronos
-  set content to read_file "data.txt"
-  write_file "output.txt", content
-  set lines to read_lines "data.txt"
-  set exists to file_exists "data.txt"
-  set files to list_files "."
+  set content to call read_file with "data.txt"
+  call write_file with "output.txt", content
+  set lines to call read_lines with "data.txt"
+  set exists to call file_exists with "data.txt"
+  set files to call list_files with "."
   ```
 
-- 🔄 **Path Operations** - File path utilities
+- ✅ **Path Operations** - File path utilities (completed)
 
   ```kronos
-  set full_path to join_path "dir", "file.txt"
-  set dir to dirname "/path/to/file.txt"
-  set file to basename "/path/to/file.txt"
+  set full_path to call join_path with "dir", "file.txt"
+  set dir to call dirname with "/path/to/file.txt"
+  set file to call basename with "/path/to/file.txt"
   ```
 
-- 🔄 **Regular Expressions** - Pattern matching and text processing
+- ✅ **Regular Expressions** - Pattern matching and text processing (completed)
 
   ```kronos
   import regex
@@ -128,21 +128,101 @@ This document outlines the planned features and release schedule for Kronos.
   set all_matches to call regex.findall with "cat, bat, sat", "[a-z]at"
   ```
 
-- 🔄 **LSP Improvements**
-  - Hover info for file-based modules (show module path and exports)
-  - Module function validation (verify functions exist in imported modules)
-  - Find all references
-  - Rename symbol
-  - Code actions & quick fixes
-  - Document formatting
-  - Workspace symbols
-  - Code lens
+- ✅ **LSP Improvements** (Completed)
+
+  - ✅ Hover info for file-based modules (show module path and exports)
+  - ✅ Module function validation (verify functions exist in imported modules)
+  - ✅ Find all references
+  - ✅ Rename symbol
+  - ✅ Code actions & quick fixes
+  - ✅ Document formatting
+  - ✅ Workspace symbols
+  - ✅ Code lens
+
+- ✅ **REPL Expression Statements** - Python-like interactive shell (completed)
+
+  - ✅ Allow expressions to be used as statements in the REPL
+  - ✅ Automatically print expression results (like Python's interactive shell)
+  - ✅ Support for evaluating expressions like `10 plus 20` directly in the REPL
+  - ✅ Example: Running `./kronos` and typing `42` or `10 plus 20` will print the result
+  - ✅ Command-line execution flag: `./kronos -e "print 42"` to execute code without entering REPL
+  - ✅ Support multiple `-e` flags: `./kronos -e "set x to 10" -e "print x"`
+
+- ✅ **REPL Line Editing & History** - Enhanced interactive experience (completed)
+
+  - ✅ Arrow key navigation (up/down for history, left/right for editing)
+  - ✅ Command history (configurable size: 100 entries, persistent across sessions via `.kronos_history`)
+  - ✅ Tab completion (keywords, function names, variable names)
+  - ✅ Basic editing (backspace, delete, home/end keys)
+  - ✅ Implemented using **linenoise**: Lightweight, single-file library, BSD license, no external dependencies
+  - History is automatically saved to `.kronos_history` file in the current directory
+  - Tab completion provides suggestions for all Kronos keywords, user-defined functions, and global variables
+
+- ✅ **Code Documentation Improvements** - Improve comment quality (completed)
+
+  - ✅ Improve comments to explain "why" rather than just "what"
+  - ✅ Add design decision documentation
+  - ✅ Document edge cases and non-obvious behavior
+  - Incremental improvement as code is modified (ongoing)
+
+- 📋 **Code Refactoring** - Improve code organization (future)
+  - Refactor functions with long parameter lists (5+ parameters) to use parameter structs
+  - Example: `call_module_function()` currently takes 5 parameters; consider using a struct for better maintainability
+
+---
+
+### Version 0.4.5: "Website & Documentation"
+
+**Target:** Q1 2026
+**Status:** 📋 Planned
+
+#### Planned Features
+
+- **Official Website** - Public-facing website for the Kronos programming language
+
+  - Modern, responsive design showcasing the language
+  - Interactive code examples with syntax highlighting
+  - Live code playground/REPL in the browser
+  - Comprehensive documentation and tutorials
+  - Download links and installation instructions
+  - Examples gallery with runnable code snippets
+  - Blog/news section for updates and announcements
+  - Community links (GitHub, discussions, etc.)
+
+- **Documentation Website** - Hosted documentation site
+
+  - Full language reference documentation
+  - API documentation for standard library
+  - Tutorials and getting started guides
+  - Example programs and use cases
+  - Search functionality
+  - Version-specific documentation
+  - Dark/light theme support
+
+- **Interactive Playground** - Web-based code editor
+
+  - In-browser Kronos code editor
+  - Syntax highlighting
+  - Real-time error checking
+  - Code execution and output display
+  - Shareable code snippets (via URL)
+  - Example templates and starter code
+  - Mobile-friendly interface
+
+**Technical Considerations:**
+
+- Static site generation (e.g., Next.js, Astro, or similar)
+- Code syntax highlighting (Prism.js, Shiki, or similar)
+- WebAssembly-based Kronos VM for browser execution (optional, future enhancement)
+- Hosting on GitHub Pages, Vercel, Netlify, or similar
+- Custom domain setup
+- SEO optimization
 
 ---
 
 ### Version 0.5.0: "Advanced Language Features"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features
@@ -227,7 +307,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 1.0.0: "Production Release"
 
-**Target:** N/A  
+**Target:** N/A
 **Status:** 📋 Planned
 
 #### Planned Features
@@ -273,6 +353,11 @@ This document outlines the planned features and release schedule for Kronos.
   - Dead code elimination
   - Inline caching for method calls
   - Profile-guided optimization
+  - **F-string Expression Parsing Optimization** - Parse embedded expressions inline
+    - Currently f-strings re-tokenize embedded expressions, which is inefficient
+    - Optimize by tracking source positions in tokens and parsing inline
+    - Requires architectural changes: position tracking, substring parsing capability
+    - Will eliminate redundant tokenization for f-string expressions
 
 - **Standard Library Modules**
 
@@ -376,6 +461,17 @@ This document outlines the planned features and release schedule for Kronos.
   - JIT compilation
   - Hot path optimization
   - Profile-guided optimization
+  - **Dynamic String Intern Table** - Configurable and growable intern table
+    - Replace fixed-size hash table with dynamically allocated table
+    - Support for configuration via environment variable or API
+    - Automatic growth when load factor exceeds threshold
+    - Rehashing logic for table expansion
+    - Improved memory efficiency for programs with many unique strings
+  - **Relative Epsilon Comparison** - Improved floating-point comparison accuracy
+    - Replace fixed epsilon with magnitude-scaled relative epsilon
+    - More accurate comparisons for very large numbers (e.g., 1e20)
+    - More accurate comparisons for very small numbers
+    - Better handling of floating-point precision across different numeric ranges
 
 - **Advanced Type System**
   - Optional static typing
@@ -391,8 +487,8 @@ Have a feature idea? We'd love to hear from you! Please open an issue on GitHub 
 
 ## Contributing
 
-Interested in contributing? Check out our [contributing guidelines](.github/CONTRIBUTING.md) or review the [development documentation](docs/PROJECT.md).
+Interested in contributing? Check out our [contributing guidelines](CONTRIBUTING.md) (coming soon) or review the [development documentation](docs/PROJECT.md).
 
 ---
 
-**Last Updated:** November 2025
+**Last Updated:** December 2025

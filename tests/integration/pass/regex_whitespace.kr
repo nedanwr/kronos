@@ -1,0 +1,28 @@
+# Regex with whitespace
+# Expected output:
+# true
+# true
+# [ ,  ,  ]
+# [hello, world]
+# true
+
+# Whitespace matching
+set result1 to call regex.match with " ", " "
+print result1
+
+# Whitespace in pattern
+set result2 to call regex.match with "hello world", "hello world"
+print result2
+
+# Findall whitespace
+set result3 to call regex.findall with "a b c", " "
+print result3
+
+# Words separated by whitespace
+set result4 to call regex.findall with "hello world", "[a-z]+"
+print result4
+
+# Tab character
+set result5 to call regex.match with "a\tb", "a\\tb"
+print result5
+

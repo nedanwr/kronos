@@ -4,7 +4,11 @@
 kronos
 kronos-lsp
 kronos_unit_tests
+kronos_lsp_tests
 *.dSYM/
+
+# Generated files (auto-generated from source)
+src/frontend/keywords_hash.c
 
 # OS files
 .DS_Store
@@ -14,6 +18,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Backup files
+*.backup
 
 # .vscode/ is kept for immediate syntax highlighting when opening project
 # The vscode-extension/ directory is the actual installable extension
@@ -34,3 +41,7 @@ vscode-extension/package-lock.json
 
 # Test output
 test_output.txt
+# File I/O test artifacts
+*.txt
+!docs/**/*.txt
+!vscode-extension/node_modules/**/*.txt

@@ -1,0 +1,39 @@
+# Example: Maps in Kronos
+
+# Create a map with string keys
+set person to map name: "Alice", age: 30, city: "NYC"
+print person
+
+# Access map values
+set name to person at "name"
+print name
+
+set age to person at "age"
+print age
+
+# Create a map with number keys
+set scores to map 1: 100, 2: 200, 3: 300
+print scores at 1
+print scores at 2
+
+# Create a map with boolean keys
+set flags to map true: "yes", false: "no"
+print flags at true
+print flags at false
+
+# Create an empty map
+set empty_map to map
+print empty_map
+
+# Maps can have mixed value types
+set mixed to map key1: "string", key2: 42, key3: true, key4: null
+print mixed at "key1"
+print mixed at "key2"
+print mixed at "key3"
+print mixed at "key4"
+
+# Maps with quoted string keys
+set config to map "host": "localhost", "port": 8080
+print config at "host"
+print config at "port"
+

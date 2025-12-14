@@ -1,0 +1,12 @@
+# File I/O functions with wrong argument types
+# Expected: Runtime errors about wrong argument types
+
+# read_file with number instead of string
+set content to call read_file with 123
+
+# write_file with number path
+call write_file with 456, "content"
+
+# file_exists with boolean
+set exists to call file_exists with true
+

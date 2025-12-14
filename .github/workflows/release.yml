@@ -3,7 +3,7 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-binaries:
@@ -20,29 +20,38 @@ jobs:
             artifact_name: kronos-macos-arm64
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Build Kronos
-      run: make clean && make
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make gperf
 
-    - name: Run tests
-      run: ./run_tests.sh
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install gperf
 
-    - name: Package binary
-      run: |
-        mkdir -p dist
-        cp kronos dist/${{ matrix.artifact_name }}
-        cp LICENSE dist/
-        cp README.md dist/
-        tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
+      - name: Build Kronos
+        run: make clean && make
 
-    - name: Create Release and Upload Assets
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: ${{ matrix.artifact_name }}.tar.gz
-        draft: false
-        prerelease: false
+      - name: Run tests
+        run: ./scripts/run_tests.sh
 
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp kronos dist/${{ matrix.artifact_name }}
+          cp LICENSE dist/
+          cp README.md dist/
+          tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ${{ matrix.artifact_name }}.tar.gz
+          draft: false
+          prerelease: false

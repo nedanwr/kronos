@@ -1,0 +1,51 @@
+# Exception Handling Example
+# Demonstrates try/catch blocks and error handling
+
+print "=== Exception Handling Example ==="
+print ""
+
+# 1. Basic exception handling
+print "1. Basic Exception Handling:"
+try:
+    raise "An error occurred"
+catch error:
+    print f"   Caught error: {error}"
+print ""
+
+# 2. Exception with catch-all
+print "2. Catch-All Exception Handling:"
+try:
+    raise "Custom error message"
+catch error:
+    print f"   Caught: {error}"
+print ""
+
+# 3. Exception with catch-all
+print "3. Catch-All Exception Handling:"
+try:
+    raise RuntimeError "Custom error message"
+catch err:
+    print f"   Caught: {err}"
+print ""
+
+# 4. Exception in function
+print "4. Exception in Function:"
+function risky_operation with value:
+    if value is less than 0:
+        raise "Value must be positive"
+    return value times 2
+
+try:
+    set result to call risky_operation with -5
+    print f"   Result: {result}"
+catch error:
+    print f"   Error: {error}"
+
+try:
+    set result2 to call risky_operation with 10
+    print f"   Result: {result2}"
+catch error:
+    print f"   Error: {error}"
+print ""
+
+print "=== Example Complete ==="

@@ -14,6 +14,8 @@ typedef enum {
   OP_SUB,           // Binary subtract
   OP_MUL,           // Binary multiply
   OP_DIV,           // Binary divide
+  OP_MOD,           // Binary modulo
+  OP_NEG,           // Unary negation
   OP_EQ,            // Equal comparison
   OP_NEQ,           // Not equal comparison
   OP_GT,            // Greater than
@@ -25,20 +27,34 @@ typedef enum {
   OP_NOT,           // Logical NOT (unary)
   OP_JUMP,          // Unconditional jump
   OP_JUMP_IF_FALSE, // Jump if top of stack is false
-  OP_BREAK,         // Break out of loop
-  OP_CONTINUE,      // Continue to next loop iteration
+  // Note: OP_BREAK/OP_CONTINUE are reserved but not emitted.
+  // Break/continue are compiled to OP_JUMP with patched offsets instead.
+  OP_BREAK,         // Reserved (not emitted - break uses OP_JUMP)
+  OP_CONTINUE,      // Reserved (not emitted - continue uses OP_JUMP)
   OP_DEFINE_FUNC,   // Define function
   OP_CALL_FUNC,     // Call function
   OP_RETURN_VAL,    // Return from function with value
   OP_POP,           // Pop value from stack
   OP_LIST_NEW,      // Create new list (arg: element count)
-  OP_LIST_GET,      // Get element at index (list/string, index -> value)
+  OP_LIST_GET,      // Get element at index (list/string/map, index/key -> value)
   OP_LIST_SET,      // Set element at index (list, index, value -> list)
   OP_LIST_APPEND,   // Append element (list, value -> list)
   OP_LIST_LEN,      // Get list/string length (list/string -> length)
   OP_LIST_SLICE,    // Slice list/string (container, start, end -> slice)
   OP_LIST_ITER,     // Start list iteration (list -> iterator)
   OP_LIST_NEXT,     // Get next item from iterator (iterator -> item, has_more)
+  OP_RANGE_NEW,     // Create new range (start, end, step -> range)
+  OP_MAP_NEW,       // Create new map (arg: entry count)
+  OP_MAP_SET,       // Set key-value pair (map, key, value -> map)
+  OP_MAP_GET,       // Reserved (not used - map access goes through OP_LIST_GET)
+  OP_DELETE,        // Delete key from map (map, key -> map)
+  OP_TRY_ENTER,     // Enter try block (marks start of exception handler)
+  OP_TRY_EXIT,      // Exit try block normally (marks end of try, jumps to finally if exists)
+  OP_CATCH,         // Catch block handler (sets catch variable, jumps to catch block)
+  OP_FINALLY,       // Finally block handler (executes cleanup code)
+  OP_THROW,         // Throw exception (error_message -> exception)
+  OP_RETHROW,       // Rethrow current exception
+  OP_IMPORT,        // Import module (module_name, file_path constants)
   OP_HALT,          // End program
 } OpCode;
 

@@ -1,0 +1,40 @@
+# Path operations edge cases
+# Expected output:
+# Root dirname: /
+# Root basename:
+# Trailing slash dirname: /path/to
+# Trailing slash basename:
+# Single component dirname: .
+# Single component basename: file
+# Join with empty: dir/file.txt
+# Join absolute: /absolute/path
+
+# Root path
+set root_dir to call dirname with "/"
+print f"Root dirname: {root_dir}"
+
+set root_base to call basename with "/"
+print f"Root basename: {root_base}"
+
+# Path with trailing slash
+set trailing_dir to call dirname with "/path/to/"
+print f"Trailing slash dirname: {trailing_dir}"
+
+set trailing_base to call basename with "/path/to/"
+print f"Trailing slash basename: {trailing_base}"
+
+# Single component (no directory)
+set single_dir to call dirname with "file"
+print f"Single component dirname: {single_dir}"
+
+set single_base to call basename with "file"
+print f"Single component basename: {single_base}"
+
+# Join with empty string (should work)
+set joined1 to call join_path with "dir", "file.txt"
+print f"Join with empty: {joined1}"
+
+# Join absolute paths
+set joined2 to call join_path with "/absolute", "path"
+print f"Join absolute: {joined2}"
+

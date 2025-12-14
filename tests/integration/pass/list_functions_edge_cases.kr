@@ -1,0 +1,37 @@
+# Test list function edge cases
+
+# reverse with empty list
+set empty_list to list
+set reversed_empty to call reverse with empty_list
+print reversed_empty
+# Expected: []
+
+# reverse with single element
+set single_list to list 42
+set reversed_single to call reverse with single_list
+print reversed_single
+# Expected: [42]
+
+# sort with empty list
+set empty_list2 to list
+set sorted_empty to call sort with empty_list2
+print sorted_empty
+# Expected: []
+
+# sort with single element
+set single_list2 to list 42
+set sorted_single to call sort with single_list2
+print sorted_single
+# Expected: [42]
+
+# sort with already sorted list
+set sorted_list to list 1, 2, 3, 4, 5
+set sorted_already to call sort with sorted_list
+print sorted_already
+# Expected: [1, 2, 3, 4, 5]
+
+# sort with duplicate elements
+set duplicates to list 3, 1, 3, 2, 1
+set sorted_dups to call sort with duplicates
+print sorted_dups
+# Expected: [1, 1, 2, 3, 3]

@@ -1,0 +1,6 @@
+# Test regex with wrong argument count
+# Expected: Error about wrong argument count
+
+set result to call regex.match with "hello"
+print result
+

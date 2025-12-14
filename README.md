@@ -31,7 +31,7 @@ A high-performance programming language built in C with human-readable syntax, f
 
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
 - **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
-- **Comprehensive Testing**: 71 tests (42 passing, 29 error cases) ensuring reliability
+- **Comprehensive Testing**: 129 tests (83 passing, 46 expected fail cases) ensuring reliability
 
 ## Quick Start
 
@@ -60,17 +60,17 @@ Start the REPL:
 Run the comprehensive test suite:
 
 ```bash
-./run_tests.sh
+./scripts/run_tests.sh
 ```
 
-This runs 71 tests (42 passing, 29 error cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs 129 tests (83 passing, 46 expected fail cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
 Get full IDE features (syntax highlighting, error checking, autocomplete):
 
 ```bash
-./install_extension.sh
+./scripts/install_extension.sh
 ```
 
 Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details.
@@ -249,6 +249,17 @@ Contributions are welcome! See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md
 ## License
 
 MIT License - See [LICENSE](LICENSE) file for details.
+
+## Third-Party Libraries
+
+Kronos uses the following third-party libraries:
+
+- **linenoise** - Line editing library for the REPL
+  - Copyright (c) 2010-2023, Salvatore Sanfilippo <antirez at gmail dot com>
+  - Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+  - BSD License
+  - Source: https://github.com/antirez/linenoise
+  - Used for: REPL line editing, command history, and tab completion
 
 ## Performance
 

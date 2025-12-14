@@ -1,0 +1,10 @@
+# Example utility module
+print "Loading utils module..."
+
+set greeting to "Hello from utils module"
+
+function say_hello with name:
+    print f"Hello, {name}!"
+
+print "Utils module loaded successfully"
+

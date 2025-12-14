@@ -1,0 +1,6 @@
+# Test math utility module
+function add with a, b:
+    return a plus b
+
+print "Math module loaded"
+

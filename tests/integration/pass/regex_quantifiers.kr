@@ -1,0 +1,43 @@
+# Regex quantifiers
+# Expected output:
+# true
+# true
+# false
+# true
+# true
+# false
+# [aa, aaa]
+# [123, 4567]
+
+# Plus (one or more)
+set result1 to call regex.match with "aaa", "a+"
+print result1
+
+# Question mark (zero or one)
+set result2 to call regex.match with "ab", "a?b"
+print result2
+
+# Question mark - no match when required
+set result3 to call regex.match with "b", "a+b"
+print result3
+
+# Asterisk (zero or more)
+set result4 to call regex.match with "b", "a*b"
+print result4
+
+# Exact count {n}
+set result5 to call regex.match with "aaa", "a{3}"
+print result5
+
+# Exact count - no match
+set result6 to call regex.match with "aa", "a{3}"
+print result6
+
+# Findall with quantifiers
+set result7 to call regex.findall with "aa aaa a", "a{2,3}"
+print result7
+
+# Findall with number patterns
+set result8 to call regex.findall with "123 4567 89", "[0-9]{3,}"
+print result8
+

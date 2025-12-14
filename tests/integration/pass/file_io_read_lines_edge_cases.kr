@@ -1,0 +1,36 @@
+# Test read_lines edge cases
+
+# File with only newlines
+call write_file with "newlines_only.txt", "\n\n\n"
+set lines1 to call read_lines with "newlines_only.txt"
+set count1 to call len with lines1
+print count1
+# Expected: 3 or 4 (depending on implementation)
+
+# File with empty lines
+call write_file with "empty_lines.txt", "line1\n\nline2\n\nline3"
+set lines2 to call read_lines with "empty_lines.txt"
+set count2 to call len with lines2
+print count2
+# Expected: 5
+
+# File with trailing newline
+call write_file with "trailing_newline.txt", "hello\n"
+set lines3 to call read_lines with "trailing_newline.txt"
+set count3 to call len with lines3
+print count3
+# Expected: 1 or 2 (depending on implementation)
+
+# File with no trailing newline
+call write_file with "no_trailing_newline.txt", "hello"
+set lines4 to call read_lines with "no_trailing_newline.txt"
+set count4 to call len with lines4
+print count4
+# Expected: 1
+
+# File with single line
+call write_file with "single_line.txt", "single"
+set lines5 to call read_lines with "single_line.txt"
+set count5 to call len with lines5
+print count5
+# Expected: 1

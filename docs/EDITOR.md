@@ -5,34 +5,36 @@ Full IDE support with syntax highlighting, error checking, and autocomplete.
 ## Quick Install
 
 ```bash
-./install_extension.sh
+./scripts/install_extension.sh
 ```
 
 Restart your editor (VSCode/Cursor/Windsurf). Done! ✅
 
 ## Features
 
-✅ Syntax highlighting  
-✅ Real-time error detection  
-✅ Keyword autocomplete  
-✅ Auto-indentation & bracket matching  
-✅ Code folding  
+✅ Syntax highlighting
+✅ Real-time error detection
+✅ Keyword autocomplete
+✅ Auto-indentation & bracket matching
+✅ Code folding
 
 ## Troubleshooting
 
 **No syntax highlighting?**
+
 - Check file extension is `.kr`
 - Check bottom-right shows "Kronos"
 - Try: Cmd+Shift+P → "Change Language Mode" → "Kronos"
 
 **LSP not working?**
+
 ```bash
 make clean && make lsp
-./install_extension.sh
+./scripts/install_extension.sh
 # Restart editor
 ```
 
-**View LSP logs:**  
+**View LSP logs:**
 View → Output → "Kronos Language Server"
 
 ## Other Editors
@@ -40,6 +42,7 @@ View → Output → "Kronos Language Server"
 ### Vim/Neovim
 
 Create `~/.vim/syntax/kronos.vim`:
+
 ```vim
 syn keyword kronosKeyword set let to as if for while function return print
 syn keyword kronosBoolean true false
@@ -57,6 +60,7 @@ hi def link kronosComment Comment
 ```
 
 Add to `~/.vim/ftdetect/kronos.vim`:
+
 ```vim
 au BufRead,BufNewFile *.kr set filetype=kronos
 ```
@@ -64,6 +68,7 @@ au BufRead,BufNewFile *.kr set filetype=kronos
 ### Sublime Text
 
 Create `Kronos.sublime-syntax`:
+
 ```yaml
 %YAML 1.2
 ---
@@ -96,4 +101,3 @@ Editor → Extension → kronos-lsp → Parser → Diagnostics
 ```
 
 The LSP server (`src/lsp/lsp_server.c`) provides real-time syntax checking and autocomplete by parsing your code as you type.
-

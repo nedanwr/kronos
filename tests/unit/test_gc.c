@@ -85,3 +85,42 @@ TEST(gc_collect_cycles) {
 
   gc_cleanup();
 }
+
+TEST(gc_cleanup_nested_list) {
+  // Regression test for UAF bug: gc_cleanup should not access freed children
+  // when finalizing parent objects. This test creates a nested list structure
+  // where a child list is added to a parent list, then gc_cleanup is called.
+  // The child may be freed before the parent in the tracking array, but
+  // gc_cleanup should handle this correctly without use-after-free.
+  gc_init();
+
+  // Create a parent list
+  KronosValue *parent = value_new_list(4);
+  ASSERT_PTR_NOT_NULL(parent);
+
+  // Create a child list
+  KronosValue *child = value_new_list(4);
+  ASSERT_PTR_NOT_NULL(child);
+
+  // Add child to parent (manually manipulate list structure)
+  // Ensure we have capacity
+  if (parent->as.list.count >= parent->as.list.capacity) {
+    // This shouldn't happen with our initial capacity, but handle it
+    ASSERT_TRUE(false); // Test setup error
+  }
+
+  // Retain child since parent will hold a reference
+  value_retain(child);
+
+  // Add child to parent's items array
+  parent->as.list.items[parent->as.list.count] = child;
+  parent->as.list.count++;
+
+  // Both objects are tracked by GC
+  // When gc_cleanup runs, it may free child before parent (depending on
+  // tracking order), but value_finalize should not try to access the
+  // already-freed child. This should not crash or cause UAF.
+  gc_cleanup();
+
+  // If we get here without crashing, the fix worked
+}

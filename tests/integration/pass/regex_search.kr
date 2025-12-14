@@ -1,0 +1,19 @@
+# Test regex.search function
+# Expected output:
+# world
+# null
+# 123
+# cat
+
+set result1 to call regex.search with "hello world", "world"
+print result1
+
+set result2 to call regex.search with "hello world", "xyz"
+print result2
+
+set result3 to call regex.search with "abc123def", "[0-9]+"
+print result3
+
+set result4 to call regex.search with "cat, bat, sat", "[a-z]at"
+print result4
+
