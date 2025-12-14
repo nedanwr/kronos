@@ -58,7 +58,9 @@ int main(void) {
       handle_shutdown(id ? id : "null");
       free(id);
       free(method);
+      method = NULL;
       free(body);
+      body = NULL;
       break;
     } else if (strcmp(method, "textDocument/didOpen") == 0) {
       // LSP spec: params.textDocument.uri and params.textDocument.text
