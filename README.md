@@ -78,7 +78,6 @@ Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details
 ## Language Syntax
 
 Kronos uses human-readable syntax with natural language keywords. Here's a comprehensive example:
-Kronos uses human-readable syntax with natural language keywords. Here's a comprehensive example:
 
 ```kronos
 # Variables
@@ -108,14 +107,6 @@ function greet with name:
     return name
 
 call greet with "World"
-
-# Control flow
-if x is greater than 5:
-    print "Large"
-else if x is equal 5:
-    print "Medium"
-else:
-    print "Small"
 
 # Control flow
 if x is greater than 5:
