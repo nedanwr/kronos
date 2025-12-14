@@ -224,14 +224,14 @@ const codeExamples = [
         ],
       },
       {
-        text: 'let user at "age" to 31',
+        text: 'set age to user at "age"',
         tokens: [
-          { type: "keyword", value: "let" },
+          { type: "keyword", value: "set" },
+          { type: "variable", value: " age" },
+          { type: "keyword", value: " to" },
           { type: "variable", value: " user" },
           { type: "keyword", value: " at" },
           { type: "string", value: ' "age"' },
-          { type: "keyword", value: " to" },
-          { type: "number", value: " 31" },
         ],
       },
       {
