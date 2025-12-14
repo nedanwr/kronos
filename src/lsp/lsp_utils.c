@@ -329,53 +329,61 @@ char *get_module_hover_info(ImportedModule *mod) {
     return NULL;
 
   size_t pos = 0;
-  int n;
+  int ret;
 
   // Write module name
-  if (pos < buffer_size) {
-    size_t available = buffer_size - pos;
-    n = snprintf(hover_text + pos, available, "**module** `%s`\n\n", mod->name);
-    if (n < 0 || (size_t)n >= available) {
-      // Buffer full or error - truncate at current position
-      hover_text[buffer_size - 1] = '\0';
-      return hover_text;
+  size_t remaining = buffer_size - pos;
+  if (remaining > 0) {
+    ret =
+        snprintf(hover_text + pos, remaining, "**module** `%s`\n\n", mod->name);
+    if (ret < 0)
+      ret = 0;
+    if ((size_t)ret >= remaining) {
+      pos = buffer_size - 1;
+    } else {
+      pos += (size_t)ret;
     }
-    pos += (size_t)n;
   }
 
   if (mod->file_path) {
-    if (pos < buffer_size) {
-      size_t available = buffer_size - pos;
-      n = snprintf(hover_text + pos, available, "**Path:** `%s`\n\n",
-                   mod->file_path);
-      if (n < 0 || (size_t)n >= available) {
-        hover_text[buffer_size - 1] = '\0';
-        return hover_text;
+    remaining = buffer_size - pos;
+    if (remaining > 0) {
+      ret = snprintf(hover_text + pos, remaining, "**Path:** `%s`\n\n",
+                     mod->file_path);
+      if (ret < 0)
+        ret = 0;
+      if ((size_t)ret >= remaining) {
+        pos = buffer_size - 1;
+      } else {
+        pos += (size_t)ret;
       }
-      pos += (size_t)n;
     }
   } else {
-    if (pos < buffer_size) {
-      size_t available = buffer_size - pos;
-      n = snprintf(hover_text + pos, available,
-                   "**Type:** Built-in module\n\n");
-      if (n < 0 || (size_t)n >= available) {
-        hover_text[buffer_size - 1] = '\0';
-        return hover_text;
+    remaining = buffer_size - pos;
+    if (remaining > 0) {
+      ret = snprintf(hover_text + pos, remaining,
+                     "**Type:** Built-in module\n\n");
+      if (ret < 0)
+        ret = 0;
+      if ((size_t)ret >= remaining) {
+        pos = buffer_size - 1;
+      } else {
+        pos += (size_t)ret;
       }
-      pos += (size_t)n;
     }
   }
 
   if (mod->exports) {
-    if (pos < buffer_size) {
-      size_t available = buffer_size - pos;
-      n = snprintf(hover_text + pos, available, "**Exports:**\n\n");
-      if (n < 0 || (size_t)n >= available) {
-        hover_text[buffer_size - 1] = '\0';
-        return hover_text;
+    remaining = buffer_size - pos;
+    if (remaining > 0) {
+      ret = snprintf(hover_text + pos, remaining, "**Exports:**\n\n");
+      if (ret < 0)
+        ret = 0;
+      if ((size_t)ret >= remaining) {
+        pos = buffer_size - 1;
+      } else {
+        pos += (size_t)ret;
       }
-      pos += (size_t)n;
     }
     Symbol *sym = mod->exports;
     int func_count = 0;
@@ -383,106 +391,130 @@ char *get_module_hover_info(ImportedModule *mod) {
     while (sym) {
       if (sym->type == SYMBOL_FUNCTION) {
         func_count++;
-        if (pos < buffer_size) {
-          size_t available = buffer_size - pos;
-          n = snprintf(hover_text + pos, available, "• `%s` (function",
-                       sym->name);
-          if (n < 0 || (size_t)n >= available) {
-            hover_text[buffer_size - 1] = '\0';
-            return hover_text;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, "• `%s` (function",
+                         sym->name);
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
           }
-          pos += (size_t)n;
         }
         if (sym->param_count > 0) {
-          if (pos < buffer_size) {
-            size_t available = buffer_size - pos;
-            n = snprintf(hover_text + pos, available, ", %zu parameter%s",
-                         sym->param_count, sym->param_count == 1 ? "" : "s");
-            if (n < 0 || (size_t)n >= available) {
-              hover_text[buffer_size - 1] = '\0';
-              return hover_text;
+          remaining = buffer_size - pos;
+          if (remaining > 0) {
+            ret = snprintf(hover_text + pos, remaining, ", %zu parameter%s",
+                           sym->param_count, sym->param_count == 1 ? "" : "s");
+            if (ret < 0)
+              ret = 0;
+            if ((size_t)ret >= remaining) {
+              pos = buffer_size - 1;
+            } else {
+              pos += (size_t)ret;
             }
-            pos += (size_t)n;
           }
         } else {
-          if (pos < buffer_size) {
-            size_t available = buffer_size - pos;
-            n = snprintf(hover_text + pos, available, ", no parameters");
-            if (n < 0 || (size_t)n >= available) {
-              hover_text[buffer_size - 1] = '\0';
-              return hover_text;
+          remaining = buffer_size - pos;
+          if (remaining > 0) {
+            ret = snprintf(hover_text + pos, remaining, ", no parameters");
+            if (ret < 0)
+              ret = 0;
+            if ((size_t)ret >= remaining) {
+              pos = buffer_size - 1;
+            } else {
+              pos += (size_t)ret;
             }
-            pos += (size_t)n;
           }
         }
-        if (pos < buffer_size) {
-          size_t available = buffer_size - pos;
-          n = snprintf(hover_text + pos, available, ")\n");
-          if (n < 0 || (size_t)n >= available) {
-            hover_text[buffer_size - 1] = '\0';
-            return hover_text;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, ")\n");
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
           }
-          pos += (size_t)n;
         }
       } else if (sym->type == SYMBOL_VARIABLE) {
         var_count++;
-        if (pos < buffer_size) {
-          size_t available = buffer_size - pos;
-          n = snprintf(hover_text + pos, available, "• `%s` (%s variable",
-                       sym->name, sym->is_mutable ? "mutable" : "immutable");
-          if (n < 0 || (size_t)n >= available) {
-            hover_text[buffer_size - 1] = '\0';
-            return hover_text;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, "• `%s` (%s variable",
+                         sym->name, sym->is_mutable ? "mutable" : "immutable");
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
           }
-          pos += (size_t)n;
         }
         if (sym->type_name) {
-          if (pos < buffer_size) {
-            size_t available = buffer_size - pos;
-            n = snprintf(hover_text + pos, available, ", type: `%s`",
-                         sym->type_name);
-            if (n < 0 || (size_t)n >= available) {
-              hover_text[buffer_size - 1] = '\0';
-              return hover_text;
+          remaining = buffer_size - pos;
+          if (remaining > 0) {
+            ret = snprintf(hover_text + pos, remaining, ", type: `%s`",
+                           sym->type_name);
+            if (ret < 0)
+              ret = 0;
+            if ((size_t)ret >= remaining) {
+              pos = buffer_size - 1;
+            } else {
+              pos += (size_t)ret;
             }
-            pos += (size_t)n;
           }
         }
-        if (pos < buffer_size) {
-          size_t available = buffer_size - pos;
-          n = snprintf(hover_text + pos, available, ")\n");
-          if (n < 0 || (size_t)n >= available) {
-            hover_text[buffer_size - 1] = '\0';
-            return hover_text;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, ")\n");
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
           }
-          pos += (size_t)n;
         }
       }
       sym = sym->next;
     }
     if (func_count == 0 && var_count == 0) {
-      if (pos < buffer_size) {
-        size_t available = buffer_size - pos;
-        n = snprintf(hover_text + pos, available, "No exports found\n");
-        if (n < 0 || (size_t)n >= available) {
-          hover_text[buffer_size - 1] = '\0';
-          return hover_text;
+      remaining = buffer_size - pos;
+      if (remaining > 0) {
+        ret = snprintf(hover_text + pos, remaining, "No exports found\n");
+        if (ret < 0)
+          ret = 0;
+        if ((size_t)ret >= remaining) {
+          pos = buffer_size - 1;
+        } else {
+          pos += (size_t)ret;
         }
-        pos += (size_t)n;
       }
     }
   } else if (mod->file_path) {
-    if (pos < buffer_size) {
-      size_t available = buffer_size - pos;
-      n = snprintf(hover_text + pos, available,
-                   "**Exports:** Unable to load\n");
-      if (n < 0 || (size_t)n >= available) {
-        hover_text[buffer_size - 1] = '\0';
-        return hover_text;
+    remaining = buffer_size - pos;
+    if (remaining > 0) {
+      ret = snprintf(hover_text + pos, remaining,
+                     "**Exports:** Unable to load\n");
+      if (ret < 0)
+        ret = 0;
+      if ((size_t)ret >= remaining) {
+        pos = buffer_size - 1;
+      } else {
+        pos += (size_t)ret;
       }
-      pos += (size_t)n;
     }
   }
+
+  // Ensure null termination
+  if (pos >= buffer_size) {
+    pos = buffer_size - 1;
+  }
+  hover_text[pos] = '\0';
 
   return hover_text;
 }
