@@ -41,8 +41,8 @@ export default function HomePage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505]">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -right-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-gradient-to-bl from-[#2E1065]/60 via-[#6D28D9]/20 to-transparent blur-3xl opacity-30 sm:opacity-50 lg:opacity-100" />
-        <div className="absolute -bottom-1/4 -left-1/4 h-[700px] w-[700px] rounded-full bg-gradient-to-tr from-[#1E1B4B]/50 via-[#2E1065]/30 to-transparent blur-3xl opacity-30 sm:opacity-50 lg:opacity-100" />
+        <div className="absolute -right-1/4 -top-1/4 h-[800px] w-[800px] rounded-full bg-linear-to-bl from-[#2E1065]/60 via-[#6D28D9]/20 to-transparent blur-3xl opacity-30 sm:opacity-50 lg:opacity-100" />
+        <div className="absolute -bottom-1/4 -left-1/4 h-[700px] w-[700px] rounded-full bg-linear-to-tr from-[#1E1B4B]/50 via-[#2E1065]/30 to-transparent blur-3xl opacity-30 sm:opacity-50 lg:opacity-100" />
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbHRlcj0idXJsKCNhKSIgb3BhY2l0eT0iMC4wNSIvPjwvc3ZnPg==')] opacity-50" />
       </div>
 
@@ -176,9 +176,9 @@ export default function HomePage() {
                 {features.map((feature) => (
                   <div
                     key={feature.title}
-                    className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[rgba(255,255,255,0.05)] p-6 backdrop-blur-[12px] transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-[rgba(255,255,255,0.08)]"
+                    className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[rgba(255,255,255,0.05)] p-6 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-[rgba(255,255,255,0.08)]"
                   >
-                    <div className="pointer-events-none absolute -inset-px rounded-2xl bg-gradient-to-r from-[#8B5CF6]/0 via-[#A78BFA]/0 to-[#8B5CF6]/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-hover:from-[#8B5CF6]/10 group-hover:via-[#A78BFA]/10 group-hover:to-[#8B5CF6]/10" />
+                    <div className="pointer-events-none absolute -inset-px rounded-2xl bg-linear-to-r from-[#8B5CF6]/0 via-[#A78BFA]/0 to-[#8B5CF6]/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-hover:from-[#8B5CF6]/10 group-hover:via-[#A78BFA]/10 group-hover:to-[#8B5CF6]/10" />
 
                     <div className="relative">
                       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#F59E0B]/10 text-[#F59E0B]">
