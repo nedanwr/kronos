@@ -371,7 +371,7 @@ static void refreshLineWithCompletion(struct linenoiseState *ls, linenoiseComple
     }
 
     /* Free the completions table if needed. */
-    if (lc != &ctable) freeCompletions(&ctable);
+    if (lc == &ctable) freeCompletions(&ctable);
 }
 
 /* This is an helper function for linenoiseEdit*() and is called when the
