@@ -1262,8 +1262,7 @@ int map_set(KronosValue *map, KronosValue *key, KronosValue *value) {
     value_release(entries[index].value);
     entries[index].value = value;
     value_retain(value);
-    // Retain the key parameter to ensure it's not freed while in the map
-    value_retain(key);
+    // Key is already retained from initial insertion, no need to retain again
   } else {
     // Insert new entry
     if (!entries[index].key) {
