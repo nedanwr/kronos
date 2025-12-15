@@ -1,0 +1,108 @@
+---
+title: Ranges
+description: Learn how to work with range objects in Kronos
+---
+
+# Ranges
+
+Ranges represent sequences of numbers and are commonly used in loops and for generating number sequences.
+
+## Creating Ranges
+
+```kronos
+# Basic range: from start to end (inclusive start, exclusive end)
+set r1 to range 1 to 10
+
+# Range with step
+set r2 to range 0 to 100 by 5
+
+# Negative step
+set r3 to range 10 to 0 by -1
+```
+
+## Using Ranges in Loops
+
+Ranges are most commonly used in `for` loops:
+
+```kronos
+# Count from 1 to 10
+for i in range 1 to 10:
+    print i
+
+# Count by 2s
+for i in range 0 to 20 by 2:
+    print i  # Prints: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18
+
+# Countdown
+for i in range 10 to 0 by -1:
+    print i
+```
+
+## Range Indexing
+
+You can access individual values in a range using indexing:
+
+```kronos
+set r to range 10 to 20
+
+set first to r at 0    # 10
+set second to r at 1   # 11
+set last to r at -1    # 19
+```
+
+## Range Slicing
+
+Extract portions of a range:
+
+```kronos
+set r to range 0 to 100
+
+set slice1 to r from 10 to 20    # Range from 10 to 20
+set slice2 to r from 0 to 50     # Range from 0 to 50
+```
+
+## Range Length
+
+Get the number of elements in a range:
+
+```kronos
+set r to range 1 to 10
+set length to call len with r
+print length  # Prints: 9 (1, 2, 3, 4, 5, 6, 7, 8, 9)
+```
+
+## Examples
+
+### Generating Number Sequences
+
+```kronos
+# Even numbers
+for i in range 0 to 20 by 2:
+    print i
+
+# Multiples of 5
+for i in range 0 to 100 by 5:
+    print i
+```
+
+### Iterating with Index
+
+```kronos
+set items to list "apple", "banana", "cherry"
+
+for i in range 0 to call len with items:
+    set item to items at i
+    print f"{i}: {item}"
+```
+
+### Range Arithmetic
+
+```kronos
+# Sum of numbers from 1 to 100
+let sum to 0
+for i in range 1 to 101:
+    let sum to sum plus i
+
+print sum  # Prints: 5050
+```
+
