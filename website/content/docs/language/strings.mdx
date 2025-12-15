@@ -1,0 +1,148 @@
+---
+title: Strings
+description: Learn how to work with strings in Kronos
+---
+
+# Strings
+
+Strings are sequences of characters and support various operations.
+
+## Creating Strings
+
+```kronos
+set greeting to "Hello, World!"
+set empty to ""
+set multiline to "Line 1\nLine 2"
+```
+
+## String Concatenation
+
+Use the `plus` operator to concatenate strings:
+
+```kronos
+set first to "Hello"
+set second to "World"
+set message to first plus ", " plus second plus "!"
+print message  # Prints: Hello, World!
+```
+
+## String Indexing
+
+Access individual characters using indexing:
+
+```kronos
+set text to "Kronos"
+
+set first_char to text at 0    # "K"
+set last_char to text at -1    # "s"
+```
+
+## String Slicing
+
+Extract substrings using the `from` keyword:
+
+```kronos
+set text to "Programming"
+
+set slice1 to text from 0 to 4      # "Prog"
+set slice2 to text from 3 to 7      # "gram"
+set slice3 to text from 5 to end    # "mming"
+```
+
+## F-Strings (String Interpolation)
+
+F-strings allow you to embed expressions inside strings:
+
+```kronos
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+print greeting  # Prints: Hello, Alice!
+
+set x to 10
+set y to 20
+set result to f"{x} plus {y} equals {x plus y}"
+print result  # Prints: 10 plus 20 equals 30
+```
+
+You can use any expression inside `{}`:
+
+```kronos
+set text to "Hello"
+set info to f"'{text}' has {call len with text} characters"
+```
+
+## String Functions
+
+Kronos provides many built-in string functions. See the [Standard Library documentation](/docs/api/strings) for the complete list.
+
+### Common String Functions
+
+```kronos
+set text to "  Hello World  "
+
+# Length
+set length to call len with text
+
+# Case conversion
+set upper to call uppercase with text
+set lower to call lowercase with text
+
+# Trimming
+set trimmed to call trim with text
+
+# Splitting
+set parts to call split with "apple,banana,cherry", ","
+
+# Joining
+set words to list "Hello", "World"
+set sentence to call join with words, " "
+
+# Searching
+set has_hello to call contains with text, "Hello"
+set starts_hello to call starts_with with text, "Hello"
+set ends_world to call ends_with with text, "World"
+
+# Replacing
+set replaced to call replace with text, "World", "Kronos"
+```
+
+## Examples
+
+### String Manipulation
+
+```kronos
+set text to "  hello world  "
+set trimmed to call trim with text
+set upper to call uppercase with trimmed
+print upper  # Prints: HELLO WORLD
+```
+
+### Parsing Strings
+
+```kronos
+set data to "name:Alice,age:30,city:NYC"
+set parts to call split with data, ","
+
+for part in parts:
+    set key_value to call split with part, ":"
+    set key to key_value at 0
+    set value to key_value at 1
+    print f"{key}: {value}"
+```
+
+### Building Strings
+
+```kronos
+set items to list "apple", "banana", "cherry"
+let result to ""
+
+for i in range 0 to call len with items:
+    set item to items at i
+    if i is equal 0:
+        let result to item
+    else:
+        let result to result plus ", " plus item
+
+print result  # Prints: apple, banana, cherry
+```
+
