@@ -1,0 +1,135 @@
+---
+title: Lists
+description: Learn how to work with lists in Kronos
+---
+
+# Lists
+
+Lists are ordered collections of values. They can contain any type of value, including mixed types.
+
+## Creating Lists
+
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set fruits to list "apple", "banana", "cherry"
+set mixed to list "hello", 42, true, null
+set empty to list
+```
+
+## Accessing Elements
+
+### Indexing
+
+Lists use zero-based indexing:
+
+```kronos
+set numbers to list 10, 20, 30, 40, 50
+
+set first to numbers at 0    # 10
+set second to numbers at 1   # 20
+set last to numbers at 4     # 50
+```
+
+### Negative Indexing
+
+You can use negative indices to access elements from the end:
+
+```kronos
+set numbers to list 10, 20, 30, 40, 50
+
+set last to numbers at -1    # 50
+set second_last to numbers at -2  # 40
+```
+
+## Slicing
+
+Extract a portion of a list using the `from` keyword:
+
+```kronos
+set numbers to list 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+
+set slice1 to numbers from 2 to 5      # [2, 3, 4]
+set slice2 to numbers from 0 to 3      # [0, 1, 2]
+set slice3 to numbers from 5 to end    # [5, 6, 7, 8, 9]
+```
+
+## Modifying Lists
+
+Lists created with `let` can be modified:
+
+```kronos
+let numbers to list 1, 2, 3
+
+let numbers at 0 to 10       # [10, 2, 3]
+let numbers at 2 to 30       # [10, 2, 30]
+let numbers at -1 to 50      # [10, 2, 50]
+```
+
+**Note:** Lists created with `set` are immutable and cannot be modified.
+
+## Iterating Over Lists
+
+```kronos
+set fruits to list "apple", "banana", "cherry"
+
+for fruit in fruits:
+    print fruit
+```
+
+## List Length
+
+Get the length of a list:
+
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set length to call len with numbers
+print length  # Prints: 5
+```
+
+## List Functions
+
+Kronos provides several built-in functions for working with lists:
+
+- `len(list)` - Get the length of a list
+- `reverse(list)` - Return a reversed copy of the list
+- `sort(list)` - Return a sorted copy of the list
+
+See the [Standard Library documentation](/docs/api/collections) for details.
+
+## Examples
+
+### Finding Maximum Value
+
+```kronos
+set numbers to list 3, 7, 2, 9, 1, 5
+let max to numbers at 0
+
+for num in numbers:
+    if num is greater than max:
+        let max to num
+
+print max  # Prints: 9
+```
+
+### Filtering Lists
+
+```kronos
+set numbers to list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+set evens to list
+
+for num in numbers:
+    if (num mod 2) is equal 0:
+        # Add to evens list (when list append is available)
+        print num
+```
+
+### Nested Lists
+
+```kronos
+set matrix to list list 1, 2, 3, list 4, 5, 6, list 7, 8, 9
+
+for row in matrix:
+    for cell in row:
+        print cell
+```
+
