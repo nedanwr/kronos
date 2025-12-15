@@ -1,0 +1,98 @@
+---
+title: Variables
+description: Learn about mutable and immutable variables in Kronos
+---
+
+# Variables
+
+Kronos supports two types of variables: **immutable** (using `set`) and **mutable** (using `let`).
+
+## Immutable Variables (`set`)
+
+Immutable variables cannot be reassigned after their initial value is set.
+
+**Syntax:**
+```kronos
+set <variable_name> to <value>
+```
+
+**Examples:**
+```kronos
+set x to 5
+set name to "Alice"
+set pi to 3.14159
+```
+
+Attempting to reassign will result in an error:
+```kronos
+set x to 10
+set x to 20  # Error: Cannot reassign immutable variable 'x'
+```
+
+## Mutable Variables (`let`)
+
+Mutable variables can be reassigned to new values.
+
+**Syntax:**
+```kronos
+let <variable_name> to <value>
+```
+
+**Examples:**
+```kronos
+let counter to 0
+let counter to 1
+let counter to 2  # OK: counter is mutable
+```
+
+## Type Annotations (Optional)
+
+You can optionally specify a type using the `as` keyword. Once specified, the variable can only hold values of that type.
+
+**Syntax:**
+```kronos
+set <variable_name> to <value> as <type>
+let <variable_name> to <value> as <type>
+```
+
+**Available Types:**
+- `number` - Integers and floating-point numbers
+- `string` - Text values
+- `boolean` - `true` or `false`
+- `null` - Represents no value
+- `list` - Ordered collections of values
+- `map` - Key-value collections
+
+**Examples:**
+```kronos
+let age to 25 as number
+let age to 26 as number       # OK: still a number
+let age to "twenty"           # Error: Type mismatch
+
+set name to "Bob" as string
+let flag to true as boolean
+let flag to false as boolean  # OK: still a boolean
+```
+
+## Variable Naming Rules
+
+- Variable names must start with a letter or underscore
+- Can contain letters, numbers, and underscores
+- Case sensitive (`myVar` and `myvar` are different)
+- Cannot use reserved keywords
+
+## When to Use `set` vs `let`
+
+- Use `set` for values that shouldn't change (constants, configuration)
+- Use `let` for values that need to be updated (counters, accumulators, loop variables)
+
+**Example:**
+```kronos
+set MAX_RETRIES to 3 as number
+let attempt to 0 as number
+
+while attempt is less than MAX_RETRIES:
+    print attempt
+    let attempt to attempt plus 1
+```
+
