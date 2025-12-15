@@ -1,0 +1,201 @@
+---
+title: String Functions
+description: Built-in string manipulation functions
+---
+
+# String Functions
+
+String functions are available globally and do not require an import.
+
+## Length
+
+### len
+
+Get the length of a string or list.
+
+**Syntax:** `call len with value`
+
+**Example:**
+```kronos
+set text to "Hello"
+set length to call len with text  # Returns 5
+
+set numbers to list 1, 2, 3
+set count to call len with numbers  # Returns 3
+```
+
+## Case Conversion
+
+### uppercase
+
+Convert a string to uppercase.
+
+**Syntax:** `call uppercase with string`
+
+**Example:**
+```kronos
+set text to "Hello World"
+set upper to call uppercase with text  # Returns "HELLO WORLD"
+```
+
+### lowercase
+
+Convert a string to lowercase.
+
+**Syntax:** `call lowercase with string`
+
+**Example:**
+```kronos
+set text to "Hello World"
+set lower to call lowercase with text  # Returns "hello world"
+```
+
+## Trimming
+
+### trim
+
+Remove leading and trailing whitespace from a string.
+
+**Syntax:** `call trim with string`
+
+**Example:**
+```kronos
+set text to "  hello world  "
+set trimmed to call trim with text  # Returns "hello world"
+```
+
+## Splitting and Joining
+
+### split
+
+Split a string into a list of substrings using a delimiter.
+
+**Syntax:** `call split with string, delimiter`
+
+**Example:**
+```kronos
+set text to "apple,banana,cherry"
+set fruits to call split with text, ","  # Returns ["apple", "banana", "cherry"]
+```
+
+### join
+
+Join a list of strings into a single string using a delimiter.
+
+**Syntax:** `call join with list, delimiter`
+
+**Example:**
+```kronos
+set words to list "Hello", "World", "from", "Kronos"
+set sentence to call join with words, " "  # Returns "Hello World from Kronos"
+```
+
+## Searching
+
+### contains
+
+Check if a string contains a substring.
+
+**Syntax:** `call contains with string, substring`
+
+**Returns:** `true` if found, `false` otherwise
+
+**Example:**
+```kronos
+set text to "Hello World"
+set has_hello to call contains with text, "Hello"  # Returns true
+set has_xyz to call contains with text, "xyz"      # Returns false
+```
+
+### starts_with
+
+Check if a string starts with a prefix.
+
+**Syntax:** `call starts_with with string, prefix`
+
+**Returns:** `true` if string starts with prefix, `false` otherwise
+
+**Example:**
+```kronos
+set text to "Hello World"
+set starts_hello to call starts_with with text, "Hello"  # Returns true
+set starts_hi to call starts_with with text, "Hi"        # Returns false
+```
+
+### ends_with
+
+Check if a string ends with a suffix.
+
+**Syntax:** `call ends_with with string, suffix`
+
+**Returns:** `true` if string ends with suffix, `false` otherwise
+
+**Example:**
+```kronos
+set text to "Hello World"
+set ends_world to call ends_with with text, "World"  # Returns true
+set ends_hello to call ends_with with text, "Hello"  # Returns false
+```
+
+## Replacing
+
+### replace
+
+Replace all occurrences of a substring with another substring.
+
+**Syntax:** `call replace with string, old, new`
+
+**Example:**
+```kronos
+set text to "Hello World"
+set replaced to call replace with text, "World", "Kronos"  # Returns "Hello Kronos"
+```
+
+## Type Conversion
+
+### to_string
+
+Convert any value to its string representation.
+
+**Syntax:** `call to_string with value`
+
+**Example:**
+```kronos
+set num_str to call to_string with 42        # Returns "42"
+set bool_str to call to_string with true     # Returns "true"
+set null_str to call to_string with null     # Returns "null"
+```
+
+## Examples
+
+### Processing CSV Data
+
+```kronos
+set csv_line to "name,age,city"
+set parts to call split with csv_line, ","
+
+for part in parts:
+    set trimmed to call trim with part
+    print trimmed
+```
+
+### Building URLs
+
+```kronos
+set base_url to "https://example.com"
+set path to "api/users"
+set full_url to call join with list base_url, path, "/"
+print full_url  # Prints: https://example.com/api/users
+```
+
+### Text Processing Pipeline
+
+```kronos
+set text to "  Hello World  "
+set processed to call trim with text
+set upper to call uppercase with processed
+set words to call split with upper, " "
+set result to call join with words, "-"
+print result  # Prints: HELLO-WORLD
+```
+
