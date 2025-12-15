@@ -1,0 +1,174 @@
+---
+title: Math Functions
+description: Mathematical functions available in the math module
+---
+
+# Math Functions
+
+The `math` module provides mathematical operations and constants.
+
+## Importing
+
+```kronos
+import math
+```
+
+## Constants
+
+### Pi
+
+The mathematical constant π (approximately 3.14159...).
+
+```kronos
+import math
+set area to call math.Pi times (radius times radius)
+```
+
+## Functions
+
+### sqrt
+
+Calculate the square root of a number.
+
+**Syntax:** `call math.sqrt with number`
+
+**Example:**
+```kronos
+import math
+set result to call math.sqrt with 16  # Returns 4
+```
+
+### power
+
+Raise a number to a power.
+
+**Syntax:** `call math.power with base, exponent`
+
+**Example:**
+```kronos
+import math
+set result to call math.power with 2, 8  # Returns 256 (2^8)
+```
+
+### abs
+
+Get the absolute value of a number.
+
+**Syntax:** `call math.abs with number`
+
+**Example:**
+```kronos
+import math
+set result to call math.abs with -10  # Returns 10
+```
+
+### round
+
+Round a number to the nearest integer.
+
+**Syntax:** `call math.round with number`
+
+**Example:**
+```kronos
+import math
+set result to call math.round with 3.7   # Returns 4
+set result2 to call math.round with 3.2  # Returns 3
+```
+
+### floor
+
+Round down to the nearest integer.
+
+**Syntax:** `call math.floor with number`
+
+**Example:**
+```kronos
+import math
+set result to call math.floor with 3.9  # Returns 3
+set result2 to call math.floor with 3.1  # Returns 3
+```
+
+### ceil
+
+Round up to the nearest integer.
+
+**Syntax:** `call math.ceil with number`
+
+**Example:**
+```kronos
+import math
+set result to call math.ceil with 3.1   # Returns 4
+set result2 to call math.ceil with 3.9   # Returns 4
+```
+
+### rand
+
+Generate a random number between 0.0 and 1.0.
+
+**Syntax:** `call math.rand with`
+
+**Example:**
+```kronos
+import math
+set random_value to call math.rand with  # Returns a random float
+```
+
+### min
+
+Find the minimum value from a list of numbers.
+
+**Syntax:** `call math.min with number1, number2, ...`
+
+**Example:**
+```kronos
+import math
+set result to call math.min with 5, 10, 3, 8  # Returns 3
+```
+
+### max
+
+Find the maximum value from a list of numbers.
+
+**Syntax:** `call math.max with number1, number2, ...`
+
+**Example:**
+```kronos
+import math
+set result to call math.max with 5, 10, 3, 8  # Returns 10
+```
+
+## Examples
+
+### Calculating Circle Area
+
+```kronos
+import math
+
+function circle_area with radius:
+    return call math.Pi times (call math.power with radius, 2)
+
+set area to call circle_area with 5
+print area  # Prints: 78.539...
+```
+
+### Finding Min/Max in a List
+
+```kronos
+import math
+
+set numbers to list 3, 7, 2, 9, 1, 5
+
+# Note: min/max currently take individual arguments, not lists
+# You would need to call them with individual values or iterate
+let min_val to numbers at 0
+let max_val to numbers at 0
+
+for num in numbers:
+    if num is less than min_val:
+        let min_val to num
+    if num is greater than max_val:
+        let max_val to num
+
+print f"Min: {min_val}, Max: {max_val}"
+```
+
