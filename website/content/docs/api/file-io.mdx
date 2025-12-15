@@ -1,0 +1,204 @@
+---
+title: File I/O
+description: Reading and writing files in Kronos
+---
+
+# File I/O Operations
+
+Kronos provides built-in functions for file operations. These functions are available globally and do not require an import.
+
+## Reading Files
+
+### read_file
+
+Read the entire contents of a file as a string.
+
+**Syntax:** `call read_file with path`
+
+**Example:**
+```kronos
+set content to call read_file with "data.txt"
+print content
+```
+
+**Error Handling:**
+```kronos
+try:
+    set content to call read_file with "config.txt"
+    print content
+catch error:
+    print f"Could not read file: {error}"
+```
+
+### read_lines
+
+Read a file and return a list of lines (one string per line).
+
+**Syntax:** `call read_lines with path`
+
+**Example:**
+```kronos
+set lines to call read_lines with "data.txt"
+for line in lines:
+    print line
+```
+
+## Writing Files
+
+### write_file
+
+Write string content to a file. Creates the file if it doesn't exist, overwrites if it does.
+
+**Syntax:** `call write_file with path, content`
+
+**Example:**
+```kronos
+call write_file with "output.txt", "Hello, World!"
+```
+
+**Note:** Returns `null` on success. Raises an error on failure.
+
+## File Information
+
+### file_exists
+
+Check if a file or directory exists.
+
+**Syntax:** `call file_exists with path`
+
+**Returns:** `true` if the file/directory exists, `false` otherwise
+
+**Example:**
+```kronos
+set exists to call file_exists with "data.txt"
+if exists:
+    print "File exists!"
+else:
+    print "File not found"
+```
+
+### list_files
+
+List files in a directory.
+
+**Syntax:** `call list_files with path`
+
+**Returns:** A list of file names as strings
+
+**Example:**
+```kronos
+set files to call list_files with "."
+for file in files:
+    print file
+```
+
+**Note:** Excludes `.` and `..` entries.
+
+## Path Operations
+
+### join_path
+
+Join two path components with the appropriate separator.
+
+**Syntax:** `call join_path with path1, path2`
+
+**Example:**
+```kronos
+set full_path to call join_path with "dir", "file.txt"        # Returns "dir/file.txt"
+set full_path2 to call join_path with "/path/to", "file.txt"  # Returns "/path/to/file.txt"
+```
+
+### dirname
+
+Get the directory name from a file path.
+
+**Syntax:** `call dirname with path`
+
+**Example:**
+```kronos
+set dir to call dirname with "/path/to/file.txt"  # Returns "/path/to"
+set dir2 to call dirname with "file.txt"          # Returns "."
+```
+
+### basename
+
+Get the file name from a file path.
+
+**Syntax:** `call basename with path`
+
+**Example:**
+```kronos
+set file to call basename with "/path/to/file.txt"  # Returns "file.txt"
+set file2 to call basename with "dir/subdir"        # Returns "subdir"
+```
+
+## Examples
+
+### Reading Configuration Files
+
+```kronos
+try:
+    set config_content to call read_file with "config.txt"
+    set lines to call read_lines with "config.txt"
+    
+    for line in lines:
+        set trimmed to call trim with line
+        if trimmed is not equal "":
+            print trimmed
+catch error:
+    print f"Error reading config: {error}"
+```
+
+### Writing Log Files
+
+```kronos
+function log_message with message:
+    set log_file to "app.log"
+    set timestamp to "2025-01-01 12:00:00"  # In real app, use actual timestamp
+    set log_entry to f"{timestamp}: {message}\n"
+    
+    try:
+        if call file_exists with log_file:
+            set existing to call read_file with log_file
+            call write_file with log_file, existing plus log_entry
+        else:
+            call write_file with log_file, log_entry
+    catch error:
+        print f"Failed to write log: {error}"
+
+call log_message with "Application started"
+```
+
+### Processing Multiple Files
+
+```kronos
+set files to call list_files with "data"
+
+for file in files:
+    set file_path to call join_path with "data", file
+    if call file_exists with file_path:
+        try:
+            set content to call read_file with file_path
+            print f"Processing {file}..."
+            # Process content...
+        catch error:
+            print f"Error processing {file}: {error}"
+```
+
+### Building File Paths
+
+```kronos
+set base_dir to "projects"
+set project_name to "kronos"
+set main_file to "main.kr"
+
+set project_path to call join_path with base_dir, project_name
+set full_file_path to call join_path with project_path, main_file
+
+print full_file_path  # Prints: projects/kronos/main.kr
+
+# Extract components
+set extracted_dir to call dirname with full_file_path
+set extracted_file to call basename with full_file_path
+```
+
