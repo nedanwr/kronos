@@ -1,0 +1,103 @@
+---
+title: Data Types
+description: Learn about the data types available in Kronos
+---
+
+# Data Types
+
+Kronos supports several built-in data types.
+
+## Numbers
+
+Numbers can be integers or floating-point values.
+
+```kronos
+set integer to 42
+set decimal to 3.14159
+set negative to -10
+set large to 1000000
+```
+
+## Strings
+
+Strings are sequences of characters enclosed in double quotes.
+
+```kronos
+set greeting to "Hello, World!"
+set empty to ""
+set multiline to "Line 1\nLine 2"
+```
+
+### F-Strings (String Interpolation)
+
+F-strings allow you to embed expressions inside strings:
+
+```kronos
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+print greeting  # Prints: Hello, Alice!
+
+set x to 10
+set y to 20
+set result to f"{x} plus {y} equals {x plus y}"
+print result  # Prints: 10 plus 20 equals 30
+```
+
+You can use any expression inside `{}`:
+```kronos
+set text to "Hello"
+set info to f"'{text}' has {call len with text} characters"
+```
+
+## Booleans
+
+Boolean values are `true` and `false`.
+
+```kronos
+set is_active to true
+set is_complete to false
+```
+
+## Null
+
+The `null` value represents the absence of a value.
+
+```kronos
+set value to null
+```
+
+## Lists
+
+Lists are ordered collections of values. See the [Lists documentation](/docs/language/lists) for details.
+
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set mixed to list "hello", 42, true, null
+```
+
+## Maps
+
+Maps are key-value collections. See the [Maps documentation](/docs/language/maps) for details.
+
+```kronos
+set person to map name: "Alice", age: 30, city: "NYC"
+set scores to map 1: 100, 2: 200, 3: 300
+```
+
+## Type Checking
+
+You can use type annotations to enforce types:
+
+```kronos
+let age to 25 as number
+let name to "Bob" as string
+let active to true as boolean
+```
+
+Attempting to assign a different type will result in an error:
+
+```kronos
+let age to 25 as number
+let age to "twenty"  # Error: Type mismatch
+```
+
