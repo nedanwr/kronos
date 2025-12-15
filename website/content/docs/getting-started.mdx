@@ -1,0 +1,115 @@
+---
+title: Getting Started
+description: Learn how to install and run Kronos
+---
+
+# Getting Started with Kronos
+
+Welcome to Kronos! This guide will help you get up and running quickly.
+
+## Installation
+
+### Building from Source
+
+Kronos is built in C and requires a C compiler (GCC or Clang) and `make`.
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/kronos.git
+cd kronos
+
+# Build Kronos
+make
+
+# The binary will be available as ./kronos
+```
+
+### Dependencies
+
+- **C Compiler**: GCC or Clang
+- **Make**: Build system
+- **gperf**: For keyword hashing (usually available via package manager)
+
+**macOS:**
+
+```bash
+brew install gperf
+```
+
+**Ubuntu/Debian:**
+
+```bash
+sudo apt-get install build-essential gperf
+```
+
+## Running Your First Program
+
+Create a file called `hello.kr`:
+
+```kronos
+print "Hello, World!"
+```
+
+Run it:
+
+```bash
+./kronos hello.kr
+```
+
+You should see:
+
+```
+Hello, World!
+```
+
+## Interactive REPL
+
+Kronos includes an interactive REPL (Read-Eval-Print Loop) for testing code:
+
+```bash
+./kronos
+```
+
+You can type expressions directly:
+
+```kronos
+> 10 plus 20
+30
+> set name to "Kronos"
+> print name
+Kronos
+```
+
+The REPL includes:
+
+- **Command history**: Use arrow keys to navigate previous commands
+- **Tab completion**: Get suggestions for keywords, functions, and variables
+- **Multi-line input**: Automatically handles multi-line code blocks
+
+## Command-Line Options
+
+```bash
+# Execute a file
+./kronos script.kr
+
+# Execute code directly
+./kronos -e "print 42"
+
+# Multiple -e flags
+./kronos -e "set x to 10" -e "print x"
+
+# Show version
+./kronos --version
+
+# Show help
+./kronos --help
+```
+
+## Next Steps
+
+Now that you have Kronos installed, check out:
+
+- **[Language Basics](/docs/language/variables)** - Learn about variables, types, and basic operations
+- **[Functions](/docs/language/functions)** - Create reusable code with functions
+- **[Data Structures](/docs/language/lists)** - Work with lists, maps, and ranges
+- **[Examples](/docs/examples)** - See real-world code examples
