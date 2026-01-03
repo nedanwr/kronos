@@ -3,6 +3,15 @@
 @import 'fumadocs-ui/css/preset.css';
 @import "tw-animate-css";
 
+/* Force dark mode background */
+html.dark,
+html.dark body,
+.dark,
+.dark body {
+  background-color: #050505 !important;
+  color: #f5f5f5;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -82,37 +91,38 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* Kronos dark theme - matching home page */
+  --background: #050505;
+  --foreground: #f5f5f5;
+  --card: #0a0a0a;
+  --card-foreground: #f5f5f5;
+  --popover: #0a0a0a;
+  --popover-foreground: #f5f5f5;
+  --primary: #F59E0B;
+  --primary-foreground: #050505;
+  --secondary: rgba(255, 255, 255, 0.05);
+  --secondary-foreground: #f5f5f5;
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #9CA3AF;
+  --accent: rgba(245, 158, 11, 0.15);
+  --accent-foreground: #F59E0B;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: #F59E0B;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #F59E0B;
+  --sidebar-primary-foreground: #050505;
+  --sidebar-accent: rgba(245, 158, 11, 0.1);
+  --sidebar-accent-foreground: #F59E0B;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #F59E0B;
 }
 
 @layer base {
@@ -122,4 +132,132 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Fumadocs theme overrides for Kronos */
+:root.dark,
+.dark {
+  /* Fumadocs specific variables */
+  --fd-background: #050505 !important;
+  --fd-background-depth: #0a0a0a !important;
+  --fd-foreground: #f5f5f5 !important;
+  --fd-muted: rgba(255, 255, 255, 0.05) !important;
+  --fd-muted-foreground: #9CA3AF !important;
+  --fd-card: rgba(10, 10, 10, 0.8) !important;
+  --fd-card-foreground: #f5f5f5 !important;
+  --fd-border: rgba(255, 255, 255, 0.1) !important;
+  --fd-primary: #F59E0B !important;
+  --fd-primary-foreground: #050505 !important;
+  --fd-accent: rgba(245, 158, 11, 0.15) !important;
+  --fd-accent-foreground: #F59E0B !important;
+  --fd-ring: #F59E0B !important;
+  --fd-popover: #0a0a0a !important;
+  --fd-popover-foreground: #f5f5f5 !important;
+  --fd-secondary: rgba(255, 255, 255, 0.05) !important;
+  --fd-secondary-foreground: #f5f5f5 !important;
+}
+
+/* Docs layout background with gradient effects */
+.dark [data-wrapper],
+.dark main,
+.dark [role="main"],
+.dark article {
+  background: transparent !important;
+}
+
+/* Main layout container */
+.dark > div,
+html.dark > body > div {
+  background: #050505 !important;
+}
+
+/* Add gradient overlay */
+html.dark::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 80% at 90% 10%, rgba(46, 16, 101, 0.3), transparent 50%),
+    radial-gradient(ellipse 70% 70% at 10% 90%, rgba(30, 27, 75, 0.2), transparent 50%);
+}
+
+/* Sidebar styling */
+.dark aside,
+.dark [data-sidebar],
+.dark nav[aria-label="Main"] {
+  background: rgba(10, 10, 10, 0.95) !important;
+  backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Navigation bar */
+.dark header,
+.dark [data-navbar] {
+  background: rgba(10, 10, 10, 0.95) !important;
+  backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Code blocks */
+.fd-codeblock {
+  background: rgba(10, 10, 10, 0.8) !important;
+  border-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Links in docs */
+.fd-content a:not([class]) {
+  color: #F59E0B;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.fd-content a:not([class]):hover {
+  color: #FBBF24;
+  text-decoration: underline;
+}
+
+/* Sidebar links */
+[data-active="true"] {
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: #F59E0B !important;
+  border-color: #F59E0B !important;
+}
+
+/* Table of contents active link */
+.fd-toc [data-active="true"] {
+  color: #F59E0B !important;
+}
+
+/* Cards in docs */
+.fd-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  transition: all 0.3s;
+}
+
+.fd-card:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  transform: translateY(-2px);
+}
+
+/* Search button */
+.fd-search-button {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.fd-search-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Inline code */
+.fd-content :not(pre) > code {
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: #F59E0B !important;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
 }
