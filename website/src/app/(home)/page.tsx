@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   Terminal,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Navigation } from "~/components/navigation";
 import { Button } from "~/components/ui/button";
@@ -72,22 +73,26 @@ export default function HomePage() {
                   </p>
 
                   <div className="flex flex-col justify-center gap-4 sm:flex-row lg:justify-start">
-                    <Button
-                      size="lg"
-                      className="group relative overflow-hidden border border-[#F59E0B]/50 bg-[rgba(245,158,11,0.15)] text-[#F59E0B] font-semibold backdrop-blur-sm transition-all hover:border-[#F59E0B] hover:bg-[rgba(245,158,11,0.25)] hover:text-[#FBBF24] hover:shadow-lg hover:shadow-[#F59E0B]/30"
-                    >
-                      <span className="relative z-10 flex items-center gap-2">
-                        Get Started
-                        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                      </span>
-                    </Button>
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="border-white/20 bg-white/5 text-white backdrop-blur-sm hover:bg-white/10 hover:text-white"
-                    >
-                      Read the Docs
-                    </Button>
+                    <Link href="/docs/getting-started">
+                      <Button
+                        size="lg"
+                        className="group relative overflow-hidden border border-[#F59E0B]/50 bg-[rgba(245,158,11,0.15)] text-[#F59E0B] font-semibold backdrop-blur-sm transition-all hover:border-[#F59E0B] hover:bg-[rgba(245,158,11,0.25)] hover:text-[#FBBF24] hover:shadow-lg hover:shadow-[#F59E0B]/30"
+                      >
+                        <span className="relative z-10 flex items-center gap-2">
+                          Get Started
+                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                        </span>
+                      </Button>
+                    </Link>
+                    <Link href="/docs">
+                      <Button
+                        size="lg"
+                        variant="outline"
+                        className="border-white/20 bg-white/5 text-white backdrop-blur-sm hover:bg-white/10 hover:text-white"
+                      >
+                        Read the Docs
+                      </Button>
+                    </Link>
                   </div>
                 </div>
 
