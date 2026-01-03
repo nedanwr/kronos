@@ -1,5 +1,5 @@
 {
-  "name": "Kronos",
+  "name": "kronos",
   "scopeName": "source.kronos",
   "fileTypes": ["kr"],
   "patterns": [
