@@ -17,7 +17,15 @@ export default function Layout({ children }: LayoutProps<"/">) {
       <body
         className={`${inter.className} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <RootProvider>{children}</RootProvider>
+        <RootProvider
+          theme={{
+            enabled: true,
+            defaultTheme: "dark",
+            forcedTheme: "dark",
+          }}
+        >
+          {children}
+        </RootProvider>
       </body>
     </html>
   );
