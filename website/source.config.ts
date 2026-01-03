@@ -1,10 +1,16 @@
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
   defineConfig,
   defineDocs,
   frontmatterSchema,
   metaSchema,
 } from "fumadocs-mdx/config";
-import kronosGrammar from "./lib/kronos.tmLanguage.json";
+
+// Load Kronos grammar synchronously at build time
+const kronosGrammar = JSON.parse(
+  readFileSync(join(process.cwd(), "lib/kronos.tmLanguage.json"), "utf8")
+);
 
 // You can customise Zod schemas for frontmatter and `meta.json` here
 // see https://fumadocs.dev/docs/mdx/collections
