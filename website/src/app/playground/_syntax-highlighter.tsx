@@ -139,7 +139,7 @@ export function highlightKronos(code: string): React.ReactNode[] {
 
       // Operators
       const operatorMatch = remaining.match(
-        /^(plus|minus|times|divided|modulo|equal|not|greater|less|and|or)\b/
+        /^(plus|minus|times|divided|mod|modulo|equal|not|greater|less|and|or)\b/
       );
       if (operatorMatch) {
         tokens.push(
