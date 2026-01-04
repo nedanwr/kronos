@@ -3,9 +3,19 @@ title: File I/O
 description: Reading and writing files in Kronos
 ---
 
-# File I/O Operations
+import { Callout } from 'fumadocs-ui/components/callout';
+import { TypeTable } from 'fumadocs-ui/components/type-table';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Kronos provides built-in functions for file operations. These functions are available globally and do not require an import.
+# File I/O
+
+Kronos provides built-in functions for file operations. These are available globally — no imports needed.
+
+<Callout>
+  All file operations can throw errors. Wrap them in `try`/`catch` for robust code.
+</Callout>
+
+---
 
 ## Reading Files
 
@@ -13,15 +23,27 @@ Kronos provides built-in functions for file operations. These functions are avai
 
 Read the entire contents of a file as a string.
 
-**Syntax:** `call read_file with path`
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to read',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'File contents as a string',
+      type: 'string',
+    },
+  }}
+/>
 
-**Example:**
 ```kronos
 set content to call read_file with "data.txt"
 print content
 ```
 
-**Error Handling:**
+<Accordions>
+<Accordion title="With error handling">
 ```kronos
 try:
     set content to call read_file with "config.txt"
@@ -29,34 +51,72 @@ try:
 catch error:
     print f"Could not read file: {error}"
 ```
+</Accordion>
+</Accordions>
+
+---
 
 ### read_lines
 
-Read a file and return a list of lines (one string per line).
+Read a file and return a list of lines.
 
-**Syntax:** `call read_lines with path`
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to read',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'List of lines (strings)',
+      type: 'list',
+    },
+  }}
+/>
 
-**Example:**
 ```kronos
 set lines to call read_lines with "data.txt"
+
 for line in lines:
     print line
 ```
+
+---
 
 ## Writing Files
 
 ### write_file
 
-Write string content to a file. Creates the file if it doesn't exist, overwrites if it does.
+Write content to a file. Creates the file if it doesn't exist, overwrites if it does.
 
-**Syntax:** `call write_file with path, content`
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to write',
+      type: 'string',
+      required: true,
+    },
+    content: {
+      description: 'Content to write',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'null on success, throws on failure',
+      type: 'null',
+    },
+  }}
+/>
 
-**Example:**
 ```kronos
 call write_file with "output.txt", "Hello, World!"
 ```
 
-**Note:** Returns `null` on success. Raises an error on failure.
+<Callout type="warn">
+  This **overwrites** existing files. There's no append mode yet.
+</Callout>
+
+---
 
 ## File Information
 
@@ -64,141 +124,165 @@ call write_file with "output.txt", "Hello, World!"
 
 Check if a file or directory exists.
 
-**Syntax:** `call file_exists with path`
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to check',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'true if exists, false otherwise',
+      type: 'boolean',
+    },
+  }}
+/>
 
-**Returns:** `true` if the file/directory exists, `false` otherwise
-
-**Example:**
 ```kronos
-set exists to call file_exists with "data.txt"
-if exists:
-    print "File exists!"
+if call file_exists with "config.txt":
+    print "Config found!"
 else:
-    print "File not found"
+    print "Using defaults..."
 ```
+
+---
 
 ### list_files
 
-List files in a directory.
+List all files in a directory.
 
-**Syntax:** `call list_files with path`
+<TypeTable
+  type={{
+    path: {
+      description: 'Directory path',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'List of filenames (excludes . and ..)',
+      type: 'list',
+    },
+  }}
+/>
 
-**Returns:** A list of file names as strings
-
-**Example:**
 ```kronos
 set files to call list_files with "."
+
 for file in files:
     print file
 ```
 
-**Note:** Excludes `.` and `..` entries.
+---
 
 ## Path Operations
 
 ### join_path
 
-Join two path components with the appropriate separator.
+Join path components with the appropriate separator.
 
-**Syntax:** `call join_path with path1, path2`
-
-**Example:**
 ```kronos
-set full_path to call join_path with "dir", "file.txt"        # Returns "dir/file.txt"
-set full_path2 to call join_path with "/path/to", "file.txt"  # Returns "/path/to/file.txt"
+set full to call join_path with "dir", "file.txt"
+# Returns: "dir/file.txt"
+
+set nested to call join_path with "/path/to", "file.txt"
+# Returns: "/path/to/file.txt"
 ```
 
 ### dirname
 
-Get the directory name from a file path.
+Get the directory portion of a path.
 
-**Syntax:** `call dirname with path`
-
-**Example:**
 ```kronos
-set dir to call dirname with "/path/to/file.txt"  # Returns "/path/to"
-set dir2 to call dirname with "file.txt"          # Returns "."
+set dir to call dirname with "/path/to/file.txt"
+# Returns: "/path/to"
+
+set dir2 to call dirname with "file.txt"
+# Returns: "."
 ```
 
 ### basename
 
-Get the file name from a file path.
+Get the filename portion of a path.
 
-**Syntax:** `call basename with path`
-
-**Example:**
 ```kronos
-set file to call basename with "/path/to/file.txt"  # Returns "file.txt"
-set file2 to call basename with "dir/subdir"        # Returns "subdir"
+set file to call basename with "/path/to/file.txt"
+# Returns: "file.txt"
 ```
 
-## Examples
+---
 
-### Reading Configuration Files
+## Common Patterns
 
+<Accordions>
+<Accordion title="Safe file reading">
 ```kronos
-try:
-    set config_content to call read_file with "config.txt"
-    set lines to call read_lines with "config.txt"
-    
-    for line in lines:
-        set trimmed to call trim with line
-        if trimmed is not equal "":
-            print trimmed
-catch error:
-    print f"Error reading config: {error}"
-```
-
-### Writing Log Files
-
-```kronos
-function log_message with message:
-    set log_file to "app.log"
-    set timestamp to "2025-01-01 12:00:00"  # In real app, use actual timestamp
-    set log_entry to f"{timestamp}: {message}\n"
+function safe_read with path:
+    if not call file_exists with path:
+        return null
     
     try:
-        if call file_exists with log_file:
-            set existing to call read_file with log_file
-            call write_file with log_file, existing plus log_entry
-        else:
-            call write_file with log_file, log_entry
+        return call read_file with path
     catch error:
-        print f"Failed to write log: {error}"
+        print f"Warning: {error}"
+        return null
 
-call log_message with "Application started"
+set content to call safe_read with "maybe-exists.txt"
+if content is not null:
+    print content
 ```
+</Accordion>
 
-### Processing Multiple Files
-
+<Accordion title="Process all files in directory">
 ```kronos
 set files to call list_files with "data"
 
 for file in files:
-    set file_path to call join_path with "data", file
-    if call file_exists with file_path:
-        try:
-            set content to call read_file with file_path
-            print f"Processing {file}..."
-            # Process content...
-        catch error:
-            print f"Error processing {file}: {error}"
+    set path to call join_path with "data", file
+    
+    try:
+        set content to call read_file with path
+        print f"Processing {file}..."
+        # Process content...
+    catch error:
+        print f"Skipping {file}: {error}"
 ```
+</Accordion>
 
-### Building File Paths
-
+<Accordion title="Simple logging">
 ```kronos
-set base_dir to "projects"
-set project_name to "kronos"
-set main_file to "main.kr"
+function log with message:
+    set log_file to "app.log"
+    set entry to f"[LOG] {message}\n"
+    
+    try:
+        if call file_exists with log_file:
+            set existing to call read_file with log_file
+            call write_file with log_file, existing plus entry
+        else:
+            call write_file with log_file, entry
+    catch error:
+        print f"Log failed: {error}"
 
-set project_path to call join_path with base_dir, project_name
-set full_file_path to call join_path with project_path, main_file
-
-print full_file_path  # Prints: projects/kronos/main.kr
-
-# Extract components
-set extracted_dir to call dirname with full_file_path
-set extracted_file to call basename with full_file_path
+call log with "Application started"
+call log with "User logged in"
 ```
+</Accordion>
 
+<Accordion title="Build paths safely">
+```kronos
+set base to "projects"
+set project to "kronos"
+set file to "main.kr"
+
+# Build the full path
+set project_dir to call join_path with base, project
+set full_path to call join_path with project_dir, file
+
+print full_path  # projects/kronos/main.kr
+
+# Extract components back
+print call dirname with full_path   # projects/kronos
+print call basename with full_path  # main.kr
+```
+</Accordion>
+</Accordions>
