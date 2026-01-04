@@ -122,6 +122,7 @@ for i in range 1 to 16:
 export default function PlaygroundPage() {
   const [code, setCode] = useState(examples[0].code);
   const [output, setOutput] = useState("");
+  const [warnings, setWarnings] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedExample, setSelectedExample] = useState(examples[0].name);
@@ -179,9 +180,15 @@ export default function PlaygroundPage() {
 
     setIsRunning(true);
     setOutput("");
+    setWarnings("");
 
     try {
       const result = await runtimeRef.current.run(code);
+
+      // Set warnings if any
+      if (result.warnings) {
+        setWarnings(result.warnings);
+      }
 
       if (result.success) {
         setOutput(result.output || "(no output)");
@@ -222,6 +229,7 @@ export default function PlaygroundPage() {
       setCode(example.code);
     }
     setOutput("");
+    setWarnings("");
   };
 
   const handleExampleSelect = (exampleName: string) => {
@@ -230,6 +238,7 @@ export default function PlaygroundPage() {
       setCode(example.code);
       setSelectedExample(exampleName);
       setOutput("");
+      setWarnings("");
     }
     setShowExamples(false);
   };
@@ -497,10 +506,23 @@ export default function PlaygroundPage() {
                 </div>
               </div>
               <div className="flex-1 overflow-auto p-4">
-                {output ? (
-                  <pre className="font-mono text-sm leading-relaxed text-white/80 whitespace-pre-wrap">
-                    {output}
-                  </pre>
+                {(output || warnings) ? (
+                  <div className="space-y-2">
+                    {/* Warnings - displayed in amber/yellow */}
+                    {warnings && (
+                      <pre className="font-mono text-sm leading-relaxed text-amber-400 whitespace-pre-wrap">
+                        {warnings}
+                      </pre>
+                    )}
+                    {/* Output or Error */}
+                    {output && (
+                      <pre className={`font-mono text-sm leading-relaxed whitespace-pre-wrap ${
+                        output.startsWith("Error:") ? "text-red-400" : "text-white/80"
+                      }`}>
+                        {output}
+                      </pre>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center text-center">
                     {wasmStatus === "loading" ? (
