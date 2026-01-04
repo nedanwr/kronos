@@ -138,15 +138,15 @@ jobs:
 
       - name: Check documentation files exist
         run: |
+          # Core documentation files (detailed docs now at kronos.nedanwr.dev)
           docs=(
             "README.md"
             "LICENSE"
-            "docs/README.md"
-            "docs/SYNTAX.md"
-            "docs/QUICKREF.md"
+            "CHANGELOG.md"
+            "ROADMAP.md"
             "docs/PROJECT.md"
-            "docs/EDITOR.md"
             "tests/README.md"
+            "examples/README.md"
           )
           for doc in "${docs[@]}"; do
             if [ ! -f "$doc" ]; then
