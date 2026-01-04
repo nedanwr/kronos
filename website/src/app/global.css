@@ -171,6 +171,12 @@ html.dark > body > div {
   background: #050505 !important;
 }
 
+/* Docs layout - ensure TOC area is transparent */
+#nd-docs-layout,
+.dark #nd-docs-layout {
+  background: transparent !important;
+}
+
 /* Add gradient overlay */
 html.dark::before {
   content: '';
@@ -225,9 +231,33 @@ html.dark::before {
   border-color: #F59E0B !important;
 }
 
-/* Table of contents active link */
+/* Table of contents - make fully transparent so gradient shows through */
+.fd-toc,
+[data-toc],
+#nd-toc,
+.dark #nd-toc,
+.dark [id="nd-toc"],
+.dark aside[aria-label="Table of Contents"],
+.dark div[data-toc-wrapper],
+.dark [class*="grid-area:toc"],
+[style*="grid-area:toc"],
+.dark div[class*="[grid-area:toc]"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Table of contents active link - text only, no background */
+#nd-toc [data-active="true"],
+#nd-toc a[data-active="true"],
 .fd-toc [data-active="true"] {
   color: #F59E0B !important;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* TOC clerk-style line indicator - fix the white line */
+.dark .bg-fd-primary {
+  background-color: #F59E0B !important;
 }
 
 /* Cards in docs */
