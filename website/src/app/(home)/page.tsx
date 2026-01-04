@@ -58,7 +58,7 @@ export default function HomePage() {
                   <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 backdrop-blur-sm">
                     <span className="h-2 w-2 rounded-full bg-[#F59E0B]" />
                     <span className="text-sm text-[#E5E5E5]">
-                      v0.4.0 — Now in public beta
+                      v0.4.5 — Now in public beta
                     </span>
                   </div>
 

@@ -14,7 +14,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 The development roadmap for the Kronos programming language.
 
 <Callout>
-  **Current Version:** 0.4.0 — Core language features complete and stable.
+  **Current Version:** 0.4.5 — Website, documentation & interactive playground.
 </Callout>
 
 ---
@@ -36,7 +36,7 @@ Core language features including maps, modules, exceptions, file I/O, and regex.
 
 ### v0.4.5 — Website & Documentation
 
-<span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">In Progress</span>
+<span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Completed</span>
 <span className="ml-2 text-sm text-[#9CA3AF]">Q1 2026</span>
 
 Official website, documentation, and interactive playground.
@@ -46,7 +46,8 @@ Official website, documentation, and interactive playground.
 
 ### v0.5.0 — Advanced Language Features
 
-<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+<span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">In Progress</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q1 2026</span>
 
 Lambdas, list comprehensions, pattern matching, and enhanced type system.
 
@@ -66,7 +67,7 @@ Concurrency, complete standard library, package manager, and tooling.
 
 ## What's Available Now
 
-Everything in v0.4.0 is stable and ready for use:
+Everything in v0.4.5 is stable and ready for use:
 
 <Cards>
   <Card title="Core Language" description="Variables, types, operators, control flow, functions" />
@@ -190,7 +191,7 @@ set all to call regex.findall with "cat, bat, sat", "[a-z]at"
 
 ### Website & Documentation
 
-Currently in progress — you're looking at it!
+All features completed — you're looking at it!
 
 <Accordions>
 <Accordion title="Official Website">
@@ -209,17 +210,18 @@ Currently in progress — you're looking at it!
 </Accordion>
 
 <Accordion title="Interactive Playground">
-- In-browser code editor
-- Real-time syntax highlighting
-- Code execution and output
-- Shareable snippets via URL
+- In-browser code editor with Kronos syntax highlighting
+- WebAssembly-powered code execution
+- Real-time output and error display
+- Compile-time warnings (e.g., division by zero)
+- Example code snippets
 </Accordion>
 </Accordions>
 
 **Technical Stack:**
 - Next.js with Fumadocs
-- Shiki for syntax highlighting
-- WebAssembly VM (future)
+- Custom TextMate-based syntax highlighting
+- WebAssembly VM via Emscripten
 
 </Tab>
 
