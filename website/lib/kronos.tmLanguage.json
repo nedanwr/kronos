@@ -66,7 +66,7 @@
       "patterns": [
         {
           "name": "keyword.control.kronos",
-          "match": "\\b(if|else|for|while|in|range|return|with|break|continue)\\b"
+          "match": "\\b(if|else|for|while|in|range|return|with|break|continue|try|catch|finally|raise|delete)\\b"
         },
         {
           "name": "keyword.other.kronos",
