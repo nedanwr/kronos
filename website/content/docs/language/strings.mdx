@@ -73,49 +73,20 @@ set info to f"'{text}' has {call len with text} characters"
 
 ## String Functions
 
-Kronos provides many built-in string functions. See the [Standard Library documentation](/docs/api/strings) for the complete list.
-
-### Common String Functions
+Kronos provides many built-in string functions. See the [String Functions API](/docs/api/string-functions) for the complete reference.
 
 ```kronos
 set text to "  Hello World  "
 
-# Length
-set length to call len with text
-
-# Case conversion
-set upper to call uppercase with text
-set lower to call lowercase with text
-
-# Trimming
-set trimmed to call trim with text
-
-# Splitting
-set parts to call split with "apple,banana,cherry", ","
-
-# Joining
-set words to list "Hello", "World"
-set sentence to call join with words, " "
-
-# Searching
-set has_hello to call contains with text, "Hello"
-set starts_hello to call starts_with with text, "Hello"
-set ends_world to call ends_with with text, "World"
-
-# Replacing
-set replaced to call replace with text, "World", "Kronos"
+call len with text               # Length
+call uppercase with text         # "  HELLO WORLD  "
+call trim with text              # "Hello World"
+call split with "a,b,c", ","     # ["a", "b", "c"]
+call contains with text, "Hello" # true
+call replace with text, "World", "Kronos"
 ```
 
 ## Examples
-
-### String Manipulation
-
-```kronos
-set text to "  hello world  "
-set trimmed to call trim with text
-set upper to call uppercase with trimmed
-print upper  # Prints: HELLO WORLD
-```
 
 ### Parsing Strings
 
@@ -134,15 +105,6 @@ for part in parts:
 
 ```kronos
 set items to list "apple", "banana", "cherry"
-let result to ""
-
-for i in range 0 to call len with items:
-    set item to items at i
-    if i is equal 0:
-        let result to item
-    else:
-        let result to result plus ", " plus item
-
+set result to call join with items, ", "
 print result  # Prints: apple, banana, cherry
 ```
-
