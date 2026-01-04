@@ -13,6 +13,7 @@ interface KronosWasmModule {
   _kronos_wasm_cleanup: () => void;
   _kronos_wasm_reset: () => void;
   _kronos_wasm_get_error: () => number;
+  _kronos_wasm_get_warnings: () => number;
   _kronos_wasm_version: () => number;
   _malloc: (size: number) => number;
   _free: (ptr: number) => void;
@@ -51,6 +52,7 @@ export interface KronosExecutionResult {
   success: boolean;
   output: string;
   error?: string;
+  warnings?: string;
 }
 
 /**
@@ -212,12 +214,18 @@ export class KronosRuntime {
       // Get the result string
       const resultStr = this.module.UTF8ToString(resultPtr);
 
+      // Get any compiler warnings
+      const warningsPtr = this.module._kronos_wasm_get_warnings();
+      const warningsStr = this.module.UTF8ToString(warningsPtr);
+      const warnings = warningsStr.trim() || undefined;
+
       // Check if it's an error
       if (resultStr.startsWith("Error:")) {
         return {
           success: false,
           output: this.outputBuffer.join("\n"),
           error: resultStr,
+          warnings,
         };
       }
 
@@ -227,6 +235,7 @@ export class KronosRuntime {
       return {
         success: true,
         output: output || resultStr,
+        warnings,
       };
     } catch (error) {
       return {
