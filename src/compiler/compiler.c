@@ -1497,15 +1497,6 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
 
   // Compile else-if chains
   for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
-    // Emit jump to skip else-if block (will be patched immediately when we
-    // know where next block starts)
-    size_t else_if_jump_pos = emit_jump_with_offset(c, OP_JUMP);
-    if (compiler_has_error(c)) {
-      free(jump_positions);
-      free(skip_jumps);
-      return;
-    }
-
     // Patch previous jumps to point to this else-if condition
     size_t else_if_start = c->bytecode->count;
     for (size_t j = 0; j < jump_count; j++) {
@@ -1549,6 +1540,15 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
       }
     }
 
+    // Emit skip jump AFTER the else-if block body (to skip to end when this
+    // branch executes)
+    size_t else_if_skip_jump_pos = emit_jump_with_offset(c, OP_JUMP);
+    if (compiler_has_error(c)) {
+      free(jump_positions);
+      free(skip_jumps);
+      return;
+    }
+
     // Add skip jump to list (will be patched at the end)
     if (skip_count >= skip_capacity) {
       size_t new_capacity =
@@ -1563,7 +1563,7 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
       skip_jumps = new_skips;
       skip_capacity = new_capacity;
     }
-    skip_jumps[skip_count++] = else_if_jump_pos;
+    skip_jumps[skip_count++] = else_if_skip_jump_pos;
 
     // Add jump-if-false to list (should point to next else-if/else/end)
     if (jump_count + 1 > jump_capacity) {
