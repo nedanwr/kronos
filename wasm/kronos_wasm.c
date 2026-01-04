@@ -36,6 +36,11 @@ static KronosVM *g_wasm_vm = NULL;
 static char g_output_buffer[OUTPUT_BUFFER_SIZE];
 static size_t g_output_len = 0;
 
+// Warning capture buffer (for compile-time warnings)
+#define WARNING_BUFFER_SIZE (8 * 1024) // 8KB warning buffer
+static char g_warning_buffer[WARNING_BUFFER_SIZE];
+static size_t g_warning_len = 0;
+
 // Error message buffer
 #define ERROR_BUFFER_SIZE 4096
 static char g_error_buffer[ERROR_BUFFER_SIZE];
@@ -52,6 +57,20 @@ static void capture_output(const char *str) {
     memcpy(g_output_buffer + g_output_len, str, len);
     g_output_len += len;
     g_output_buffer[g_output_len] = '\0';
+  }
+}
+
+/**
+ * @brief Capture warning messages
+ *
+ * Called by the compiler for compile-time warnings via callback.
+ */
+static void wasm_warning_callback(const char *str) {
+  size_t len = strlen(str);
+  if (g_warning_len + len < WARNING_BUFFER_SIZE - 1) {
+    memcpy(g_warning_buffer + g_warning_len, str, len);
+    g_warning_len += len;
+    g_warning_buffer[g_warning_len] = '\0';
   }
 }
 
@@ -96,9 +115,14 @@ int kronos_wasm_init(void) {
     return 0;
   }
 
+  // Set up warning callback to capture compile-time warnings
+  compiler_set_warning_callback(wasm_warning_callback);
+
   // Clear output buffer
   g_output_buffer[0] = '\0';
   g_output_len = 0;
+  g_warning_buffer[0] = '\0';
+  g_warning_len = 0;
   g_error_buffer[0] = '\0';
 
   return 1;
@@ -131,6 +155,8 @@ const char *kronos_wasm_run(const char *source) {
   g_output_buffer[0] = '\0';
   g_output_len = 0;
   g_error_buffer[0] = '\0';
+  g_warning_buffer[0] = '\0';
+  g_warning_len = 0;
 
   // Clear any previous VM error state
   vm_clear_error(g_wasm_vm);
@@ -196,6 +222,14 @@ const char *kronos_wasm_get_error(void) {
   const char *err = g_wasm_vm->last_error_message;
   return err ? err : "";
 }
+
+/**
+ * @brief Get any warnings generated during compilation
+ *
+ * @return Warning messages string, or empty string if no warnings
+ */
+EMSCRIPTEN_KEEPALIVE
+const char *kronos_wasm_get_warnings(void) { return g_warning_buffer; }
 
 /**
  * @brief Clean up the Kronos WASM runtime
