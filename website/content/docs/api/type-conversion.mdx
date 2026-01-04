@@ -1,0 +1,145 @@
+---
+title: Type Conversion
+description: Converting between different data types
+---
+
+# Type Conversion
+
+Kronos provides functions to convert values between different types. These functions are available globally.
+
+## to_string
+
+Convert any value to its string representation.
+
+**Syntax:** `call to_string with value`
+
+**Example:**
+```kronos
+set num_str to call to_string with 42        # Returns "42"
+set bool_str to call to_string with true     # Returns "true"
+set null_str to call to_string with null     # Returns "null"
+set list_str to call to_string with list 1, 2, 3  # Returns string representation
+```
+
+## to_number
+
+Convert a string to a number. Also accepts numbers (returns them unchanged).
+
+**Syntax:** `call to_number with value`
+
+**Example:**
+```kronos
+set num1 to call to_number with "123"     # Returns 123
+set num2 to call to_number with "3.14"    # Returns 3.14
+set num3 to call to_number with "-10"     # Returns -10
+set num4 to call to_number with 42        # Returns 42 (unchanged)
+```
+
+**Error Handling:**
+```kronos
+try:
+    set num to call to_number with "abc"
+    print num
+catch error:
+    print "Invalid number format"
+```
+
+## to_bool
+
+Convert a value to a boolean.
+
+**Syntax:** `call to_bool with value`
+
+**Conversion Rules:**
+- Strings: `"true"` → `true`, `"false"` → `false` (case-insensitive)
+- Numbers: Non-zero → `true`, Zero → `false`
+- Booleans: Returns unchanged
+- `null`: Returns `false`
+
+**Example:**
+```kronos
+set bool1 to call to_bool with "true"     # Returns true
+set bool2 to call to_bool with "false"    # Returns false
+set bool3 to call to_bool with "True"     # Returns true (case-insensitive)
+set bool4 to call to_bool with 42         # Returns true
+set bool5 to call to_bool with 0          # Returns false
+set bool6 to call to_bool with null       # Returns false
+```
+
+## Examples
+
+### Parsing User Input
+
+```kronos
+function parse_user_input with input_str:
+    try:
+        set num_value to call to_number with input_str
+        return num_value
+    catch error:
+        print f"Invalid number: {input_str}"
+        return null
+
+set user_input to "42"
+set parsed to call parse_user_input with user_input
+if parsed is not null:
+    print f"Parsed number: {parsed}"
+```
+
+### Converting Configuration Values
+
+```kronos
+set config to map "port": "8080", "debug": "true", "timeout": "30"
+
+# Convert port to number
+set port to call to_number with config at "port"
+
+# Convert debug to boolean
+set debug to call to_bool with config at "debug"
+
+# Convert timeout to number
+set timeout to call to_number with config at "timeout"
+
+print f"Port: {port}, Debug: {debug}, Timeout: {timeout}"
+```
+
+### Building Formatted Strings
+
+```kronos
+set age to 25
+set is_active to true
+set score to 95.5
+
+# Convert to strings for formatting
+set age_str to call to_string with age
+set active_str to call to_string with is_active
+set score_str to call to_string with score
+
+set message to f"Age: {age_str}, Active: {active_str}, Score: {score_str}"
+print message
+```
+
+### Validating and Converting
+
+```kronos
+function safe_to_number with value:
+    try:
+        return call to_number with value
+    catch error:
+        return null
+
+function safe_to_bool with value:
+    set result to call to_bool with value
+    return result
+
+set inputs to list "123", "45.6", "true", "false", "invalid"
+
+for input in inputs:
+    set num_val to call safe_to_number with input
+    set bool_val to call safe_to_bool with input
+    
+    if num_val is not null:
+        print f"{input} → number: {num_val}"
+    else:
+        print f"{input} → boolean: {bool_val}"
+```
+

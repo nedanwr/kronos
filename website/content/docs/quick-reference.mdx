@@ -1,0 +1,138 @@
+---
+title: Quick Reference
+description: Fast reference guide for Kronos syntax
+---
+
+# Quick Reference
+
+Syntax cheat sheet for Kronos. For detailed explanations, see the [Language Reference](/docs/language/variables).
+
+## Variables
+
+```kronos
+set name to "Alice"      # Immutable
+let counter to 0         # Mutable
+let age to 25 as number  # With type annotation
+```
+
+## Data Types
+
+| Type    | Example                   |
+| ------- | ------------------------- |
+| Number  | `42`, `3.14`, `-10`       |
+| String  | `"Hello"`, `f"Hi {name}"` |
+| Boolean | `true`, `false`           |
+| Null    | `null`                    |
+| List    | `list 1, 2, 3`            |
+| Map     | `map key: "value"`        |
+
+## Operators
+
+| Operation      | Syntax                       |
+| -------------- | ---------------------------- |
+| Addition       | `a plus b`                   |
+| Subtraction    | `a minus b`                  |
+| Multiplication | `a times b`                  |
+| Division       | `a divided by b`             |
+| Modulo         | `a mod b`                    |
+| Equal          | `a is equal b`               |
+| Not equal      | `a is not equal b`           |
+| Greater        | `a is greater than b`        |
+| Less           | `a is less than b`           |
+| And/Or/Not     | `a and b`, `a or b`, `not a` |
+
+## Control Flow
+
+```kronos
+# Conditional
+if condition:
+    statement
+
+# For loop
+for i in range 1 to 10:
+    print i
+
+# For-each loop
+for item in items:
+    print item
+
+# While loop
+while condition:
+    statement
+```
+
+## Functions
+
+```kronos
+function greet with name:
+    print f"Hello, {name}!"
+
+call greet with "Alice"
+```
+
+## Strings
+
+```kronos
+set char to text at 0           # Indexing
+set slice to text from 0 to 5   # Slicing
+set msg to f"Hello, {name}!"    # F-strings
+```
+
+## Lists
+
+```kronos
+set nums to list 1, 2, 3
+print nums at 0                 # Access: 1
+let nums at 0 to 10             # Modify
+```
+
+## Maps
+
+```kronos
+set user to map name: "Alice", age: 30
+print user at "name"            # Access
+delete user at "age"            # Delete key
+```
+
+## Imports
+
+```kronos
+import math
+import utils from "utils.kr"
+```
+
+## Exception Handling
+
+```kronos
+try:
+    raise "Error"
+catch error:
+    print error
+finally:
+    print "Done"
+```
+
+## File I/O
+
+```kronos
+set content to call read_file with "file.txt"
+call write_file with "out.txt", "Hello"
+```
+
+## Common Functions
+
+```kronos
+call len with items             # Length
+call uppercase with text        # "HELLO"
+call split with text, ","       # Split string
+call sort with numbers          # Sort list
+call to_number with "42"        # Parse number
+```
+
+## Running Programs
+
+```bash
+./kronos script.kr    # Run file
+./kronos              # Start REPL
+./kronos -e "code"    # Execute inline
+```

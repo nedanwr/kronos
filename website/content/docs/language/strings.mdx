@@ -1,0 +1,110 @@
+---
+title: Strings
+description: Learn how to work with strings in Kronos
+---
+
+# Strings
+
+Strings are sequences of characters and support various operations.
+
+## Creating Strings
+
+```kronos
+set greeting to "Hello, World!"
+set empty to ""
+set multiline to "Line 1\nLine 2"
+```
+
+## String Concatenation
+
+Use the `plus` operator to concatenate strings:
+
+```kronos
+set first to "Hello"
+set second to "World"
+set message to first plus ", " plus second plus "!"
+print message  # Prints: Hello, World!
+```
+
+## String Indexing
+
+Access individual characters using indexing:
+
+```kronos
+set text to "Kronos"
+
+set first_char to text at 0    # "K"
+set last_char to text at -1    # "s"
+```
+
+## String Slicing
+
+Extract substrings using the `from` keyword:
+
+```kronos
+set text to "Programming"
+
+set slice1 to text from 0 to 4      # "Prog"
+set slice2 to text from 3 to 7      # "gram"
+set slice3 to text from 5 to end    # "mming"
+```
+
+## F-Strings (String Interpolation)
+
+F-strings allow you to embed expressions inside strings:
+
+```kronos
+set name to "Alice"
+set greeting to f"Hello, {name}!"
+print greeting  # Prints: Hello, Alice!
+
+set x to 10
+set y to 20
+set result to f"{x} plus {y} equals {x plus y}"
+print result  # Prints: 10 plus 20 equals 30
+```
+
+You can use any expression inside `{}`:
+
+```kronos
+set text to "Hello"
+set info to f"'{text}' has {call len with text} characters"
+```
+
+## String Functions
+
+Kronos provides many built-in string functions. See the [String Functions API](/docs/api/string-functions) for the complete reference.
+
+```kronos
+set text to "  Hello World  "
+
+call len with text               # Length
+call uppercase with text         # "  HELLO WORLD  "
+call trim with text              # "Hello World"
+call split with "a,b,c", ","     # ["a", "b", "c"]
+call contains with text, "Hello" # true
+call replace with text, "World", "Kronos"
+```
+
+## Examples
+
+### Parsing Strings
+
+```kronos
+set data to "name:Alice,age:30,city:NYC"
+set parts to call split with data, ","
+
+for part in parts:
+    set key_value to call split with part, ":"
+    set key to key_value at 0
+    set value to key_value at 1
+    print f"{key}: {value}"
+```
+
+### Building Strings
+
+```kronos
+set items to list "apple", "banana", "cherry"
+set result to call join with items, ", "
+print result  # Prints: apple, banana, cherry
+```

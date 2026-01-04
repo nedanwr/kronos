@@ -1,4 +1,9 @@
-# Kronos Editor Support
+---
+title: Editor Setup
+description: Set up your editor for Kronos development with syntax highlighting and LSP support
+---
+
+# Editor Setup
 
 Full IDE support with syntax highlighting, error checking, and autocomplete.
 
@@ -8,15 +13,15 @@ Full IDE support with syntax highlighting, error checking, and autocomplete.
 ./scripts/install_extension.sh
 ```
 
-Restart your editor (VSCode/Cursor/Windsurf). Done! ✅
+Restart your editor (VSCode/Cursor/Windsurf).
 
 ## Features
 
-✅ Syntax highlighting
-✅ Real-time error detection
-✅ Keyword autocomplete
-✅ Auto-indentation & bracket matching
-✅ Code folding
+- Syntax highlighting
+- Real-time error detection
+- Keyword autocomplete
+- Auto-indentation & bracket matching
+- Code folding
 
 ## Troubleshooting
 
@@ -35,6 +40,7 @@ make clean && make lsp
 ```
 
 **View LSP logs:**
+
 View → Output → "Kronos Language Server"
 
 ## Other Editors
@@ -101,3 +107,4 @@ Editor → Extension → kronos-lsp → Parser → Diagnostics
 ```
 
 The LSP server (`src/lsp/lsp_server.c`) provides real-time syntax checking and autocomplete by parsing your code as you type.
+

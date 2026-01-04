@@ -1,0 +1,400 @@
+---
+title: Roadmap
+description: Planned features and release schedule for Kronos
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Card, Cards } from 'fumadocs-ui/components/card';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+# Roadmap
+
+The development roadmap for the Kronos programming language.
+
+<Callout>
+  **Current Version:** 0.4.0 — Core language features complete and stable.
+</Callout>
+
+---
+
+## Release Timeline
+
+<Steps>
+<Step>
+
+### v0.4.0 — Modules & Error Handling
+
+<span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Completed</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q4 2025</span>
+
+Core language features including maps, modules, exceptions, file I/O, and regex.
+
+</Step>
+<Step>
+
+### v0.4.5 — Website & Documentation
+
+<span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">In Progress</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q1 2026</span>
+
+Official website, documentation, and interactive playground.
+
+</Step>
+<Step>
+
+### v0.5.0 — Advanced Language Features
+
+<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+
+Lambdas, list comprehensions, pattern matching, and enhanced type system.
+
+</Step>
+<Step>
+
+### v1.0.0 — Production Release
+
+<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+
+Concurrency, complete standard library, package manager, and tooling.
+
+</Step>
+</Steps>
+
+---
+
+## What's Available Now
+
+Everything in v0.4.0 is stable and ready for use:
+
+<Cards>
+  <Card title="Core Language" description="Variables, types, operators, control flow, functions" />
+  <Card title="Collections" description="Lists, maps, ranges with full operations" />
+  <Card title="Strings" description="Concatenation, slicing, f-strings, built-ins" />
+  <Card title="Modules" description="Built-in and file-based module system" />
+  <Card title="Exceptions" description="Try/catch/finally error handling" />
+  <Card title="File I/O" description="Read, write, path operations" />
+  <Card title="Regex" description="Pattern matching and text processing" />
+  <Card title="LSP" description="Full editor support with completions, hover, go-to-definition" />
+</Cards>
+
+---
+
+## Version Details
+
+<Tabs items={['v0.4.0', 'v0.4.5', 'v0.5.0', 'v1.0.0']}>
+
+<Tab value="v0.4.0">
+
+### Modules & Error Handling
+
+All features completed and stable.
+
+<Accordions>
+<Accordion title="Range Objects">
+First-class range support with literals, indexing, iteration, and slicing.
+
+```kronos
+set r to range 1 to 10
+set stepped to range 0 to 100 by 5
+
+for i in r:
+    print i
+
+print r at 0      # First element
+print r at -1     # Last element
+print r from 2 to 5  # Slice
+```
+</Accordion>
+
+<Accordion title="Maps / Dictionaries">
+Key-value storage with hash table implementation.
+
+```kronos
+set person to map name: "Alice", age: 30, city: "NYC"
+print person at "name"
+
+delete person at "age"
+```
+</Accordion>
+
+<Accordion title="Module System">
+Import code from other `.kr` files.
+
+```kronos
+import utils from "mylib.kr"
+import math
+
+set result to call math.sqrt with 16
+```
+</Accordion>
+
+<Accordion title="Exception Handling">
+Try/catch/finally blocks for error management.
+
+```kronos
+try:
+    raise ValueError "Invalid input"
+catch ValueError as e:
+    print f"Caught: {e}"
+finally:
+    print "Cleanup"
+```
+</Accordion>
+
+<Accordion title="File I/O">
+Complete file system interface.
+
+```kronos
+set content to call read_file with "data.txt"
+call write_file with "output.txt", content
+
+set files to call list_files with "."
+set path to call join_path with "dir", "file.txt"
+```
+</Accordion>
+
+<Accordion title="Regular Expressions">
+Pattern matching and text processing.
+
+```kronos
+import regex
+
+set matches to call regex.match with "hello", "h.*o"
+set all to call regex.findall with "cat, bat, sat", "[a-z]at"
+```
+</Accordion>
+
+<Accordion title="REPL Enhancements">
+- Arrow key navigation and command history
+- Tab completion for keywords, functions, variables
+- Expression evaluation (type `10 plus 20` directly)
+- Command-line execution: `kronos -e "print 42"`
+</Accordion>
+
+<Accordion title="LSP Features">
+- Error checking and diagnostics
+- Go-to-definition and find references
+- Hover information
+- Code completions
+- Rename symbol
+- Code actions and quick fixes
+- Document formatting
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v0.4.5">
+
+### Website & Documentation
+
+Currently in progress — you're looking at it!
+
+<Accordions>
+<Accordion title="Official Website">
+- Modern, responsive design
+- Interactive code examples
+- Syntax highlighting for Kronos
+- Download and installation guides
+</Accordion>
+
+<Accordion title="Documentation Site">
+- Full language reference
+- API documentation
+- Tutorials and guides
+- Search functionality
+- Dark theme
+</Accordion>
+
+<Accordion title="Interactive Playground">
+- In-browser code editor
+- Real-time syntax highlighting
+- Code execution and output
+- Shareable snippets via URL
+</Accordion>
+</Accordions>
+
+**Technical Stack:**
+- Next.js with Fumadocs
+- Shiki for syntax highlighting
+- WebAssembly VM (future)
+
+</Tab>
+
+<Tab value="v0.5.0">
+
+### Advanced Language Features
+
+<Accordions>
+<Accordion title="Anonymous Functions / Lambdas">
+```kronos
+set double to function with x: return x times 2
+
+set doubled to map numbers with function with x:
+    return x times 2
+```
+</Accordion>
+
+<Accordion title="List Comprehensions">
+```kronos
+set squares to [x times x for x in range 1 to 10]
+set evens to [x for x in range 1 to 20 if x mod 2 is equal 0]
+```
+</Accordion>
+
+<Accordion title="Pattern Matching">
+```kronos
+match value:
+    case 1:
+        print "One"
+    case 2:
+        print "Two"
+    default:
+        print "Other"
+```
+</Accordion>
+
+<Accordion title="Multiple Return Values">
+```kronos
+function divide_with_remainder with a, b:
+    return a divided by b, a mod b
+
+set q, r to call divide_with_remainder with 10, 3
+```
+</Accordion>
+
+<Accordion title="Function Enhancements">
+- Default parameters: `function greet with name, greeting="Hello":`
+- Variadic functions: `function sum with ...numbers:`
+- Named arguments: `call create_user with name: "Alice", age: 30`
+</Accordion>
+
+<Accordion title="Type System Enhancements">
+- Generic types: `list<number>`, `map<string, number>`
+- Type aliases: `type Point to map x: number, y: number`
+- Multi-type support: `as number or string`
+</Accordion>
+
+<Accordion title="Higher-Order Functions">
+```kronos
+set evens to filter numbers with function with x:
+    return x mod 2 is equal 0
+
+set doubled to map numbers with function with x:
+    return x times 2
+```
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v1.0.0">
+
+### Production Release
+
+<Accordions>
+<Accordion title="Concurrency">
+Go-inspired goroutines and channels.
+
+```kronos
+spawn task with:
+    for i in range 1 to 10:
+        print "Task:", i
+
+set ch to channel
+spawn sender with ch:
+    send ch, "hello"
+set msg to receive ch
+```
+</Accordion>
+
+<Accordion title="Complete Standard Library">
+50+ functions across modules:
+
+| Module | Functions |
+|--------|-----------|
+| `math` | `sin`, `cos`, `tan`, `log`, `exp`, `cbrt` |
+| `string` | `find`, `rfind`, `count`, `capitalize` |
+| `time` | `now`, `format_date`, `parse_date`, `sleep` |
+| `collections` | `zip`, `enumerate`, `any`, `all`, `sum` |
+| `json` | `parse_json`, `to_json` |
+| `csv` | `read_csv`, `write_csv` |
+| `crypto` | `md5`, `sha256`, `random_bytes` |
+| `http` | `http_get`, `http_post`, server |
+</Accordion>
+
+<Accordion title="Method Chaining">
+```kronos
+set result to text.uppercase().trim().split(" ")
+
+set processed to numbers
+    .filter(function with x: return x is greater than 2)
+    .map(function with x: return x times 2)
+```
+</Accordion>
+
+<Accordion title="Package Manager">
+```bash
+kronos install <package>
+kronos list
+kronos remove <package>
+```
+</Accordion>
+
+<Accordion title="Developer Tools">
+```bash
+kronos format <file>     # Code formatter
+kronos lint <file>       # Linter
+kronos test              # Test runner
+kronos doc               # Doc generator
+```
+</Accordion>
+
+<Accordion title="Performance Optimizations">
+- Bytecode optimization passes
+- Constant folding
+- Dead code elimination
+- Inline caching
+- Profile-guided optimization
+</Accordion>
+</Accordions>
+
+</Tab>
+
+</Tabs>
+
+---
+
+## Future Plans
+
+Beyond v1.0.0, we're considering:
+
+- **Supervisor Trees** — Erlang-style fault tolerance
+- **Advanced Package Manager** — Lock files, dependency resolution
+- **First-Party Packages** — YAML, TOML, XML, WebSocket
+- **Web Templating** — Blade-like template engine
+- **JIT Compilation** — Hot path optimization
+- **Static Typing** — Optional type annotations with inference
+
+---
+
+## Get Involved
+
+<Cards>
+  <Card
+    title="Feature Requests"
+    href="https://github.com/nedanwr/kronos/issues"
+    description="Open an issue to suggest new features"
+  />
+  <Card
+    title="Contributing"
+    href="https://github.com/nedanwr/kronos/blob/main/.github/CONTRIBUTING.md"
+    description="Learn how to contribute to Kronos"
+  />
+</Cards>
+
+<Callout type="info">
+  **Last Updated:** January 2026
+</Callout>

@@ -122,4 +122,14 @@ void bytecode_free(Bytecode *bytecode);
  */
 void bytecode_print(Bytecode *bytecode);
 
+/**
+ * @brief Set a callback for compiler warnings
+ *
+ * When set, compiler warnings will be sent to this callback instead of stderr.
+ * Used by WASM builds to capture warnings for display in the browser.
+ *
+ * @param callback Function to call with warning messages (NULL to use stderr)
+ */
+void compiler_set_warning_callback(void (*callback)(const char *message));
+
 #endif // KRONOS_COMPILER_H

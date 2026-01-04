@@ -1,0 +1,113 @@
+---
+title: Lists
+description: Learn how to work with lists in Kronos
+---
+
+# Lists
+
+Lists are ordered collections of values. They can contain any type of value, including mixed types.
+
+## Creating Lists
+
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set fruits to list "apple", "banana", "cherry"
+set mixed to list "hello", 42, true, null
+set empty to list
+```
+
+## Accessing Elements
+
+### Indexing
+
+Lists use zero-based indexing:
+
+```kronos
+set numbers to list 10, 20, 30, 40, 50
+
+set first to numbers at 0    # 10
+set second to numbers at 1   # 20
+set last to numbers at 4     # 50
+```
+
+### Negative Indexing
+
+Use negative indices to access elements from the end:
+
+```kronos
+set numbers to list 10, 20, 30, 40, 50
+
+set last to numbers at -1        # 50
+set second_last to numbers at -2 # 40
+```
+
+## Slicing
+
+Extract a portion of a list using the `from` keyword:
+
+```kronos
+set numbers to list 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+
+set slice1 to numbers from 2 to 5      # [2, 3, 4]
+set slice2 to numbers from 0 to 3      # [0, 1, 2]
+set slice3 to numbers from 5 to end    # [5, 6, 7, 8, 9]
+```
+
+## Modifying Lists
+
+Lists created with `let` can be modified:
+
+```kronos
+let numbers to list 1, 2, 3
+
+let numbers at 0 to 10       # [10, 2, 3]
+let numbers at 2 to 30       # [10, 2, 30]
+let numbers at -1 to 50      # [10, 2, 50]
+```
+
+**Note:** Lists created with `set` are immutable and cannot be modified.
+
+## Iterating Over Lists
+
+```kronos
+set fruits to list "apple", "banana", "cherry"
+
+for fruit in fruits:
+    print fruit
+```
+
+## List Functions
+
+See the [Collection Functions API](/docs/api/collection-functions) for `len`, `reverse`, and `sort`.
+
+```kronos
+set numbers to list 3, 1, 4, 1, 5
+set length to call len with numbers      # 5
+set sorted to call sort with numbers     # [1, 1, 3, 4, 5]
+set reversed to call reverse with numbers # [5, 1, 4, 1, 3]
+```
+
+## Examples
+
+### Finding Maximum Value
+
+```kronos
+set numbers to list 3, 7, 2, 9, 1, 5
+let max to numbers at 0
+
+for num in numbers:
+    if num is greater than max:
+        let max to num
+
+print max  # Prints: 9
+```
+
+### Nested Lists
+
+```kronos
+set matrix to list list 1, 2, 3, list 4, 5, 6, list 7, 8, 9
+
+for row in matrix:
+    for cell in row:
+        print cell
+```

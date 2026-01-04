@@ -1,0 +1,19 @@
+{
+  "title": "Language",
+  "pages": [
+    "variables",
+    "data-types",
+    "operators",
+    "strings",
+    "control-flow",
+    "functions",
+    "---Collections---",
+    "lists",
+    "maps",
+    "ranges",
+    "---Advanced---",
+    "modules",
+    "exception-handling"
+  ]
+}
+

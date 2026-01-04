@@ -120,6 +120,49 @@ static void compiler_set_error(Compiler *c, const char *message) {
   }
 }
 
+/**
+ * @brief Global warning callback for capturing compiler warnings
+ *
+ * If set, this callback will be called with warning messages instead of
+ * printing to stderr. Used by WASM builds to capture warnings for display
+ * in the browser.
+ */
+static void (*g_compiler_warning_callback)(const char *message) = NULL;
+
+/**
+ * @brief Set the compiler warning callback
+ *
+ * @param callback Function to call with warning messages (NULL to use stderr)
+ */
+void compiler_set_warning_callback(void (*callback)(const char *message)) {
+  g_compiler_warning_callback = callback;
+}
+
+/**
+ * @brief Emit a compiler warning
+ *
+ * Warnings do not stop compilation - they alert the user to potential issues
+ * that can be detected at compile time (e.g., division by literal zero).
+ *
+ * If a warning callback is set, it will be called; otherwise warnings go to
+ * stderr.
+ *
+ * @param message Warning message to display
+ */
+static void compiler_warn(const char *message) {
+  if (message) {
+    if (g_compiler_warning_callback) {
+      // Use callback (for WASM capture)
+      char buf[256];
+      snprintf(buf, sizeof(buf), "Warning: %s\n", message);
+      g_compiler_warning_callback(buf);
+    } else {
+      // Default: print to stderr
+      fprintf(stderr, "Warning: %s\n", message);
+    }
+  }
+}
+
 // Forward declarations for jump offset helpers
 static size_t emit_jump_with_offset(Compiler *c, uint8_t opcode);
 static void patch_jump_offset(Compiler *c, size_t offset_pos, int16_t offset);
@@ -1001,6 +1044,22 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
     return;
   }
 
+  // Check for division/modulo by literal zero at compile time
+  // This is a static analysis warning - the code will still compile but will
+  // fail at runtime. Similar to how TypeScript warns about always-truthy
+  // conditions.
+  if ((node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) &&
+      node->as.binop.right != NULL &&
+      node->as.binop.right->type == AST_NUMBER &&
+      node->as.binop.right->as.number == 0.0) {
+    const char *op_name =
+        (node->as.binop.op == BINOP_DIV) ? "Division" : "Modulo";
+    char warn_buf[128];
+    snprintf(warn_buf, sizeof(warn_buf),
+             "%s by zero detected - this will always fail at runtime", op_name);
+    compiler_warn(warn_buf);
+  }
+
   // Compile left and right operands for binary operators
   compile_expression(c, node->as.binop.left);
   if (compiler_has_error(c)) {
@@ -1497,15 +1556,6 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
 
   // Compile else-if chains
   for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
-    // Emit jump to skip else-if block (will be patched immediately when we
-    // know where next block starts)
-    size_t else_if_jump_pos = emit_jump_with_offset(c, OP_JUMP);
-    if (compiler_has_error(c)) {
-      free(jump_positions);
-      free(skip_jumps);
-      return;
-    }
-
     // Patch previous jumps to point to this else-if condition
     size_t else_if_start = c->bytecode->count;
     for (size_t j = 0; j < jump_count; j++) {
@@ -1549,6 +1599,15 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
       }
     }
 
+    // Emit skip jump AFTER the else-if block body (to skip to end when this
+    // branch executes)
+    size_t else_if_skip_jump_pos = emit_jump_with_offset(c, OP_JUMP);
+    if (compiler_has_error(c)) {
+      free(jump_positions);
+      free(skip_jumps);
+      return;
+    }
+
     // Add skip jump to list (will be patched at the end)
     if (skip_count >= skip_capacity) {
       size_t new_capacity =
@@ -1563,7 +1622,7 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
       skip_jumps = new_skips;
       skip_capacity = new_capacity;
     }
-    skip_jumps[skip_count++] = else_if_jump_pos;
+    skip_jumps[skip_count++] = else_if_skip_jump_pos;
 
     // Add jump-if-false to list (should point to next else-if/else/end)
     if (jump_count + 1 > jump_capacity) {

@@ -1,0 +1,96 @@
+---
+title: Operators
+description: Learn about arithmetic, comparison, and logical operators in Kronos
+---
+
+# Operators
+
+Kronos uses natural language keywords for all operators, making code more readable.
+
+## Arithmetic Operators
+
+```kronos
+set a to 10
+set b to 3
+
+set sum to a plus b          # Addition: 13
+set diff to a minus b        # Subtraction: 7
+set prod to a times b        # Multiplication: 30
+set quot to a divided by b   # Division: 3.333...
+set mod to a mod b           # Modulo: 1
+```
+
+### Unary Negation
+
+```kronos
+set x to 10
+set neg to -x                # -10
+```
+
+## Comparison Operators
+
+All comparison operators use natural language:
+
+```kronos
+set x to 10
+set y to 5
+
+x is equal y                 # false
+x is not equal y             # true
+x is greater than y          # true
+x is less than y             # false
+x is greater than or equal y # true
+x is less than or equal y    # false
+```
+
+**Note:** The `is` keyword is required for comparisons.
+
+## Logical Operators
+
+```kronos
+set a to true
+set b to false
+
+a and b                      # false
+a or b                       # true
+not a                        # false
+```
+
+## Operator Precedence
+
+Operators follow standard mathematical precedence:
+
+1. Unary operators (`-`, `not`)
+2. Multiplication, division, modulo (`times`, `divided by`, `mod`)
+3. Addition, subtraction (`plus`, `minus`)
+4. Comparison operators (`is equal`, `is greater than`, etc.)
+5. Logical operators (`and`, `or`)
+
+Use parentheses to override precedence:
+
+```kronos
+set result to (10 plus 5) times 2    # 30
+set result2 to 10 plus (5 times 2)   # 20
+```
+
+## Examples
+
+```kronos
+# Complex expressions
+set score to 85
+if score is greater than 80 and score is less than 90:
+    print "Grade: B"
+
+# Arithmetic with comparisons
+set x to 10
+set y to 20
+if (x plus y) is greater than 25:
+    print "Sum is greater than 25"
+
+# Logical combinations
+set is_weekend to false
+set is_holiday to true
+if is_weekend or is_holiday:
+    print "No work today!"
+```
+
