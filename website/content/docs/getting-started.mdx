@@ -3,50 +3,113 @@ title: Getting Started
 description: Learn how to install and run Kronos
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+import { Card, Cards } from 'fumadocs-ui/components/card';
+
 # Getting Started with Kronos
 
-Welcome to Kronos! This guide will help you get up and running quickly.
+Welcome to Kronos! This guide will help you get up and running in minutes.
+
+<Callout type="info">
+  Kronos is currently in **public beta** (v0.4.0). We'd love your feedback!
+</Callout>
 
 ## Installation
 
-### Building from Source
+<Steps>
+<Step>
 
-Kronos is built in C and requires a C compiler (GCC or Clang) and `make`.
+### Install Dependencies
 
+<Tabs items={['macOS', 'Ubuntu/Debian', 'Arch Linux', 'Windows']}>
+<Tab value="macOS">
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/kronos.git
-cd kronos
+# Install Xcode Command Line Tools (includes Clang)
+xcode-select --install
 
-# Build Kronos
-make
-
-# The binary will be available as ./kronos
-```
-
-### Dependencies
-
-- **C Compiler**: GCC or Clang
-- **Make**: Build system
-- **gperf**: For keyword hashing (usually available via package manager)
-
-**macOS:**
-
-```bash
+# Install gperf via Homebrew
 brew install gperf
 ```
-
-**Ubuntu/Debian:**
-
+</Tab>
+<Tab value="Ubuntu/Debian">
 ```bash
+sudo apt-get update
+sudo apt-get install build-essential gperf
+```
+</Tab>
+<Tab value="Arch Linux">
+```bash
+sudo pacman -S base-devel gperf
+```
+</Tab>
+<Tab value="Windows">
+**Option 1: WSL (Recommended)**
+
+Install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), then follow Ubuntu/Debian instructions:
+```bash
+wsl --install
+# After restart, in WSL terminal:
+sudo apt-get update
 sudo apt-get install build-essential gperf
 ```
 
-## Running Your First Program
+**Option 2: MSYS2**
+
+1. Install [MSYS2](https://www.msys2.org/)
+2. Open MSYS2 UCRT64 terminal:
+```bash
+pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gperf make
+```
+</Tab>
+</Tabs>
+
+</Step>
+<Step>
+
+### Clone & Build
+
+```bash
+git clone https://github.com/nedanwr/kronos.git
+cd kronos
+make
+```
+
+<Callout type="warn">
+  The build process requires **GCC** or **Clang** and **gperf** for keyword hashing.
+</Callout>
+
+<Callout type="info">
+  **Windows users:** Run these commands in WSL or MSYS2 terminal. The output will be `kronos` (WSL) or `kronos.exe` (MSYS2).
+</Callout>
+
+</Step>
+<Step>
+
+### Verify Installation
+
+```bash
+./kronos --version
+```
+
+You should see something like:
+```
+Kronos 0.4.0
+```
+
+<Callout>
+  **Windows (MSYS2):** Use `./kronos.exe --version` or add to PATH.
+</Callout>
+
+</Step>
+</Steps>
+
+## Your First Program
 
 Create a file called `hello.kr`:
 
-```kronos
+```kronos title="hello.kr"
 print "Hello, World!"
 ```
 
@@ -56,60 +119,69 @@ Run it:
 ./kronos hello.kr
 ```
 
-You should see:
-
-```
+```ansi title="Output"
 Hello, World!
 ```
 
 ## Interactive REPL
 
-Kronos includes an interactive REPL (Read-Eval-Print Loop) for testing code:
+Kronos includes a powerful REPL for experimenting with code:
 
 ```bash
 ./kronos
 ```
 
-You can type expressions directly:
-
-```kronos
+```kronos title="REPL Session"
 > 10 plus 20
 30
 > set name to "Kronos"
-> print name
-Kronos
+> print f"Hello, {name}!"
+Hello, Kronos!
 ```
 
-The REPL includes:
-
-- **Command history**: Use arrow keys to navigate previous commands
-- **Tab completion**: Get suggestions for keywords, functions, and variables
-- **Multi-line input**: Automatically handles multi-line code blocks
+<Callout>
+  **Pro tip:** The REPL supports arrow keys for history, tab completion, and multi-line input!
+</Callout>
 
 ## Command-Line Options
 
-```bash
-# Execute a file
-./kronos script.kr
+| Option | Description |
+|--------|-------------|
+| `kronos script.kr` | Execute a Kronos file |
+| `kronos -e "code"` | Execute code directly |
+| `kronos --version` | Show version |
+| `kronos --help` | Show all options |
 
+**Examples:**
+```bash
 # Execute code directly
 ./kronos -e "print 42"
 
-# Multiple -e flags
-./kronos -e "set x to 10" -e "print x"
-
-# Show version
-./kronos --version
-
-# Show help
-./kronos --help
+# Chain multiple expressions
+./kronos -e "set x to 10" -e "print x times 2"
 ```
 
 ## Next Steps
 
-Now that you have Kronos installed, check out:
-
-- **[Language Basics](/docs/language/variables)** - Learn about variables, types, and basic operations
-- **[Functions](/docs/language/functions)** - Create reusable code with functions
-- **[Data Structures](/docs/language/lists)** - Work with lists, maps, and ranges
-- **[Examples](/docs/examples)** - See real-world code examples
+<Cards>
+  <Card
+    title="Language Basics"
+    href="/docs/language/variables"
+    description="Learn about variables, types, and operators"
+  />
+  <Card
+    title="Functions"
+    href="/docs/language/functions"
+    description="Create reusable code with functions"
+  />
+  <Card
+    title="Collections"
+    href="/docs/language/lists"
+    description="Work with lists, maps, and ranges"
+  />
+  <Card
+    title="Quick Reference"
+    href="/docs/quick-reference"
+    description="Fast syntax cheat sheet"
+  />
+</Cards>
