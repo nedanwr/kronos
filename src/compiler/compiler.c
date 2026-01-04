@@ -121,16 +121,45 @@ static void compiler_set_error(Compiler *c, const char *message) {
 }
 
 /**
- * @brief Emit a compiler warning to stderr
+ * @brief Global warning callback for capturing compiler warnings
+ *
+ * If set, this callback will be called with warning messages instead of
+ * printing to stderr. Used by WASM builds to capture warnings for display
+ * in the browser.
+ */
+static void (*g_compiler_warning_callback)(const char *message) = NULL;
+
+/**
+ * @brief Set the compiler warning callback
+ *
+ * @param callback Function to call with warning messages (NULL to use stderr)
+ */
+void compiler_set_warning_callback(void (*callback)(const char *message)) {
+  g_compiler_warning_callback = callback;
+}
+
+/**
+ * @brief Emit a compiler warning
  *
  * Warnings do not stop compilation - they alert the user to potential issues
  * that can be detected at compile time (e.g., division by literal zero).
+ *
+ * If a warning callback is set, it will be called; otherwise warnings go to
+ * stderr.
  *
  * @param message Warning message to display
  */
 static void compiler_warn(const char *message) {
   if (message) {
-    fprintf(stderr, "Warning: %s\n", message);
+    if (g_compiler_warning_callback) {
+      // Use callback (for WASM capture)
+      char buf[256];
+      snprintf(buf, sizeof(buf), "Warning: %s\n", message);
+      g_compiler_warning_callback(buf);
+    } else {
+      // Default: print to stderr
+      fprintf(stderr, "Warning: %s\n", message);
+    }
   }
 }
 
