@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   Play,
   RotateCcw,
@@ -10,11 +10,14 @@ import {
   Terminal,
   Sparkles,
   Clock,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "~/components/ui/button";
 import { highlightKronos } from "./_syntax-highlighter";
+import { getKronosRuntime, type KronosRuntime } from "~/lib/kronos-wasm";
 
 const examples = [
   {
@@ -128,31 +131,89 @@ export default function PlaygroundPage() {
   const [copied, setCopied] = useState(false);
   const [selectedExample, setSelectedExample] = useState(examples[0].name);
   const [showExamples, setShowExamples] = useState(false);
+  const [wasmStatus, setWasmStatus] = useState<
+    "loading" | "ready" | "error" | "unavailable"
+  >("loading");
+  const [wasmError, setWasmError] = useState<string | null>(null);
+  const runtimeRef = useRef<KronosRuntime | null>(null);
 
   // Memoized syntax highlighting
   const highlightedCode = useMemo(() => highlightKronos(code), [code]);
 
-  const handleRun = async () => {
+  // Initialize WASM runtime on mount
+  useEffect(() => {
+    const initRuntime = async () => {
+      try {
+        const runtime = getKronosRuntime();
+        await runtime.initialize();
+        runtimeRef.current = runtime;
+        setWasmStatus("ready");
+      } catch (error) {
+        console.error("Failed to initialize Kronos WASM:", error);
+        setWasmStatus("unavailable");
+        setWasmError("WASM module not available. Build with: make wasm");
+      }
+    };
+
+    initRuntime();
+
+    // Cleanup on unmount
+    return () => {
+      // Don't cleanup the singleton - it can be reused
+    };
+  }, []);
+
+  const handleRun = useCallback(async () => {
+    if (wasmStatus !== "ready" || !runtimeRef.current) {
+      // Show fallback message if WASM not available
+      setOutput(
+        `⏱ Kronos Playground\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `⚠️ WASM runtime not available.\n\n` +
+          `To enable execution, build the WASM module:\n` +
+          `  1. Install Emscripten SDK\n` +
+          `  2. Run: make wasm\n\n` +
+          `For now, install Kronos locally:\n` +
+          `  git clone https://github.com/nedanwr/kronos\n` +
+          `  cd kronos && make\n` +
+          `  ./kronos your_file.kr\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+      );
+      return;
+    }
+
     setIsRunning(true);
     setOutput("");
 
-    // Simulate running (backend integration coming soon)
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const result = await runtimeRef.current.run(code);
 
-    setOutput(
-      `⏱ Kronos Playground\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🚧 Backend integration coming soon!\n\n` +
-        `The playground will connect to a Kronos\n` +
-        `runtime to execute your code.\n\n` +
-        `For now, install Kronos locally:\n` +
-        `  git clone https://github.com/nedanwr/kronos\n` +
-        `  cd kronos && make\n` +
-        `  ./kronos your_file.kr\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-    );
-    setIsRunning(false);
-  };
+      if (result.success) {
+        setOutput(result.output || "(no output)");
+      } else {
+        setOutput(result.error || "Unknown error occurred");
+      }
+    } catch (error) {
+      setOutput(
+        `Error: ${error instanceof Error ? error.message : "Execution failed"}`
+      );
+    } finally {
+      setIsRunning(false);
+    }
+  }, [code, wasmStatus]);
+
+  // Keyboard shortcut: Cmd/Ctrl + Enter to run
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleRun();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleRun]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(code);
@@ -413,9 +474,32 @@ export default function PlaygroundPage() {
 
             {/* Output Panel */}
             <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0a]/80 backdrop-blur-sm">
-              <div className="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-2">
-                <Terminal className="h-4 w-4 text-white/40" />
-                <span className="text-sm text-white/40">Output</span>
+              <div className="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-white/40" />
+                  <span className="text-sm text-white/40">Output</span>
+                </div>
+                {/* WASM Status Indicator */}
+                <div className="flex items-center gap-2">
+                  {wasmStatus === "loading" && (
+                    <span className="flex items-center gap-1.5 text-xs text-white/40">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Loading runtime...
+                    </span>
+                  )}
+                  {wasmStatus === "ready" && (
+                    <span className="flex items-center gap-1.5 text-xs text-green-400/80">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                      Ready
+                    </span>
+                  )}
+                  {wasmStatus === "unavailable" && (
+                    <span className="flex items-center gap-1.5 text-xs text-amber-400/80">
+                      <AlertCircle className="h-3 w-3" />
+                      WASM unavailable
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex-1 overflow-auto p-4">
                 {output ? (
@@ -424,23 +508,49 @@ export default function PlaygroundPage() {
                   </pre>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center text-center">
-                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5">
-                      <Play className="h-8 w-8 text-white/20" />
-                    </div>
-                    <p className="text-sm text-white/40">
-                      Click <span className="text-[#F59E0B]">Run</span> to
-                      execute your code
-                    </p>
-                    <p className="mt-1 text-xs text-white/30">
-                      or press{" "}
-                      <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono">
-                        ⌘
-                      </kbd>{" "}
-                      +{" "}
-                      <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono">
-                        Enter
-                      </kbd>
-                    </p>
+                    {wasmStatus === "loading" ? (
+                      <>
+                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5">
+                          <Loader2 className="h-8 w-8 text-white/20 animate-spin" />
+                        </div>
+                        <p className="text-sm text-white/40">
+                          Initializing Kronos runtime...
+                        </p>
+                      </>
+                    ) : wasmStatus === "unavailable" ? (
+                      <>
+                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10">
+                          <AlertCircle className="h-8 w-8 text-amber-400/50" />
+                        </div>
+                        <p className="text-sm text-white/40">
+                          WASM module not available
+                        </p>
+                        <p className="mt-2 text-xs text-white/30">
+                          Build with:{" "}
+                          <code className="text-[#F59E0B]">make wasm</code>
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5">
+                          <Play className="h-8 w-8 text-white/20" />
+                        </div>
+                        <p className="text-sm text-white/40">
+                          Click <span className="text-[#F59E0B]">Run</span> to
+                          execute your code
+                        </p>
+                        <p className="mt-1 text-xs text-white/30">
+                          or press{" "}
+                          <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono">
+                            ⌘
+                          </kbd>{" "}
+                          +{" "}
+                          <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono">
+                            Enter
+                          </kbd>
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
