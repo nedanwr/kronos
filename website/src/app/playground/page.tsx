@@ -79,48 +79,43 @@ print "Blast off!"`,
     name: "Lists & Maps",
     code: `# Create a list
 set numbers to list 1, 2, 3, 4, 5
-print f"Numbers: {numbers}"
-print f"First: {numbers at 0}"
+print "List created with 5 numbers"
+print f"First element: {numbers at 0}"
+print f"Last element: {numbers at 4}"
 print f"Length: {call len with numbers}"
 
 # Create a map
 set user to map "name": "Alice", "age": 30
-print f"\\nUser: {user}"
-print f"Name: {user at \\"name\\"}"`,
+print "\\nMap created for user"
+print f"Name: {user at \\"name\\"}"
+print f"Age: {user at \\"age\\"}"`,
   },
   {
     name: "Error Handling",
-    code: `# Try-catch-finally
-function divide with a, b:
-    if b is equal 0:
-        raise "Cannot divide by zero"
-    return a divided by b
+    code: `# Error handling with try-catch
+print "Demonstrating error handling:"
 
 try:
-    set result to call divide with 10, 2
-    print f"10 / 2 = {result}"
-    
-    set result to call divide with 10, 0
-    print f"This won't print"
+    print "Starting risky operation..."
+    raise "Something went wrong!"
+    print "This won't print"
 catch error:
-    print f"Error: {error}"
-finally:
-    print "Calculation complete"`,
+    print f"Caught error: {error}"
+
+print "Program continues after catch"`,
   },
   {
     name: "FizzBuzz",
     code: `# Classic FizzBuzz
 for i in range 1 to 16:
-    if i modulo 15 is equal 0:
+    if i mod 15 is equal 0:
         print "FizzBuzz"
+    else if i mod 3 is equal 0:
+        print "Fizz"
+    else if i mod 5 is equal 0:
+        print "Buzz"
     else:
-        if i modulo 3 is equal 0:
-            print "Fizz"
-        else:
-            if i modulo 5 is equal 0:
-                print "Buzz"
-            else:
-                print i`,
+        print i`,
   },
 ];
 
