@@ -120,6 +120,20 @@ static void compiler_set_error(Compiler *c, const char *message) {
   }
 }
 
+/**
+ * @brief Emit a compiler warning to stderr
+ *
+ * Warnings do not stop compilation - they alert the user to potential issues
+ * that can be detected at compile time (e.g., division by literal zero).
+ *
+ * @param message Warning message to display
+ */
+static void compiler_warn(const char *message) {
+  if (message) {
+    fprintf(stderr, "Warning: %s\n", message);
+  }
+}
+
 // Forward declarations for jump offset helpers
 static size_t emit_jump_with_offset(Compiler *c, uint8_t opcode);
 static void patch_jump_offset(Compiler *c, size_t offset_pos, int16_t offset);
@@ -999,6 +1013,22 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
     }
     emit_byte(c, OP_NEG);
     return;
+  }
+
+  // Check for division/modulo by literal zero at compile time
+  // This is a static analysis warning - the code will still compile but will
+  // fail at runtime. Similar to how TypeScript warns about always-truthy
+  // conditions.
+  if ((node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) &&
+      node->as.binop.right != NULL &&
+      node->as.binop.right->type == AST_NUMBER &&
+      node->as.binop.right->as.number == 0.0) {
+    const char *op_name =
+        (node->as.binop.op == BINOP_DIV) ? "Division" : "Modulo";
+    char warn_buf[128];
+    snprintf(warn_buf, sizeof(warn_buf),
+             "%s by zero detected - this will always fail at runtime", op_name);
+    compiler_warn(warn_buf);
   }
 
   // Compile left and right operands for binary operators
