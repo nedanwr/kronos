@@ -3,96 +3,185 @@ title: Variables
 description: Learn about mutable and immutable variables in Kronos
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+import { TypeTable } from 'fumadocs-ui/components/type-table';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
 # Variables
 
-Kronos supports two types of variables: **immutable** (using `set`) and **mutable** (using `let`).
+Kronos has two kinds of variables: **immutable** (`set`) and **mutable** (`let`). This distinction helps catch bugs early and makes code easier to reason about.
 
-## Immutable Variables (`set`)
+## At a Glance
 
-Immutable variables cannot be reassigned after their initial value is set.
-
-**Syntax:**
+<Tabs items={['Immutable (set)', 'Mutable (let)']}>
+<Tab value="Immutable (set)">
 ```kronos
-set <variable_name> to <value>
-```
+set name to "Alice"
+set PI to 3.14159
 
-**Examples:**
+# This would error:
+# set name to "Bob"  → Cannot reassign immutable variable
+```
+<Callout>
+  Use `set` for values that shouldn't change — constants, configuration, computed values.
+</Callout>
+</Tab>
+<Tab value="Mutable (let)">
+```kronos
+let counter to 0
+let counter to 1  # OK
+let counter to 2  # OK
+
+let message to "Hello"
+let message to "Goodbye"  # OK
+```
+<Callout>
+  Use `let` for values that need updating — counters, accumulators, loop state.
+</Callout>
+</Tab>
+</Tabs>
+
+---
+
+## Immutable Variables
+
+Immutable variables are declared with `set` and cannot be reassigned.
+
 ```kronos
 set x to 5
 set name to "Alice"
 set pi to 3.14159
+set active to true
 ```
 
-Attempting to reassign will result in an error:
+<Callout type="error" title="Reassignment Error">
 ```kronos
 set x to 10
 set x to 20  # Error: Cannot reassign immutable variable 'x'
 ```
+</Callout>
 
-## Mutable Variables (`let`)
+## Mutable Variables
 
-Mutable variables can be reassigned to new values.
+Mutable variables are declared with `let` and can be freely reassigned.
 
-**Syntax:**
-```kronos
-let <variable_name> to <value>
-```
-
-**Examples:**
 ```kronos
 let counter to 0
-let counter to 1
-let counter to 2  # OK: counter is mutable
+print counter  # 0
+
+let counter to counter plus 1
+print counter  # 1
+
+let counter to 100
+print counter  # 100
 ```
 
-## Type Annotations (Optional)
+---
 
-You can optionally specify a type using the `as` keyword. Once specified, the variable can only hold values of that type.
+## Type Annotations
 
-**Syntax:**
-```kronos
-set <variable_name> to <value> as <type>
-let <variable_name> to <value> as <type>
-```
+Optionally specify a type using `as`. Once set, the variable can only hold values of that type.
 
-**Available Types:**
-- `number` - Integers and floating-point numbers
-- `string` - Text values
-- `boolean` - `true` or `false`
-- `null` - Represents no value
-- `list` - Ordered collections of values
-- `map` - Key-value collections
-
-**Examples:**
 ```kronos
 let age to 25 as number
-let age to 26 as number       # OK: still a number
-let age to "twenty"           # Error: Type mismatch
+let age to 26           # OK (still a number)
+let age to "twenty"     # Error: Type mismatch
+```
 
+### Available Types
+
+<TypeTable
+  type={{
+    number: {
+      description: 'Integers and floating-point numbers',
+      type: 'number',
+      default: '0',
+    },
+    string: {
+      description: 'Text values (double-quoted)',
+      type: 'string',
+      default: '""',
+    },
+    boolean: {
+      description: 'true or false',
+      type: 'boolean',
+      default: 'false',
+    },
+    null: {
+      description: 'Represents no value',
+      type: 'null',
+      default: 'null',
+    },
+    list: {
+      description: 'Ordered collection of values',
+      type: 'list',
+      default: 'list',
+    },
+    map: {
+      description: 'Key-value collection',
+      type: 'map',
+      default: 'map',
+    },
+  }}
+/>
+
+### Examples with Types
+
+```kronos
 set name to "Bob" as string
 let flag to true as boolean
-let flag to false as boolean  # OK: still a boolean
+let scores to list 95, 87, 92 as list
+set config to map host: "localhost", port: 8080 as map
 ```
 
-## Variable Naming Rules
+---
 
-- Variable names must start with a letter or underscore
-- Can contain letters, numbers, and underscores
-- Case sensitive (`myVar` and `myvar` are different)
-- Cannot use reserved keywords
+## Naming Rules
 
-## When to Use `set` vs `let`
+| Rule | Valid | Invalid |
+|------|-------|---------|
+| Start with letter or `_` | `name`, `_private` | `123abc`, `-var` |
+| Contains letters, numbers, `_` | `user_id`, `count2` | `user-id`, `my.var` |
+| Case sensitive | `myVar` ≠ `myvar` | — |
+| Not a reserved keyword | `total`, `result` | `if`, `for`, `set` |
 
-- Use `set` for values that shouldn't change (constants, configuration)
-- Use `let` for values that need to be updated (counters, accumulators, loop variables)
+---
 
-**Example:**
+## Best Practices
+
+<Callout type="info" title="When to use set vs let">
+**Use `set` when:**
+- The value represents a constant (`set MAX_SIZE to 100`)
+- The value is computed once and used later
+- You want to prevent accidental reassignment
+
+**Use `let` when:**
+- The value needs to change (counters, accumulators)
+- Building up a result iteratively
+- Working with loop variables
+</Callout>
+
+### Example: Using Both
+
 ```kronos
-set MAX_RETRIES to 3 as number
-let attempt to 0 as number
+# Constants that never change
+set MAX_RETRIES to 3
+set TIMEOUT_MS to 5000
+
+# Mutable state that updates
+let attempt to 0
+let last_error to null
 
 while attempt is less than MAX_RETRIES:
-    print attempt
-    let attempt to attempt plus 1
-```
+    print f"Attempt {attempt plus 1} of {MAX_RETRIES}"
+    
+    try:
+        # ... do something ...
+        break
+    catch error:
+        let last_error to error
+        let attempt to attempt plus 1
 
+if last_error is not null:
+    print f"All attempts failed: {last_error}"
+```
