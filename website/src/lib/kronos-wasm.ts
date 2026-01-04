@@ -184,6 +184,9 @@ export class KronosRuntime {
     // Clear output buffer
     this.outputBuffer = [];
 
+    // Reset VM state before each run to clear variables from previous executions
+    this.module._kronos_wasm_reset();
+
     try {
       // Allocate memory for the source string
       const sourceBytes = this.module.lengthBytesUTF8(source) + 1;
