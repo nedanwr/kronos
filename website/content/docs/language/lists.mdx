@@ -32,13 +32,13 @@ set last to numbers at 4     # 50
 
 ### Negative Indexing
 
-You can use negative indices to access elements from the end:
+Use negative indices to access elements from the end:
 
 ```kronos
 set numbers to list 10, 20, 30, 40, 50
 
-set last to numbers at -1    # 50
-set second_last to numbers at -2  # 40
+set last to numbers at -1        # 50
+set second_last to numbers at -2 # 40
 ```
 
 ## Slicing
@@ -76,25 +76,16 @@ for fruit in fruits:
     print fruit
 ```
 
-## List Length
-
-Get the length of a list:
-
-```kronos
-set numbers to list 1, 2, 3, 4, 5
-set length to call len with numbers
-print length  # Prints: 5
-```
-
 ## List Functions
 
-Kronos provides several built-in functions for working with lists:
+See the [Collection Functions API](/docs/api/collection-functions) for `len`, `reverse`, and `sort`.
 
-- `len(list)` - Get the length of a list
-- `reverse(list)` - Return a reversed copy of the list
-- `sort(list)` - Return a sorted copy of the list
-
-See the [Standard Library documentation](/docs/api/collections) for details.
+```kronos
+set numbers to list 3, 1, 4, 1, 5
+set length to call len with numbers      # 5
+set sorted to call sort with numbers     # [1, 1, 3, 4, 5]
+set reversed to call reverse with numbers # [5, 1, 4, 1, 3]
+```
 
 ## Examples
 
@@ -111,18 +102,6 @@ for num in numbers:
 print max  # Prints: 9
 ```
 
-### Filtering Lists
-
-```kronos
-set numbers to list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-set evens to list
-
-for num in numbers:
-    if (num mod 2) is equal 0:
-        # Add to evens list (when list append is available)
-        print num
-```
-
 ### Nested Lists
 
 ```kronos
@@ -132,4 +111,3 @@ for row in matrix:
     for cell in row:
         print cell
 ```
-
