@@ -14,7 +14,7 @@ A comprehensive overview of the Kronos programming language implementation.
 
 ## Status & Statistics
 
-**Version:** 0.4.0
+**Version:** 0.4.5
 **Status:** Core Features Complete ✅ | All Major Features Implemented
 
 ```
@@ -535,6 +535,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Core Features Complete (v0.4.0)
+**Project Status:** ✅ Core Features Complete (v0.4.5)
 **Last Updated:** December 2025
-**Version:** 0.4.0
+**Version:** 0.4.5
