@@ -20,33 +20,13 @@ set large to 1000000
 
 ## Strings
 
-Strings are sequences of characters enclosed in double quotes.
+Strings are sequences of characters enclosed in double quotes. See the [Strings documentation](/docs/language/strings) for detailed string operations.
 
 ```kronos
 set greeting to "Hello, World!"
 set empty to ""
 set multiline to "Line 1\nLine 2"
-```
-
-### F-Strings (String Interpolation)
-
-F-strings allow you to embed expressions inside strings:
-
-```kronos
-set name to "Alice"
-set greeting to f"Hello, {name}!"
-print greeting  # Prints: Hello, Alice!
-
-set x to 10
-set y to 20
-set result to f"{x} plus {y} equals {x plus y}"
-print result  # Prints: 10 plus 20 equals 30
-```
-
-You can use any expression inside `{}`:
-```kronos
-set text to "Hello"
-set info to f"'{text}' has {call len with text} characters"
+set formatted to f"Hello, {name}!"  # F-string interpolation
 ```
 
 ## Booleans
@@ -84,7 +64,7 @@ set person to map name: "Alice", age: 30, city: "NYC"
 set scores to map 1: 100, 2: 200, 3: 300
 ```
 
-## Type Checking
+## Type Annotations
 
 You can use type annotations to enforce types:
 
@@ -100,4 +80,3 @@ Attempting to assign a different type will result in an error:
 let age to 25 as number
 let age to "twenty"  # Error: Type mismatch
 ```
-
