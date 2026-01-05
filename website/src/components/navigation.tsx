@@ -67,7 +67,7 @@ export function Navigation() {
             <span className="text-xs text-[#4B5563]">⌘K</span>
           </Button>
           <a
-            href="https://github.com"
+            href="https://github.com/nedanwr/kronos"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[#9CA3AF] transition-colors hover:text-white"
@@ -104,7 +104,7 @@ export function Navigation() {
               </a>
             ))}
             <a
-              href="https://github.com"
+              href="https://github.com/nedanwr/kronos"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-[#9CA3AF] transition-colors hover:text-white"
