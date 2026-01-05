@@ -226,14 +226,40 @@ This document outlines the planned features and release schedule for Kronos.
 **Target:** Q1 2026
 **Status:** 🚧 In Progress
 
-#### Planned Features
+#### Completed Features
 
-- **String Interpolation Enhancements** - Advanced formatting features
+- ✅ **String Interpolation Enhancements** - Python-style format specifiers
 
   ```kronos
   set price to 19.99
-  set formatted to f"Price: {price:.2f}"  # Format specifiers
+  set formatted to f"Price: ${price:.2f}"  # Float precision: "Price: $19.99"
+
+  set name to "Alice"
+  print f"Name: '{name:>10}'"  # Right-align with width: "Name: '     Alice'"
+  print f"Name: '{name:<10}'"  # Left-align with width: "Name: 'Alice     '"
+  print f"Name: '{name:^10}'"  # Center with width: "Name: '  Alice   '"
+
+  set num to 42
+  print f"Hex: {num:x}"        # Hexadecimal: "Hex: 2a"
+  print f"Padded: {num:05d}"   # Zero-padded: "Padded: 00042"
   ```
+
+  Supported format specifiers:
+
+  - `.Nf` - Float with N decimal places
+  - `.Nd` or `d` - Integer format
+  - `>N` - Right-align with width N
+  - `<N` - Left-align with width N
+  - `^N` - Center with width N
+  - `0N` - Zero-pad to width N
+  - `x`, `X` - Hexadecimal (lowercase/uppercase)
+  - `o` - Octal
+  - `b` - Binary
+  - `e` - Scientific notation
+  - `g` - General format (shortest of 'f' or 'e')
+  - `.Ns` - String truncation to N characters
+
+#### Planned Features
 
 - **Multiple Return Values** - Tuple returns and destructuring
 
