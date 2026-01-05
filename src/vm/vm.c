@@ -1781,6 +1781,7 @@ static int builtin_trim(KronosVM *vm, uint8_t arg_count);
 static int builtin_split(KronosVM *vm, uint8_t arg_count);
 static int builtin_join(KronosVM *vm, uint8_t arg_count);
 static int builtin_to_string(KronosVM *vm, uint8_t arg_count);
+static int builtin_format_value(KronosVM *vm, uint8_t arg_count);
 static int builtin_contains(KronosVM *vm, uint8_t arg_count);
 static int builtin_starts_with(KronosVM *vm, uint8_t arg_count);
 static int builtin_ends_with(KronosVM *vm, uint8_t arg_count);
@@ -3100,6 +3101,241 @@ static int builtin_to_string(KronosVM *vm, uint8_t arg_count) {
                               value_release(arg););
   value_release(result);
   value_release(arg);
+  return 0;
+}
+
+/**
+ * @brief Format a value with a Python-style format specifier
+ *
+ * Supported format specifiers:
+ * - .Nf  - Float with N decimal places: {price:.2f} -> "19.99"
+ * - .Nd  - Integer (rounds floats): {count:.0d} -> "42"
+ * - >N   - Right-align with width N: {text:>10} -> "     hello"
+ * - <N   - Left-align with width N: {text:<10} -> "hello     "
+ * - ^N   - Center with width N: {text:^10} -> "  hello   "
+ * - 0N   - Zero-pad to width N: {num:05d} -> "00042"
+ * - Combined: {price:>10.2f} -> "     19.99"
+ *
+ * @param vm VM instance
+ * @param arg_count Number of arguments (must be 2)
+ * @return 0 on success, error code on failure
+ */
+static int builtin_format_value(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 2) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'format_value' expects 2 arguments, got %d",
+                     arg_count);
+  }
+
+  KronosValue *format_spec;
+  POP_OR_RETURN(vm, format_spec);
+
+  KronosValue *value;
+  POP_OR_RETURN_WITH_CLEANUP(vm, value, value_release(format_spec));
+
+  if (format_spec->type != VAL_STRING) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Format specifier must be a string");
+    value_release(value);
+    value_release(format_spec);
+    return err;
+  }
+
+  const char *spec = format_spec->as.string.data;
+  size_t spec_len = format_spec->as.string.length;
+
+  // Parse format specifier
+  // Format: [[fill]align][sign][#][0][width][grouping][.precision][type]
+  // Simplified: [align][width][.precision][type]
+  char fill_char = ' ';
+  char align = '\0'; // '<' left, '>' right, '^' center
+  int width = 0;
+  int precision = -1;
+  char type_char = '\0';
+
+  size_t i = 0;
+
+  // Check for alignment specifier
+  if (i < spec_len &&
+      (spec[i] == '<' || spec[i] == '>' || spec[i] == '^')) {
+    align = spec[i];
+    i++;
+  }
+
+  // Check for zero-padding
+  if (i < spec_len && spec[i] == '0') {
+    fill_char = '0';
+    if (align == '\0') {
+      align = '>'; // Zero-padding implies right-align
+    }
+    i++;
+  }
+
+  // Parse width
+  while (i < spec_len && spec[i] >= '0' && spec[i] <= '9') {
+    width = width * 10 + (spec[i] - '0');
+    i++;
+  }
+
+  // Parse precision
+  if (i < spec_len && spec[i] == '.') {
+    i++;
+    precision = 0;
+    while (i < spec_len && spec[i] >= '0' && spec[i] <= '9') {
+      precision = precision * 10 + (spec[i] - '0');
+      i++;
+    }
+  }
+
+  // Parse type character
+  if (i < spec_len) {
+    type_char = spec[i];
+    i++;
+  }
+
+  // Validate type character
+  if (type_char != '\0' && type_char != 'f' && type_char != 'd' &&
+      type_char != 's' && type_char != 'e' && type_char != 'g' &&
+      type_char != 'x' && type_char != 'X' && type_char != 'o' &&
+      type_char != 'b') {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Unknown format code '%c'", type_char);
+    value_release(value);
+    value_release(format_spec);
+    return err;
+  }
+
+  // Format the value
+  char buf[512]; // Intermediate buffer for formatting
+  char *formatted = NULL;
+
+  if (value->type == VAL_NUMBER) {
+    double num = value->as.number;
+
+    // Determine format based on type character
+    if (type_char == 'f' || (type_char == '\0' && precision >= 0)) {
+      // Float format
+      int prec = (precision >= 0) ? precision : 6; // Default precision for 'f'
+      snprintf(buf, sizeof(buf), "%.*f", prec, num);
+    } else if (type_char == 'e') {
+      // Scientific notation
+      int prec = (precision >= 0) ? precision : 6;
+      snprintf(buf, sizeof(buf), "%.*e", prec, num);
+    } else if (type_char == 'g') {
+      // General format (shortest of 'f' or 'e')
+      int prec = (precision >= 0) ? precision : 6;
+      snprintf(buf, sizeof(buf), "%.*g", prec, num);
+    } else if (type_char == 'd') {
+      // Integer format
+      snprintf(buf, sizeof(buf), "%lld", (long long)num);
+    } else if (type_char == 'x') {
+      // Hexadecimal lowercase
+      snprintf(buf, sizeof(buf), "%llx", (long long)num);
+    } else if (type_char == 'X') {
+      // Hexadecimal uppercase
+      snprintf(buf, sizeof(buf), "%llX", (long long)num);
+    } else if (type_char == 'o') {
+      // Octal
+      snprintf(buf, sizeof(buf), "%llo", (long long)num);
+    } else if (type_char == 'b') {
+      // Binary (manual implementation)
+      unsigned long long n = (unsigned long long)fabs(num);
+      char *p = buf + sizeof(buf) - 1;
+      *p = '\0';
+      if (n == 0) {
+        *(--p) = '0';
+      } else {
+        while (n > 0) {
+          *(--p) = (n & 1) ? '1' : '0';
+          n >>= 1;
+        }
+      }
+      if (num < 0) {
+        *(--p) = '-';
+      }
+      memmove(buf, p, strlen(p) + 1);
+    } else {
+      // Default number format
+      double intpart;
+      double frac = modf(num, &intpart);
+      if (frac == 0.0 && fabs(num) < 1.0e15) {
+        snprintf(buf, sizeof(buf), "%.0f", num);
+      } else {
+        snprintf(buf, sizeof(buf), "%g", num);
+      }
+    }
+    formatted = buf;
+  } else if (value->type == VAL_STRING) {
+    // String value
+    if (precision >= 0 && (size_t)precision < value->as.string.length) {
+      // Truncate string to precision
+      snprintf(buf, sizeof(buf), "%.*s", precision, value->as.string.data);
+      formatted = buf;
+    } else {
+      formatted = value->as.string.data;
+    }
+  } else if (value->type == VAL_BOOL) {
+    formatted = value->as.boolean ? "true" : "false";
+  } else if (value->type == VAL_NIL) {
+    formatted = "null";
+  } else {
+    formatted = "";
+  }
+
+  // Apply width and alignment
+  size_t formatted_len = strlen(formatted);
+  char *result_str;
+
+  if (width > 0 && (size_t)width > formatted_len) {
+    size_t pad_len = (size_t)width - formatted_len;
+    result_str = malloc((size_t)width + 1);
+    if (!result_str) {
+      value_release(value);
+      value_release(format_spec);
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+    }
+
+    if (align == '<' || align == '\0') {
+      // Left-align (default for strings)
+      memcpy(result_str, formatted, formatted_len);
+      memset(result_str + formatted_len, fill_char, pad_len);
+    } else if (align == '>') {
+      // Right-align
+      memset(result_str, fill_char, pad_len);
+      memcpy(result_str + pad_len, formatted, formatted_len);
+    } else if (align == '^') {
+      // Center
+      size_t left_pad = pad_len / 2;
+      size_t right_pad = pad_len - left_pad;
+      memset(result_str, fill_char, left_pad);
+      memcpy(result_str + left_pad, formatted, formatted_len);
+      memset(result_str + left_pad + formatted_len, fill_char, right_pad);
+    }
+    result_str[(size_t)width] = '\0';
+  } else {
+    result_str = strdup(formatted);
+    if (!result_str) {
+      value_release(value);
+      value_release(format_spec);
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+    }
+  }
+
+  KronosValue *result = value_new_string(result_str, strlen(result_str));
+  free(result_str);
+
+  if (!result) {
+    value_release(value);
+    value_release(format_spec);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
+  }
+
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(value);
+                              value_release(format_spec););
+  value_release(result);
+  value_release(value);
+  value_release(format_spec);
   return 0;
 }
 
@@ -4462,6 +4698,7 @@ static const BuiltinEntry builtin_table[] = {
     {"file_exists", builtin_file_exists},
     {"findall", builtin_regex_findall},
     {"floor", builtin_floor},
+    {"format_value", builtin_format_value},
     {"join", builtin_join},
     {"join_path", builtin_join_path},
     {"len", builtin_len},
