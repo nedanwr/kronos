@@ -1,0 +1,6 @@
+# Test: Invalid format specifier
+# Expected: Fail with error about unknown format code
+
+set x to 42
+print f"{x:q}"
+

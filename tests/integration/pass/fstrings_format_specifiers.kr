@@ -1,0 +1,75 @@
+# Test: F-string format specifiers
+# Expected: Pass
+
+print "=== F-String Format Specifiers ==="
+print ""
+
+# Test 1: Float precision
+print "1. Float precision with .Nf"
+set price to 19.99
+set pi to 3.14159265359
+print f"Price: ${price:.2f}"
+print f"Pi (2 decimals): {pi:.2f}"
+print f"Pi (4 decimals): {pi:.4f}"
+print ""
+
+# Test 2: Integer format
+print "2. Integer format with d"
+set count to 42.7
+print f"Count (as int): {count:.0f}"
+print f"Count: {count:d}"
+print ""
+
+# Test 3: Width and alignment
+print "3. Width and alignment"
+set name to "hello"
+print f"Right align: '{name:>10}'"
+print f"Left align: '{name:<10}'"
+print f"Center: '{name:^10}'"
+print ""
+
+# Test 4: Zero-padding
+print "4. Zero-padding"
+set num to 42
+print f"Zero-padded: {num:05d}"
+set small to 7
+print f"Zero-padded small: {small:03d}"
+print ""
+
+# Test 5: Combined format specifiers
+print "5. Combined specifiers"
+set amount to 3.5
+print f"Amount: '{amount:>8.2f}'"
+print f"Amount: '{amount:08.2f}'"
+print ""
+
+# Test 6: Hexadecimal and octal
+print "6. Hexadecimal and octal"
+set val to 255
+print f"Hex lowercase: {val:x}"
+print f"Hex uppercase: {val:X}"
+print f"Octal: {val:o}"
+print ""
+
+# Test 7: Scientific notation
+print "7. Scientific notation"
+set big to 123456.789
+print f"Scientific: {big:.2e}"
+print f"General: {big:.3g}"
+print ""
+
+# Test 8: String truncation
+print "8. String truncation"
+set long_text to "Hello World"
+print f"Truncated: '{long_text:.5s}'"
+print ""
+
+# Test 9: Regular f-strings still work
+print "9. Regular f-strings (no format spec)"
+set x to 10
+set y to 20
+print f"{x} plus {y} equals {x plus y}"
+print ""
+
+print "=== All format specifier tests passed ==="
+
