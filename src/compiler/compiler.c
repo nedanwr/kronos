@@ -98,6 +98,8 @@ typedef struct {
   LoopInfo *loop_stack;       /**< Stack of active loops for break/continue */
   size_t to_string_const_idx; /**< Cache for "to_string" constant (SIZE_MAX if
                not created) */
+  size_t format_value_const_idx; /**< Cache for "format_value" constant (SIZE_MAX
+                if not created) */
   size_t loop_counter;        /**< Counter for unique iterator variable names */
 } Compiler;
 
@@ -638,6 +640,45 @@ static size_t get_to_string_constant(Compiler *c) {
   return idx;
 }
 
+/**
+ * @brief Get or create the "format_value" constant
+ *
+ * Caches the constant index to avoid recreating it multiple times.
+ * Used for f-string format specifiers.
+ *
+ * @param c Compiler state
+ * @return Index of "format_value" constant, or SIZE_MAX on error
+ */
+static size_t get_format_value_constant(Compiler *c) {
+  if (!c) {
+    return SIZE_MAX;
+  }
+  // Return cached value if already created
+  if (c->format_value_const_idx != SIZE_MAX) {
+    return c->format_value_const_idx;
+  }
+
+  // Create and cache it
+  KronosValue *format_value_name = value_new_string("format_value", 12);
+  if (!format_value_name) {
+    compiler_set_error(c, "Failed to allocate format_value constant");
+    return SIZE_MAX;
+  }
+
+  size_t idx = add_constant(c, format_value_name);
+
+  if (idx == SIZE_MAX || idx > UINT16_MAX) {
+    if (idx > UINT16_MAX) {
+      compiler_set_error(c, "Too many constants");
+    }
+    return SIZE_MAX;
+  }
+
+  // Cache for future use
+  c->format_value_const_idx = idx;
+  return idx;
+}
+
 // Forward declarations for expression compilation helpers
 static void compile_expression(Compiler *c, const ASTNode *node);
 static void compile_number_expression(Compiler *c, const ASTNode *node);
@@ -888,7 +929,63 @@ static void compile_slice_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
- * @brief Compile an f-string expression
+ * @brief Emit code to convert expression to string with optional format spec
+ *
+ * @param c Compiler state
+ * @param format_spec Format specifier string (NULL for default to_string)
+ */
+static void emit_format_or_to_string(Compiler *c, const char *format_spec) {
+  if (format_spec) {
+    // Push format specifier string as second argument
+    KronosValue *spec_val =
+        value_new_string(format_spec, strlen(format_spec));
+    if (!spec_val) {
+      compiler_set_error(c, "Failed to allocate format specifier constant");
+      return;
+    }
+    emit_constant(c, spec_val);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    // Call format_value(value, spec) - 2 arguments
+    size_t format_value_idx = get_format_value_constant(c);
+    if (format_value_idx == SIZE_MAX) {
+      return;
+    }
+    emit_byte(c, OP_CALL_FUNC);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)format_value_idx);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, 2); // 2 arguments: value and format spec
+  } else {
+    // No format specifier - use to_string
+    size_t to_string_idx = get_to_string_constant(c);
+    if (to_string_idx == SIZE_MAX) {
+      return;
+    }
+    emit_byte(c, OP_CALL_FUNC);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)to_string_idx);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, 1); // 1 argument
+  }
+}
+
+/**
+ * @brief Compile an f-string expression with format specifier support
+ *
+ * F-strings can contain embedded expressions with optional format specifiers:
+ * - f"Value: {x}" - uses to_string for conversion
+ * - f"Value: {x:.2f}" - uses format_value with specifier
  */
 static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
   // Compile f-string by concatenating parts
@@ -904,6 +1001,9 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
     emit_constant(c, empty);
     return;
   }
+
+  // Get format specs array (may be NULL for backward compatibility)
+  char **format_specs = node->as.fstring.format_specs;
 
   // Compile first part
   ASTNode *first_part = node->as.fstring.parts[0];
@@ -930,20 +1030,9 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
       return;
     }
 
-    // Call to_string to convert expression result to string
-    size_t to_string_idx = get_to_string_constant(c);
-    if (to_string_idx == SIZE_MAX) {
-      return;
-    }
-    emit_byte(c, OP_CALL_FUNC);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_uint16(c, (uint16_t)to_string_idx);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_byte(c, 1); // 1 argument
+    // Convert to string (with format specifier if present)
+    const char *spec = format_specs ? format_specs[0] : NULL;
+    emit_format_or_to_string(c, spec);
     if (compiler_has_error(c)) {
       return;
     }
@@ -971,14 +1060,9 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
         return;
       }
 
-      // Call to_string to convert expression result to string
-      size_t to_string_idx = get_to_string_constant(c);
-      if (to_string_idx == SIZE_MAX) {
-        return;
-      }
-      emit_byte(c, OP_CALL_FUNC);
-      emit_uint16(c, (uint16_t)to_string_idx);
-      emit_byte(c, 1); // 1 argument
+      // Convert to string (with format specifier if present)
+      const char *spec = format_specs ? format_specs[i] : NULL;
+      emit_format_or_to_string(c, spec);
       if (compiler_has_error(c)) {
         return;
       }
@@ -2592,6 +2676,7 @@ Bytecode *compile(AST *ast, const char **out_err) {
     return NULL;
   }
   c->to_string_const_idx = SIZE_MAX;
+  c->format_value_const_idx = SIZE_MAX;
   c->loop_counter = 0;
   c->bytecode = malloc(sizeof(Bytecode));
   if (!c->bytecode) {

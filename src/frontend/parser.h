@@ -76,6 +76,10 @@ struct ASTNode {
       // etc.
       ASTNode **parts;
       size_t part_count;
+      // Format specifiers for each part (NULL if no specifier)
+      // format_specs[i] corresponds to parts[i]
+      // Only expression parts can have format specifiers
+      char **format_specs;
     } fstring;
     bool boolean;
     char *var_name;
