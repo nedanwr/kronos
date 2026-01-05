@@ -1,11 +1,28 @@
 "use client";
 
-export function Footer() {
-  const footerLinks = {
-    Resources: ["Documentation", "Learn", "Playground", "Blog"],
-    Project: ["About", "Roadmap", "GitHub"],
-  };
+interface FooterLink {
+  label: string;
+  href: string | null;
+  external?: boolean;
+}
 
+const footerLinks: Record<string, FooterLink[]> = {
+  Resources: [
+    { label: "Documentation", href: "/docs" },
+    { label: "Getting Started", href: "/docs/getting-started" },
+    { label: "Playground", href: "/playground" },
+  ],
+  Project: [
+    { label: "Roadmap", href: "/docs/roadmap" },
+    {
+      label: "GitHub",
+      href: "https://github.com/nedanwr/kronos",
+      external: true,
+    },
+  ],
+};
+
+export function Footer() {
   return (
     <footer className="border-t border-white/10 bg-[#0a0a0a]/50 backdrop-blur-sm">
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
@@ -34,16 +51,25 @@ export function Footer() {
                   {category}
                 </h3>
                 <ul className="space-y-2">
-                  {links.map((link) => (
-                    <li key={link}>
-                      <a
-                        href="#"
-                        className="text-sm text-[#4B5563] transition-colors hover:text-[#F59E0B]"
-                      >
-                        {link}
-                      </a>
-                    </li>
-                  ))}
+                  {links.map((link) =>
+                    link.href ? (
+                      <li key={link.label}>
+                        <a
+                          href={link.href}
+                          className="text-sm text-[#4B5563] transition-colors hover:text-[#F59E0B]"
+                          {...(link.external && {
+                            target: "_blank",
+                            rel: "noopener noreferrer",
+                          })}
+                        >
+                          {link.label}
+                          {link.external && (
+                            <span className="ml-1 text-xs">↗</span>
+                          )}
+                        </a>
+                      </li>
+                    ) : null
+                  )}
                 </ul>
               </div>
             ))}
