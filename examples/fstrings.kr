@@ -55,5 +55,35 @@ set receipt to f"You bought {count} {item}s for ${price} each. Total: ${total}"
 print receipt
 print ""
 
+print "9. Format Specifiers - Float Precision"
+set pi to 3.14159265359
+print f"Pi with 2 decimals: {pi:.2f}"
+print f"Pi with 4 decimals: {pi:.4f}"
+print ""
+
+print "10. Format Specifiers - Width and Alignment"
+set name3 to "Alice"
+print f"Right-aligned: '{name3:>10}'"
+print f"Left-aligned:  '{name3:<10}'"
+print f"Centered:      '{name3:^10}'"
+print ""
+
+print "11. Format Specifiers - Zero Padding"
+set num to 42
+print f"Zero-padded: {num:05d}"
+print f"Number width: '{num:>8d}'"
+print ""
+
+print "12. Format Specifiers - Hexadecimal"
+set byte to 255
+print f"Hex: {byte:x}, Hex uppercase: {byte:X}"
+print ""
+
+print "13. Format Specifiers - Combined"
+set amount to 19.99
+print f"Price:  '{amount:>10.2f}'"
+print f"Padded: '{amount:010.2f}'"
+print ""
+
 print "=== End of F-Strings ==="
 
