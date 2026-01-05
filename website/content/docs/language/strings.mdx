@@ -71,6 +71,70 @@ set text to "Hello"
 set info to f"'{text}' has {call len with text} characters"
 ```
 
+### Format Specifiers
+
+F-strings support Python-style format specifiers for precise formatting:
+
+```kronos
+# Float precision
+set price to 19.99
+print f"Price: ${price:.2f}"  # Price: $19.99
+
+set pi to 3.14159
+print f"Pi: {pi:.4f}"         # Pi: 3.1416
+
+# Width and alignment
+set name to "Alice"
+print f"'{name:>10}'"  # '     Alice' (right-align)
+print f"'{name:<10}'"  # 'Alice     ' (left-align)
+print f"'{name:^10}'"  # '  Alice   ' (center)
+
+# Zero-padding
+set num to 42
+print f"{num:05d}"     # 00042
+print f"{num:08.2f}"   # 00042.00
+
+# Hexadecimal and other bases
+set val to 255
+print f"Hex: {val:x}"  # Hex: ff
+print f"Hex: {val:X}"  # Hex: FF
+print f"Octal: {val:o}"  # Octal: 377
+print f"Binary: {val:b}"  # Binary: 11111111
+
+# Scientific notation
+set big to 123456.789
+print f"{big:.2e}"  # 1.23e+05
+
+# String truncation
+set text to "Hello World"
+print f"'{text:.5s}'"  # 'Hello'
+```
+
+#### Supported Format Specifiers
+
+| Specifier | Description | Example |
+|-----------|-------------|---------|
+| `.Nf` | Float with N decimal places | `{x:.2f}` → `"3.14"` |
+| `d` | Integer format | `{x:d}` → `"42"` |
+| `>N` | Right-align with width N | `{s:>10}` → `"     hello"` |
+| `<N` | Left-align with width N | `{s:<10}` → `"hello     "` |
+| `^N` | Center with width N | `{s:^10}` → `"  hello   "` |
+| `0N` | Zero-pad to width N | `{x:05d}` → `"00042"` |
+| `x`, `X` | Hexadecimal | `{x:x}` → `"ff"` |
+| `o` | Octal | `{x:o}` → `"377"` |
+| `b` | Binary | `{x:b}` → `"11111111"` |
+| `e` | Scientific notation | `{x:.2e}` → `"1.23e+05"` |
+| `g` | General (shortest) | `{x:.3g}` → `"1.23e+05"` |
+| `.Ns` | String truncation | `{s:.5s}` → `"Hello"` |
+
+You can combine specifiers:
+
+```kronos
+set amount to 42.5
+print f"'{amount:>10.2f}'"  # '     42.50'
+print f"'{amount:010.2f}'" # '0000042.50'
+```
+
 ## String Functions
 
 Kronos provides many built-in string functions. See the [String Functions API](/docs/api/string-functions) for the complete reference.

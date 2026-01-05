@@ -49,7 +49,7 @@ Official website, documentation, and interactive playground.
 <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">In Progress</span>
 <span className="ml-2 text-sm text-[#9CA3AF]">Q1 2026</span>
 
-Lambdas, list comprehensions, pattern matching, and enhanced type system.
+String interpolation enhancements, lambdas, list comprehensions, and pattern matching.
 
 </Step>
 <Step>
@@ -72,7 +72,7 @@ Everything in v0.4.5 is stable and ready for use:
 <Cards>
   <Card title="Core Language" description="Variables, types, operators, control flow, functions" />
   <Card title="Collections" description="Lists, maps, ranges with full operations" />
-  <Card title="Strings" description="Concatenation, slicing, f-strings, built-ins" />
+  <Card title="Strings" description="Concatenation, slicing, f-strings with format specifiers, built-ins" />
   <Card title="Modules" description="Built-in and file-based module system" />
   <Card title="Exceptions" description="Try/catch/finally error handling" />
   <Card title="File I/O" description="Read, write, path operations" />
@@ -230,6 +230,34 @@ All features completed — you're looking at it!
 ### Advanced Language Features
 
 <Accordions>
+<Accordion title="String Interpolation Enhancements ✅">
+Python-style format specifiers in f-strings.
+
+```kronos
+set price to 19.99
+print f"Price: ${price:.2f}"      # "Price: $19.99"
+
+set name to "Alice"
+print f"'{name:>10}'"             # "'     Alice'" (right-align)
+print f"'{name:<10}'"             # "'Alice     '" (left-align)
+print f"'{name:^10}'"             # "'  Alice   '" (center)
+
+set num to 42
+print f"{num:05d}"                # "00042" (zero-padded)
+print f"{num:x}"                  # "2a" (hexadecimal)
+```
+
+| Specifier | Description | Example |
+|-----------|-------------|---------|
+| `.Nf` | Float with N decimals | `{x:.2f}` → `"3.14"` |
+| `>N` | Right-align width N | `{s:>10}` → `"     hello"` |
+| `<N` | Left-align width N | `{s:<10}` → `"hello     "` |
+| `^N` | Center width N | `{s:^10}` → `"  hello   "` |
+| `0N` | Zero-pad to N | `{x:05d}` → `"00042"` |
+| `x`, `X` | Hexadecimal | `{x:x}` → `"ff"` |
+| `e` | Scientific notation | `{x:.2e}` → `"1.23e+05"` |
+</Accordion>
+
 <Accordion title="Anonymous Functions / Lambdas">
 ```kronos
 set double to function with x: return x times 2

@@ -26,7 +26,9 @@ Strings are sequences of characters enclosed in double quotes. See the [Strings 
 set greeting to "Hello, World!"
 set empty to ""
 set multiline to "Line 1\nLine 2"
-set formatted to f"Hello, {name}!"  # F-string interpolation
+set formatted to f"Hello, {name}!"    # F-string interpolation
+set price to f"${amount:.2f}"         # Format specifiers: "19.99"
+set padded to f"{num:05d}"            # Zero-padding: "00042"
 ```
 
 ## Booleans

@@ -21,6 +21,56 @@ set null_str to call to_string with null     # Returns "null"
 set list_str to call to_string with list 1, 2, 3  # Returns string representation
 ```
 
+## format_value
+
+Convert a value to a string with Python-style format specifiers. This is the function used internally by f-string format specifiers.
+
+**Syntax:** `call format_value with value, format_spec`
+
+**Format Specifiers:**
+
+| Specifier | Description | Example Result |
+|-----------|-------------|----------------|
+| `.Nf` | Float with N decimal places | `"3.14"` |
+| `d` | Integer format | `"42"` |
+| `>N` | Right-align with width N | `"     hello"` |
+| `<N` | Left-align with width N | `"hello     "` |
+| `^N` | Center with width N | `"  hello   "` |
+| `0N` | Zero-pad to width N | `"00042"` |
+| `x`, `X` | Hexadecimal (lower/upper) | `"ff"`, `"FF"` |
+| `o` | Octal | `"377"` |
+| `b` | Binary | `"11111111"` |
+| `e` | Scientific notation | `"1.23e+05"` |
+| `g` | General (shortest) | `"123.5"` |
+| `.Ns` | String truncation | `"Hello"` |
+
+**Examples:**
+```kronos
+# Float precision
+set formatted to call format_value with 3.14159, ".2f"  # Returns "3.14"
+
+# Width and alignment
+set right to call format_value with "hi", ">10"    # Returns "        hi"
+set left to call format_value with "hi", "<10"     # Returns "hi        "
+set center to call format_value with "hi", "^10"   # Returns "    hi    "
+
+# Zero-padding
+set padded to call format_value with 42, "05d"     # Returns "00042"
+
+# Hexadecimal
+set hex to call format_value with 255, "x"         # Returns "ff"
+set hex_upper to call format_value with 255, "X"   # Returns "FF"
+
+# Combined specifiers
+set combo to call format_value with 3.5, ">8.2f"   # Returns "    3.50"
+```
+
+**Note:** Format specifiers are typically used directly in f-strings:
+```kronos
+set price to 19.99
+print f"Price: ${price:.2f}"  # Uses format_value internally
+```
+
 ## to_number
 
 Convert a string to a number. Also accepts numbers (returns them unchanged).

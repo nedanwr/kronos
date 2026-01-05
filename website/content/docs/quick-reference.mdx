@@ -76,6 +76,9 @@ call greet with "Alice"
 set char to text at 0           # Indexing
 set slice to text from 0 to 5   # Slicing
 set msg to f"Hello, {name}!"    # F-strings
+set pi to f"{3.14159:.2f}"      # Format specifiers → "3.14"
+set padded to f"{42:05d}"       # Zero-padded → "00042"
+set aligned to f"{name:>10}"    # Right-align → "     Alice"
 ```
 
 ## Lists
