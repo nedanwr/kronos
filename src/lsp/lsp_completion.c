@@ -122,6 +122,7 @@ void handle_completion(const char *id, const char *body) {
       {"split", "Split string by delimiter into list"},
       {"join", "Join list of strings with delimiter"},
       {"to_string", "Convert value to string"},
+      {"format_value", "Format value with format specifier (e.g., '.2f', '>10')"},
       {"to_number", "Convert string to number"},
       {"to_bool", "Convert value to boolean"},
       {"contains", "Check if string contains substring"},

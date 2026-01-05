@@ -951,6 +951,7 @@ int get_builtin_arg_count(const char *func_name) {
       strcmp(func_name, "uppercase") == 0 ||
       strcmp(func_name, "lowercase") == 0 || strcmp(func_name, "trim") == 0 ||
       strcmp(func_name, "to_string") == 0 ||
+      strcmp(func_name, "format_value") == 0 ||
       strcmp(func_name, "to_number") == 0 ||
       strcmp(func_name, "to_bool") == 0 || strcmp(func_name, "reverse") == 0 ||
       strcmp(func_name, "sort") == 0 || strcmp(func_name, "read_file") == 0 ||
