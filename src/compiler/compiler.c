@@ -1049,15 +1049,32 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
   // fail at runtime. Similar to how TypeScript warns about always-truthy
   // conditions.
   if ((node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) &&
-      node->as.binop.right != NULL &&
-      node->as.binop.right->type == AST_NUMBER &&
-      node->as.binop.right->as.number == 0.0) {
-    const char *op_name =
-        (node->as.binop.op == BINOP_DIV) ? "Division" : "Modulo";
-    char warn_buf[128];
-    snprintf(warn_buf, sizeof(warn_buf),
-             "%s by zero detected - this will always fail at runtime", op_name);
-    compiler_warn(warn_buf);
+      node->as.binop.right != NULL) {
+    bool is_literal_zero = false;
+
+    // Case 1: Direct literal zero (e.g., x / 0)
+    if (node->as.binop.right->type == AST_NUMBER &&
+        node->as.binop.right->as.number == 0.0) {
+      is_literal_zero = true;
+    }
+    // Case 2: Unary negation of zero (e.g., x / -0)
+    else if (node->as.binop.right->type == AST_BINOP &&
+             node->as.binop.right->as.binop.op == BINOP_NEG &&
+             node->as.binop.right->as.binop.left != NULL &&
+             node->as.binop.right->as.binop.left->type == AST_NUMBER &&
+             node->as.binop.right->as.binop.left->as.number == 0.0) {
+      is_literal_zero = true;
+    }
+
+    if (is_literal_zero) {
+      const char *op_name =
+          (node->as.binop.op == BINOP_DIV) ? "Division" : "Modulo";
+      char warn_buf[128];
+      snprintf(warn_buf, sizeof(warn_buf),
+               "%s by zero detected - this will always fail at runtime",
+               op_name);
+      compiler_warn(warn_buf);
+    }
   }
 
   // Compile left and right operands for binary operators
