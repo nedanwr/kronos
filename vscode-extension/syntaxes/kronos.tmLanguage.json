@@ -122,6 +122,9 @@
               "name": "meta.embedded.expression.kronos",
               "patterns": [
                 {
+                  "include": "#format-specifier"
+                },
+                {
                   "include": "#keywords"
                 },
                 {
@@ -180,6 +183,9 @@
               },
               "name": "meta.embedded.expression.kronos",
               "patterns": [
+                {
+                  "include": "#format-specifier"
+                },
                 {
                   "include": "#keywords"
                 },
@@ -283,7 +289,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.kronos",
-          "match": "\\b(add|subtract|multiply|divide|len|uppercase|lowercase|trim|split|join|contains|starts_with|ends_with|replace|to_string|to_number|to_bool|reverse|sort|sqrt|power|abs|round|floor|ceil|rand|min|max)\\b"
+          "match": "\\b(add|subtract|multiply|divide|len|uppercase|lowercase|trim|split|join|contains|starts_with|ends_with|replace|to_string|format_value|to_number|to_bool|reverse|sort|sqrt|power|abs|round|floor|ceil|rand|min|max)\\b"
         }
       ]
     },
@@ -300,6 +306,31 @@
         {
           "name": "keyword.operator.logical.kronos",
           "match": "\\b(and|or)\\b"
+        }
+      ]
+    },
+    "format-specifier": {
+      "comment": "Python-style format specifiers in f-strings: {value:.2f}, {num:>10}, etc.",
+      "patterns": [
+        {
+          "match": "(:)([<>^])?([0-9]+)?(\\.([0-9]+))?([fdegsxXob])?(?=\\})",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.format-spec.kronos"
+            },
+            "2": {
+              "name": "keyword.operator.alignment.kronos"
+            },
+            "3": {
+              "name": "constant.numeric.width.kronos"
+            },
+            "4": {
+              "name": "constant.numeric.precision.kronos"
+            },
+            "6": {
+              "name": "storage.type.format.kronos"
+            }
+          }
         }
       ]
     }
