@@ -1,0 +1,133 @@
+---
+title: Functions
+description: Learn how to define and call functions in Kronos
+---
+
+# Functions
+
+Functions allow you to organize code into reusable blocks.
+
+## Defining Functions
+
+**Syntax:**
+```kronos
+function <function_name> with <param1>, <param2>, ...:
+    <function_body>
+    return <value>
+```
+
+**Example:**
+```kronos
+function greet with name:
+    set message to f"Hello, {name}!"
+    return message
+```
+
+## Calling Functions
+
+Use the `call` keyword to invoke functions:
+
+```kronos
+set greeting to call greet with "Alice"
+print greeting  # Prints: Hello, Alice!
+```
+
+## Return Values
+
+Functions can return values using the `return` statement:
+
+```kronos
+function add with a, b:
+    return a plus b
+
+set result to call add with 5, 3
+print result  # Prints: 8
+```
+
+If no return statement is provided, the function returns `null`.
+
+## Multiple Parameters
+
+Functions can take multiple parameters:
+
+```kronos
+function calculate_total with price, quantity, tax_rate:
+    set subtotal to price times quantity
+    set tax to subtotal times tax_rate
+    return subtotal plus tax
+
+set total to call calculate_total with 10.0, 3, 0.08
+print total
+```
+
+## Local Scope
+
+Variables defined inside functions are local to that function:
+
+```kronos
+set global_var to "global"
+
+function test_scope:
+    set local_var to "local"
+    print global_var  # Can access global variables
+    print local_var   # Can access local variables
+
+call test_scope
+print global_var  # OK: global variable
+print local_var   # Error: local_var is not defined
+```
+
+## Examples
+
+### Fibonacci Function
+
+```kronos
+function fibonacci with n:
+    if n is less than 2:
+        return n
+    
+    set a to 0
+    set b to 1
+    
+    for i in range 2 to n:
+        set temp to b
+        let b to a plus b
+        let a to temp
+    
+    return b
+
+print call fibonacci with 10  # Prints: 55
+```
+
+### Factorial Function
+
+```kronos
+function factorial with n:
+    if n is less than or equal 1:
+        return 1
+    
+    let result to 1
+    for i in range 2 to n:
+        let result to result times i
+    
+    return result
+
+print call factorial with 5  # Prints: 120
+```
+
+### Function with Conditional Logic
+
+```kronos
+function get_grade with score:
+    if score is greater than 90:
+        return "A"
+    else if score is greater than 80:
+        return "B"
+    else if score is greater than 70:
+        return "C"
+    else:
+        return "F"
+
+print call get_grade with 85  # Prints: B
+```
+

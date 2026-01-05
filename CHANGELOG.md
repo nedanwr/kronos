@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [0.4.5] - 2026-01-05
+
+### Added
+
+- **Official Website** - Modern documentation site at kronos.nedanwr.dev with full language reference, tutorials, and guides
+- **Interactive Playground** - Browser-based code editor with WebAssembly-powered execution, syntax highlighting, and real-time output
+- **WebAssembly Support** - Kronos interpreter compiled to WASM via Emscripten for client-side code execution
+- **Compile-time Warnings** - Division/modulo by zero detection with warning messages
+- **Syntax Highlighting** - TextMate grammar-based highlighting for Kronos code
+
+### Changed
+
+- **Documentation Structure** - Migrated detailed docs from markdown files to website; repository now contains only essential project docs
+- **Compiler Diagnostics** - Enhanced compiler to support warning callbacks alongside errors
+
+### Fixed
+
+- **Compiler Control Flow** - Fixed `else if` jump emission order that caused incorrect branch execution
+- **VM State Reset** - Added proper state clearing between WASM executions
+
+## [0.4.0] - 2025-12-XX
+
 ### Added
 
 - **Range Objects** - First-class range support with literals, indexing, slicing, iteration, and length operations

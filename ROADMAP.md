@@ -4,7 +4,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.4.0
+**Current Version:** 0.4.5
 **Status:** ✅ Stable - Core language features complete
 
 ### What's Available Now
@@ -174,56 +174,57 @@ This document outlines the planned features and release schedule for Kronos.
 ### Version 0.4.5: "Website & Documentation"
 
 **Target:** Q1 2026
-**Status:** 📋 Planned
+**Status:** ✅ Completed
 
-#### Planned Features
+#### Completed Features
 
-- **Official Website** - Public-facing website for the Kronos programming language
+- ✅ **Official Website** - Public-facing website at kronos.nedanwr.dev
 
-  - Modern, responsive design showcasing the language
+  - Modern, responsive dark-themed design
   - Interactive code examples with syntax highlighting
-  - Live code playground/REPL in the browser
+  - Live code playground with WebAssembly execution
   - Comprehensive documentation and tutorials
   - Download links and installation instructions
   - Examples gallery with runnable code snippets
-  - Blog/news section for updates and announcements
   - Community links (GitHub, discussions, etc.)
 
-- **Documentation Website** - Hosted documentation site
+- ✅ **Documentation Website** - Integrated documentation site
 
   - Full language reference documentation
-  - API documentation for standard library
   - Tutorials and getting started guides
   - Example programs and use cases
   - Search functionality
-  - Version-specific documentation
-  - Dark/light theme support
+  - Dark theme with syntax highlighting
 
-- **Interactive Playground** - Web-based code editor
+- ✅ **Interactive Playground** - Web-based code editor
 
   - In-browser Kronos code editor
-  - Syntax highlighting
-  - Real-time error checking
-  - Code execution and output display
-  - Shareable code snippets (via URL)
-  - Example templates and starter code
-  - Mobile-friendly interface
+  - TextMate-based syntax highlighting
+  - WebAssembly-powered code execution
+  - Real-time output and error display
+  - Compile-time warnings (e.g., division by zero)
+  - Example templates for all language features
+  - Keyboard shortcut support (⌘/Ctrl+Enter to run)
 
-**Technical Considerations:**
+- ✅ **Compiler Enhancements** - Improved diagnostics
 
-- Static site generation (e.g., Next.js, Astro, or similar)
-- Code syntax highlighting (Prism.js, Shiki, or similar)
-- WebAssembly-based Kronos VM for browser execution (optional, future enhancement)
-- Hosting on GitHub Pages, Vercel, Netlify, or similar
-- Custom domain setup
-- SEO optimization
+  - Compile-time warning system
+  - Division/modulo by zero detection
+  - Fixed `else if` control flow bug
+
+**Technical Implementation:**
+
+- Next.js with Fumadocs for static site generation
+- Custom TextMate grammar-based syntax highlighting
+- WebAssembly VM via Emscripten compilation
+- Hosted on Vercel at kronos.nedanwr.dev
 
 ---
 
 ### Version 0.5.0: "Advanced Language Features"
 
-**Target:** N/A
-**Status:** 📋 Planned
+**Target:** Q1 2026
+**Status:** 🚧 In Progress
 
 #### Planned Features
 

@@ -165,6 +165,58 @@ tests/lsp/%.o: tests/lsp/%.c
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
 
+# ============================================================================
+# WebAssembly (WASM) Build Target
+# ============================================================================
+# Requires Emscripten SDK: https://emscripten.org/docs/getting_started/
+# Install: git clone https://github.com/emscripten-core/emsdk.git && cd emsdk && ./emsdk install latest && ./emsdk activate latest
+# Build: source emsdk_env.sh && make wasm
+
+WASM_CC = emcc
+WASM_CFLAGS = -Wall -Wextra -std=c11 -O2 -Iinclude -Isrc
+WASM_LDFLAGS = -lm
+
+# WASM source files (exclude main.c, linenoise.c - use wasm entry point instead)
+WASM_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC) wasm/kronos_wasm.c
+
+# WASM output directory and files
+WASM_OUT_DIR = website/public/wasm
+WASM_TARGET = $(WASM_OUT_DIR)/kronos.js
+
+# Emscripten settings for web deployment
+WASM_SETTINGS = \
+	-s WASM=1 \
+	-s MODULARIZE=1 \
+	-s EXPORT_NAME="createKronosModule" \
+	-s EXPORTED_FUNCTIONS='["_kronos_wasm_init","_kronos_wasm_run","_kronos_wasm_cleanup","_kronos_wasm_reset","_kronos_wasm_get_error","_kronos_wasm_get_warnings","_kronos_wasm_version","_malloc","_free"]' \
+	-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
+	-s ALLOW_MEMORY_GROWTH=1 \
+	-s INITIAL_MEMORY=16777216 \
+	-s MAXIMUM_MEMORY=268435456 \
+	-s ENVIRONMENT='web' \
+	-s NO_EXIT_RUNTIME=1 \
+	-s SINGLE_FILE=0 \
+	--no-entry
+
+.PHONY: wasm wasm-clean wasm-debug
+
+# Build WASM for production
+wasm: $(WASM_TARGET)
+
+$(WASM_TARGET): $(WASM_SRC)
+	@mkdir -p $(WASM_OUT_DIR)
+	$(WASM_CC) $(WASM_CFLAGS) $(WASM_SRC) -o $@ $(WASM_LDFLAGS) $(WASM_SETTINGS)
+	@echo "  Built WebAssembly module: $@"
+	@echo "  Also created: $(WASM_OUT_DIR)/kronos.wasm"
+
+# Build WASM with debug symbols
+wasm-debug: WASM_CFLAGS += -g -s ASSERTIONS=2 -s SAFE_HEAP=1
+wasm-debug: $(WASM_TARGET)
+
+# Clean WASM build artifacts
+wasm-clean:
+	rm -rf $(WASM_OUT_DIR)
+
 # Include auto-generated dependency files (if they exist)
 -include $(DEP)
 -include $(LSP_DEP)

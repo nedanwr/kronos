@@ -73,7 +73,7 @@ Get full IDE features (syntax highlighting, error checking, autocomplete):
 ./scripts/install_extension.sh
 ```
 
-Then restart VSCode/Cursor/Windsurf. See [EDITOR.md](docs/EDITOR.md) for details.
+Then restart VSCode/Cursor/Windsurf. See the [Editor Setup guide](https://kronos.nedanwr.dev/docs/editor-setup) for details.
 
 ## Language Syntax
 
@@ -147,15 +147,15 @@ for i in r:                  # Iterate range
     print i
 ```
 
-See [docs/SYNTAX.md](docs/SYNTAX.md) for the complete syntax reference or [docs/QUICKREF.md](docs/QUICKREF.md) for a quick reference card.
+See the [Language Reference](https://kronos.nedanwr.dev/docs/language/variables) for complete syntax or the [Quick Reference](https://kronos.nedanwr.dev/docs/quick-reference) for a cheat sheet.
 
 ## Documentation
 
-- 📖 **[SYNTAX.md](docs/SYNTAX.md)** - Complete language reference
-- ⚡ **[QUICKREF.md](docs/QUICKREF.md)** - Quick reference card
-- 🏗️ **[PROJECT.md](docs/PROJECT.md)** - Architecture & implementation
-- 🎨 **[EDITOR.md](docs/EDITOR.md)** - Editor setup & LSP
-- 📦 **[All Docs](docs/README.md)** - Documentation index
+- 🌐 **[kronos.nedanwr.dev](https://kronos.nedanwr.dev/docs)** - Official documentation website
+- 📖 **[Language Reference](https://kronos.nedanwr.dev/docs/language/variables)** - Complete syntax guide
+- ⚡ **[Quick Reference](https://kronos.nedanwr.dev/docs/quick-reference)** - Cheat sheet
+- 🎨 **[Editor Setup](https://kronos.nedanwr.dev/docs/editor-setup)** - VSCode, Vim, etc.
+- 🏗️ **[PROJECT.md](docs/PROJECT.md)** - Architecture & internals
 
 ## Examples
 

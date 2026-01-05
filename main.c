@@ -56,7 +56,7 @@
 #define KRONOS_VERSION_MAJOR 0
 #define KRONOS_VERSION_MINOR 4
 #define KRONOS_VERSION_PATCH 0
-#define KRONOS_VERSION_STRING "0.4.0"
+#define KRONOS_VERSION_STRING "0.4.5"
 
 // Global flag for graceful shutdown on signals
 static volatile sig_atomic_t g_signal_received = 0;

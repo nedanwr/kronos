@@ -1,0 +1,12 @@
+{
+  "title": "Standard Library",
+  "pages": [
+    "collection-functions",
+    "file-io",
+    "math-functions",
+    "regular-expressions",
+    "string-functions",
+    "type-conversion"
+  ]
+}
+

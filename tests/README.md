@@ -225,6 +225,6 @@ For performance testing, use the dedicated `benchmarks/` directory (future).
 
 ## Related Documentation
 
-- [SYNTAX.md](../docs/SYNTAX.md) - Language syntax reference
+- [Language Reference](https://kronos.nedanwr.dev/docs/language/variables) - Complete syntax guide
 - [PROJECT.md](../docs/PROJECT.md) - Architecture and implementation details
 - [COVERAGE_ANALYSIS.md](COVERAGE_ANALYSIS.md) - Test coverage analysis

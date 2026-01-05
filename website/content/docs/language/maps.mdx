@@ -1,0 +1,120 @@
+---
+title: Maps
+description: Learn how to work with maps (dictionaries) in Kronos
+---
+
+# Maps
+
+Maps are key-value collections that store pairs of keys and values. Keys can be strings, numbers, booleans, or null.
+
+## Creating Maps
+
+```kronos
+# Map with string keys
+set person to map name: "Alice", age: 30, city: "NYC"
+
+# Map with number keys
+set scores to map 1: 100, 2: 200, 3: 300
+
+# Map with boolean keys
+set flags to map true: "yes", false: "no"
+
+# Empty map
+set empty_map to map
+
+# Mixed value types
+set mixed to map key1: "string", key2: 42, key3: true, key4: null
+```
+
+## Accessing Values
+
+Use the `at` keyword to access map values:
+
+```kronos
+set person to map name: "Alice", age: 30
+
+set name to person at "name"    # "Alice"
+set age to person at "age"      # 30
+```
+
+### Different Key Types
+
+```kronos
+# Number keys
+set scores to map 1: 100, 2: 200
+set score1 to scores at 1       # 100
+
+# Boolean keys
+set flags to map true: "yes"
+set yes_value to flags at true  # "yes"
+```
+
+## Deleting Keys
+
+Remove keys from maps using the `delete` statement:
+
+```kronos
+let person to map name: "Alice", age: 30, city: "NYC"
+
+delete person at "age"      # Remove age key
+delete person at "city"     # Remove city key
+```
+
+**Note:** Map assignment (updating values) is not yet supported. This feature is planned for a future release.
+
+## Map Operations
+
+Maps support several built-in operations:
+
+- Access values: `map at key`
+- Delete keys: `delete map at key`
+- Check existence: Accessing a non-existent key results in a runtime error
+
+## Iterating Over Maps
+
+Currently, direct iteration over maps is not supported. You can work with known keys:
+
+```kronos
+set person to map name: "Alice", age: 30, city: "NYC"
+
+set keys to list "name", "age", "city"
+for key in keys:
+    print person at key
+```
+
+## Examples
+
+### Configuration Map
+
+```kronos
+set config to map "host": "localhost", "port": 8080, "debug": true
+
+set host to config at "host"
+set port to config at "port"
+set debug to config at "debug"
+
+print f"Connecting to {host}:{port}"
+```
+
+### User Profile
+
+```kronos
+set user to map name: "Bob", email: "bob@example.com", active: true
+
+print f"User: {user at \"name\"}"
+print f"Email: {user at \"email\"}"
+
+if user at "active":
+    print "User is active"
+```
+
+### Removing Sensitive Data
+
+```kronos
+let user_data to map name: "Alice", password: "secret123", email: "alice@example.com"
+
+# Remove password before logging
+delete user_data at "password"
+print user_data  # Only name and email remain
+```
+

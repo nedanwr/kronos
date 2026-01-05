@@ -1,0 +1,161 @@
+---
+title: Modules
+description: Learn how to import and use modules in Kronos
+---
+
+# Modules
+
+Kronos supports importing both built-in modules and file-based modules to organize code into namespaces.
+
+## Built-in Modules
+
+Built-in modules provide additional functionality and are always available.
+
+### Importing Built-in Modules
+
+**Syntax:**
+```kronos
+import <module_name>
+```
+
+**Available Built-in Modules:**
+- `math` - Mathematical functions (sqrt, power, abs, round, floor, ceil, rand, min, max)
+- `regex` - Regular expression pattern matching
+
+**Example:**
+```kronos
+import math
+import regex
+```
+
+### Using Module Functions
+
+After importing a module, access its functions using the `module.function` syntax:
+
+```kronos
+import math
+
+set result to call math.sqrt with 16        # Returns 4
+set power to call math.power with 2, 8      # Returns 256
+set rounded to call math.round with 3.7     # Returns 4
+```
+
+## File-based Modules
+
+You can import code from other `.kr` files to organize your code into reusable modules.
+
+### Importing File-based Modules
+
+**Syntax:**
+```kronos
+import <module_name> from "<file_path>"
+```
+
+**Examples:**
+```kronos
+# Import a module from a file
+import utils from "utils.kr"
+import math_utils from "lib/math_utils.kr"
+
+# Relative paths are supported
+import helpers from "./helpers.kr"
+```
+
+### Module File Execution
+
+When a module is imported, the entire module file is executed in its own VM context. This means:
+- All top-level statements in the module file are executed
+- Functions and variables defined in the module are available through the module namespace
+- Modules are cached - importing the same module multiple times only loads it once
+
+### Example Module File (`utils.kr`)
+
+```kronos
+# Utility functions module
+print "Loading utils module..."
+
+function greet with name:
+    set message to f"Hello, {name}!"
+    return message
+
+set version to "1.0.0"
+```
+
+### Using the Module
+
+```kronos
+import utils from "utils.kr"
+# Module code executes here (prints "Loading utils module...")
+
+# Access module functions
+set greeting to call utils.greet with "Alice"
+print greeting  # Prints: Hello, Alice!
+```
+
+## Global Functions
+
+Some functions are available globally and do not require an import:
+
+- **String functions**: `len`, `uppercase`, `lowercase`, `trim`, `split`, `join`, `contains`, `starts_with`, `ends_with`, `replace`, `to_string`
+- **Type conversion**: `to_number`, `to_bool`, `to_string`
+- **File I/O**: `read_file`, `write_file`, `read_lines`, `file_exists`, `list_files`
+- **Path operations**: `join_path`, `dirname`, `basename`
+- **Printing**: `print`
+
+## Examples
+
+### Using Math Module
+
+```kronos
+import math
+
+set radius to 5
+set area to call math.Pi times (call math.power with radius, 2)
+print f"Area of circle: {area}"
+
+set numbers to list 3, 7, 2, 9, 1
+set max_num to call math.max with numbers
+set min_num to call math.min with numbers
+print f"Max: {max_num}, Min: {min_num}"
+```
+
+### Using Regex Module
+
+```kronos
+import regex
+
+set text to "The cat sat on the mat"
+set pattern to "[a-z]at"
+set matches to call regex.findall with text, pattern
+print matches  # Prints: [cat, sat, mat]
+
+set email to "user@example.com"
+set email_pattern to "^[a-z]+@[a-z]+\\.[a-z]+$"
+set is_valid to call regex.match with email, email_pattern
+print is_valid  # Prints: true
+```
+
+### Creating Custom Modules
+
+Create a file `greetings.kr`:
+
+```kronos
+function say_hello with name:
+    return f"Hello, {name}!"
+
+function say_goodbye with name:
+    return f"Goodbye, {name}!"
+```
+
+Use it in your main file:
+
+```kronos
+import greetings from "greetings.kr"
+
+set hello_msg to call greetings.say_hello with "Alice"
+set goodbye_msg to call greetings.say_goodbye with "Bob"
+
+print hello_msg    # Prints: Hello, Alice!
+print goodbye_msg  # Prints: Goodbye, Bob!
+```
+

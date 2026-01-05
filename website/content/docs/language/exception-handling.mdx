@@ -1,0 +1,148 @@
+---
+title: Exception Handling
+description: Learn how to handle errors with try/catch/finally blocks
+---
+
+# Exception Handling
+
+Kronos provides try/catch/finally blocks for handling errors gracefully.
+
+## Basic Exception Handling
+
+### Try-Catch
+
+```kronos
+try:
+    set content to call read_file with "config.txt"
+    print content
+catch error:
+    print f"Error occurred: {error}"
+```
+
+### Try-Catch-Finally
+
+The `finally` block always executes, whether an exception occurs or not:
+
+```kronos
+try:
+    set content to call read_file with "config.txt"
+    print content
+catch error:
+    print f"Failed to read file: {error}"
+finally:
+    print "Cleanup complete"
+```
+
+## Raising Exceptions
+
+You can raise exceptions using the `raise` keyword:
+
+```kronos
+function divide with a, b:
+    if b is equal 0:
+        raise "Division by zero is not allowed"
+    return a divided by b
+
+try:
+    set result to call divide with 10, 0
+    print result
+catch error:
+    print f"Error: {error}"  # Prints: Error: Division by zero is not allowed
+```
+
+### Raising with Exception Types
+
+You can specify an exception type:
+
+```kronos
+try:
+    raise ValueError "Invalid input value"
+catch ValueError as e:
+    print f"ValueError: {e}"
+catch error:
+    print f"Other error: {error}"
+```
+
+## Catching Specific Exceptions
+
+You can catch specific exception types:
+
+```kronos
+try:
+    raise RuntimeError "Something went wrong"
+catch RuntimeError as e:
+    print f"Runtime error: {e}"
+catch error:
+    print f"Generic error: {error}"
+```
+
+## Examples
+
+### File Operations with Error Handling
+
+```kronos
+try:
+    set content to call read_file with "data.txt"
+    print content
+catch error:
+    print f"Could not read file: {error}"
+    # Fallback behavior
+    set content to "default content"
+```
+
+### Input Validation
+
+```kronos
+function process_age with age_str:
+    try:
+        set age to call to_number with age_str
+        if age is less than 0:
+            raise "Age cannot be negative"
+        if age is greater than 150:
+            raise "Age seems invalid"
+        return age
+    catch error:
+        print f"Invalid age: {error}"
+        return null
+
+set age1 to call process_age with "25"
+set age2 to call process_age with "-5"
+set age3 to call process_age with "abc"
+```
+
+### Resource Cleanup
+
+```kronos
+try:
+    set data to call read_file with "important.txt"
+    # Process data...
+    print data
+catch error:
+    print f"Error processing file: {error}"
+finally:
+    # Always cleanup, even if error occurred
+    print "Closing file handles..."
+    # Cleanup code here
+```
+
+### Nested Exception Handling
+
+```kronos
+function risky_operation with value:
+    if value is less than 0:
+        raise "Value must be positive"
+    return value times 2
+
+try:
+    set result to call risky_operation with -5
+    print result
+catch error:
+    print f"Operation failed: {error}"
+    # Try alternative
+    try:
+        set result to call risky_operation with 10
+        print result
+    catch error2:
+        print f"Alternative also failed: {error2}"
+```
+

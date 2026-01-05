@@ -76,6 +76,6 @@ done
 
 ## Documentation
 
-- [Complete Syntax Reference](../docs/SYNTAX.md)
-- [Quick Reference](../docs/QUICKREF.md)
+- [Language Reference](https://kronos.nedanwr.dev/docs/language/variables) - Complete syntax guide
+- [Quick Reference](https://kronos.nedanwr.dev/docs/quick-reference) - Cheat sheet
 - [Main README](../README.md)

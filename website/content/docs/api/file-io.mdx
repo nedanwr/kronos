@@ -1,0 +1,288 @@
+---
+title: File I/O
+description: Reading and writing files in Kronos
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { TypeTable } from 'fumadocs-ui/components/type-table';
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+# File I/O
+
+Kronos provides built-in functions for file operations. These are available globally — no imports needed.
+
+<Callout>
+  All file operations can throw errors. Wrap them in `try`/`catch` for robust code.
+</Callout>
+
+---
+
+## Reading Files
+
+### read_file
+
+Read the entire contents of a file as a string.
+
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to read',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'File contents as a string',
+      type: 'string',
+    },
+  }}
+/>
+
+```kronos
+set content to call read_file with "data.txt"
+print content
+```
+
+<Accordions>
+<Accordion title="With error handling">
+```kronos
+try:
+    set content to call read_file with "config.txt"
+    print content
+catch error:
+    print f"Could not read file: {error}"
+```
+</Accordion>
+</Accordions>
+
+---
+
+### read_lines
+
+Read a file and return a list of lines.
+
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to read',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'List of lines (strings)',
+      type: 'list',
+    },
+  }}
+/>
+
+```kronos
+set lines to call read_lines with "data.txt"
+
+for line in lines:
+    print line
+```
+
+---
+
+## Writing Files
+
+### write_file
+
+Write content to a file. Creates the file if it doesn't exist, overwrites if it does.
+
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to the file to write',
+      type: 'string',
+      required: true,
+    },
+    content: {
+      description: 'Content to write',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'null on success, throws on failure',
+      type: 'null',
+    },
+  }}
+/>
+
+```kronos
+call write_file with "output.txt", "Hello, World!"
+```
+
+<Callout type="warn">
+  This **overwrites** existing files. There's no append mode yet.
+</Callout>
+
+---
+
+## File Information
+
+### file_exists
+
+Check if a file or directory exists.
+
+<TypeTable
+  type={{
+    path: {
+      description: 'Path to check',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'true if exists, false otherwise',
+      type: 'boolean',
+    },
+  }}
+/>
+
+```kronos
+if call file_exists with "config.txt":
+    print "Config found!"
+else:
+    print "Using defaults..."
+```
+
+---
+
+### list_files
+
+List all files in a directory.
+
+<TypeTable
+  type={{
+    path: {
+      description: 'Directory path',
+      type: 'string',
+      required: true,
+    },
+    returns: {
+      description: 'List of filenames (excludes . and ..)',
+      type: 'list',
+    },
+  }}
+/>
+
+```kronos
+set files to call list_files with "."
+
+for file in files:
+    print file
+```
+
+---
+
+## Path Operations
+
+### join_path
+
+Join path components with the appropriate separator.
+
+```kronos
+set full to call join_path with "dir", "file.txt"
+# Returns: "dir/file.txt"
+
+set nested to call join_path with "/path/to", "file.txt"
+# Returns: "/path/to/file.txt"
+```
+
+### dirname
+
+Get the directory portion of a path.
+
+```kronos
+set dir to call dirname with "/path/to/file.txt"
+# Returns: "/path/to"
+
+set dir2 to call dirname with "file.txt"
+# Returns: "."
+```
+
+### basename
+
+Get the filename portion of a path.
+
+```kronos
+set file to call basename with "/path/to/file.txt"
+# Returns: "file.txt"
+```
+
+---
+
+## Common Patterns
+
+<Accordions>
+<Accordion title="Safe file reading">
+```kronos
+function safe_read with path:
+    if not call file_exists with path:
+        return null
+    
+    try:
+        return call read_file with path
+    catch error:
+        print f"Warning: {error}"
+        return null
+
+set content to call safe_read with "maybe-exists.txt"
+if content is not null:
+    print content
+```
+</Accordion>
+
+<Accordion title="Process all files in directory">
+```kronos
+set files to call list_files with "data"
+
+for file in files:
+    set path to call join_path with "data", file
+    
+    try:
+        set content to call read_file with path
+        print f"Processing {file}..."
+        # Process content...
+    catch error:
+        print f"Skipping {file}: {error}"
+```
+</Accordion>
+
+<Accordion title="Simple logging">
+```kronos
+function log with message:
+    set log_file to "app.log"
+    set entry to f"[LOG] {message}\n"
+    
+    try:
+        if call file_exists with log_file:
+            set existing to call read_file with log_file
+            call write_file with log_file, existing plus entry
+        else:
+            call write_file with log_file, entry
+    catch error:
+        print f"Log failed: {error}"
+
+call log with "Application started"
+call log with "User logged in"
+```
+</Accordion>
+
+<Accordion title="Build paths safely">
+```kronos
+set base to "projects"
+set project to "kronos"
+set file to "main.kr"
+
+# Build the full path
+set project_dir to call join_path with base, project
+set full_path to call join_path with project_dir, file
+
+print full_path  # projects/kronos/main.kr
+
+# Extract components back
+print call dirname with full_path   # projects/kronos
+print call basename with full_path  # main.kr
+```
+</Accordion>
+</Accordions>

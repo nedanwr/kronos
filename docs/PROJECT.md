@@ -14,7 +14,7 @@ A comprehensive overview of the Kronos programming language implementation.
 
 ## Status & Statistics
 
-**Version:** 0.4.0
+**Version:** 0.4.5
 **Status:** Core Features Complete ✅ | All Major Features Implemented
 
 ```
@@ -196,15 +196,15 @@ src/
     └── lsp_server.c            # LSP implementation
 ```
 
-### Documentation Structure (`docs/`)
+### Documentation Structure
 
 ```
 docs/
-├── README.md                    # Documentation index
 ├── PROJECT.md                   # This file (architecture & internals)
-├── SYNTAX.md                    # Language syntax reference
-├── QUICKREF.md                  # Quick reference card
-└── EDITOR.md                    # Editor setup & LSP
+├── CREDITS.md                   # Contributors
+└── BOOTSTRAP_ANALYSIS.md        # Self-hosting analysis
+
+# Language docs are on the website: https://kronos.nedanwr.dev/docs
 ```
 
 ### VSCode Extension (`vscode-extension/`)
@@ -421,14 +421,14 @@ for f in examples/*.kr; do ./kronos "$f"; done
 
 ### User Documentation
 
+- **[kronos.nedanwr.dev](https://kronos.nedanwr.dev/docs)** - Official documentation website
 - **README.md** - Project overview and quick start
-- **docs/SYNTAX.md** - Complete syntax reference (600+ lines)
-- **docs/QUICKREF.md** - Quick reference card
 - **examples/README.md** - Example guide
 
 ### Developer Documentation
 
 - **docs/PROJECT.md** - This file (architecture & internals)
+- **docs/CREDITS.md** - Contributors
 - **Header files** - Inline API documentation
 - **Code comments** - Implementation details
 
@@ -535,6 +535,6 @@ Built from scratch in C following modern VM design principles, inspired by:
 
 ---
 
-**Project Status:** ✅ Core Features Complete (v0.4.0)
+**Project Status:** ✅ Core Features Complete (v0.4.5)
 **Last Updated:** December 2025
-**Version:** 0.4.0
+**Version:** 0.4.5

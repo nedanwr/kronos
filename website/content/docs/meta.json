@@ -1,0 +1,17 @@
+{
+  "title": "Docs",
+  "pages": [
+    "---Getting Started---",
+    "index",
+    "getting-started",
+    "editor-setup",
+    "quick-reference",
+    "---Language---",
+    "language",
+    "---Standard Library---",
+    "api",
+    "---Resources---",
+    "roadmap"
+  ]
+}
+
