@@ -162,18 +162,44 @@ const char *kronos_wasm_run(const char *source) {
   vm_clear_error(g_wasm_vm);
 
   // Step 1: Tokenize
-  TokenArray *tokens = tokenize(source, NULL);
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize(source, &tok_err);
   if (!tokens) {
-    snprintf(g_error_buffer, ERROR_BUFFER_SIZE, "Error: Tokenization failed");
+    if (tok_err && tok_err->message) {
+      if (tok_err->line > 0) {
+        snprintf(g_error_buffer, ERROR_BUFFER_SIZE,
+                 "Error: Tokenization failed at line %zu, column %zu: %s",
+                 tok_err->line, tok_err->column, tok_err->message);
+      } else {
+        snprintf(g_error_buffer, ERROR_BUFFER_SIZE,
+                 "Error: Tokenization failed: %s", tok_err->message);
+      }
+      tokenize_error_free(tok_err);
+    } else {
+      snprintf(g_error_buffer, ERROR_BUFFER_SIZE, "Error: Tokenization failed");
+    }
     return g_error_buffer;
   }
 
   // Step 2: Parse
-  AST *ast = parse(tokens, NULL);
+  ParseError *parse_err = NULL;
+  AST *ast = parse(tokens, &parse_err);
   token_array_free(tokens);
 
   if (!ast) {
-    snprintf(g_error_buffer, ERROR_BUFFER_SIZE, "Error: Parsing failed");
+    if (parse_err && parse_err->message) {
+      if (parse_err->line > 0) {
+        snprintf(g_error_buffer, ERROR_BUFFER_SIZE,
+                 "Error: Parsing failed at line %zu, column %zu: %s",
+                 parse_err->line, parse_err->column, parse_err->message);
+      } else {
+        snprintf(g_error_buffer, ERROR_BUFFER_SIZE, "Error: Parsing failed: %s",
+                 parse_err->message);
+      }
+      parse_error_free(parse_err);
+    } else {
+      snprintf(g_error_buffer, ERROR_BUFFER_SIZE, "Error: Parsing failed");
+    }
     return g_error_buffer;
   }
 
