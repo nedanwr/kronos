@@ -78,8 +78,12 @@ export function Navigation() {
 
         {/* Mobile menu button */}
         <button
+          type="button"
           className="text-[#9CA3AF] md:hidden"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label="Toggle navigation menu"
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-menu"
         >
           {mobileMenuOpen ? (
             <X className="h-6 w-6" />
@@ -91,7 +95,10 @@ export function Navigation() {
 
       {/* Mobile menu */}
       {mobileMenuOpen && (
-        <div className="border-t border-white/10 bg-[#050505]/95 backdrop-blur-xl md:hidden">
+        <div
+          id="mobile-menu"
+          className="border-t border-white/10 bg-[#050505]/95 backdrop-blur-xl md:hidden"
+        >
           <nav className="flex flex-col gap-4 p-4">
             {navLinks.map((link) => (
               <a
