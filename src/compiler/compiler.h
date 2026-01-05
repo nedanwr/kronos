@@ -123,12 +123,33 @@ void bytecode_free(Bytecode *bytecode);
 void bytecode_print(Bytecode *bytecode);
 
 /**
- * @brief Set a callback for compiler warnings
+ * @brief Set a callback for compiler warnings.
  *
  * When set, compiler warnings will be sent to this callback instead of stderr.
  * Used by WASM builds to capture warnings for display in the browser.
  *
- * @param callback Function to call with warning messages (NULL to use stderr)
+ * Thread-safety:
+ * - NOT thread-safe. Must not be called concurrently with compile() or other
+ *   callback setters.
+ * - All accesses to the global callback pointer are unsynchronized; concurrent
+ *   calls may result in data races and undefined behavior.
+ *
+ * Callback lifetime:
+ * - The provided function pointer must remain valid until it is replaced by
+ *   another call to this function, reset to NULL, or the process terminates.
+ * - If the callback points to dynamically loaded code (e.g., a plugin), the
+ *   caller must ensure the code remains loaded while the callback is active.
+ *
+ * Invocation context:
+ * - The callback is invoked synchronously during compilation on the same thread
+ *   that called compile().
+ * - No internal worker threads are used; all invocations occur inline within
+ *   the compile() call stack.
+ * - The callback must not call back into the compiler (e.g., compile() or
+ *   compiler_set_warning_callback()) to avoid reentrancy issues.
+ *
+ * @param callback Function to call with warning messages, or NULL to restore
+ *                 default behavior (warnings printed to stderr).
  */
 void compiler_set_warning_callback(void (*callback)(const char *message));
 
