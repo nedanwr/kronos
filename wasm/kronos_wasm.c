@@ -288,8 +288,7 @@ void kronos_wasm_reset(void) {
     vm_clear_stack(g_wasm_vm);
     vm_clear_error(g_wasm_vm);
 
-    // Clear globals and functions
-    // Note: This is a simplified reset - full reset would recreate the VM
+    // Clear global variables
     for (size_t i = 0; i < g_wasm_vm->global_count; i++) {
       if (g_wasm_vm->globals[i].name) {
         free(g_wasm_vm->globals[i].name);
@@ -301,6 +300,20 @@ void kronos_wasm_reset(void) {
       }
     }
     g_wasm_vm->global_count = 0;
+
+    // Clear user-defined functions
+    for (size_t i = 0; i < g_wasm_vm->function_count; i++) {
+      if (g_wasm_vm->functions[i]) {
+        function_free(g_wasm_vm->functions[i]);
+        g_wasm_vm->functions[i] = NULL;
+      }
+    }
+    g_wasm_vm->function_count = 0;
+
+    // Clear function hash table
+    for (size_t i = 0; i < FUNCTIONS_MAX; i++) {
+      g_wasm_vm->function_hash[i] = NULL;
+    }
 
     // Clear output buffer
     g_output_buffer[0] = '\0';
