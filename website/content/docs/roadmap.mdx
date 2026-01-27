@@ -230,6 +230,19 @@ All features completed — you're looking at it!
 ### Advanced Language Features
 
 <Accordions>
+<Accordion title="String Interpolation Enhancements">
+Format specifiers for f-strings with precision, width, alignment, and type control.
+
+```kronos
+set price to 19.99
+print f"Price: {price:.2f}"    # Price: 19.99
+
+set x to 42
+print f"|{x:>10}|"            # |        42|
+print f"|{x:0>5}|"            # |00042|
+```
+</Accordion>
+
 <Accordion title="Anonymous Functions / Lambdas">
 ```kronos
 set double to function with x: return x times 2
