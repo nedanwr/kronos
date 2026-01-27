@@ -233,6 +233,43 @@ void handle_completion(const char *id, const char *body) {
                   "{\"label\":\"Pi\",\"kind\":21,\"detail\":\"Mathematical "
                   "constant\"}");
 
+  // Add format specifier snippets (for use inside f-string braces)
+  const char *format_specs[][2] = {
+      {":.2f", "2 decimal places (e.g., 3.14)"},
+      {":.3f", "3 decimal places (e.g., 3.142)"},
+      {":.0f", "No decimal places (rounds to integer)"},
+      {":d", "Integer format (truncates decimals)"},
+      {":s", "String format (default for strings)"},
+      {":>10", "Right-align in 10 characters"},
+      {":<10", "Left-align in 10 characters"},
+      {":^10", "Center in 10 characters"},
+      {":0>5", "Zero-pad to 5 characters"},
+  };
+
+  for (size_t i = 0; i < sizeof(format_specs) / sizeof(format_specs[0]); i++) {
+    int written = snprintf(completions + pos, remaining - pos, ",");
+    if (written > 0 && (size_t)written < remaining - pos) {
+      pos += (size_t)written;
+      remaining -= (size_t)written;
+    } else {
+      break;
+    }
+    char escaped[LSP_PATTERN_BUFFER_SIZE];
+    json_escape(format_specs[i][0], escaped, sizeof(escaped));
+    char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
+    json_escape(format_specs[i][1], escaped_detail, sizeof(escaped_detail));
+    written = snprintf(
+        completions + pos, remaining - pos,
+        "{\"label\":\"%s\",\"kind\":15,\"detail\":\"Format specifier: %s\"}",
+        escaped, escaped_detail);
+    if (written > 0 && (size_t)written < remaining - pos) {
+      pos += (size_t)written;
+      remaining -= (size_t)written;
+    } else {
+      break;
+    }
+  }
+
   pos += snprintf(completions + pos, remaining - pos, "]}");
   send_response(id, completions);
 }
