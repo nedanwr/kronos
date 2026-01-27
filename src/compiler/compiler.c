@@ -888,6 +888,48 @@ static void compile_slice_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Emit code to convert expression to string, with optional formatting
+ *
+ * If format_spec is non-NULL, emits OP_FORMAT_VALUE with the spec.
+ * Otherwise, calls to_string to convert the value.
+ */
+static void emit_expr_to_string(Compiler *c, const char *format_spec) {
+  if (format_spec) {
+    // Emit format specifier as constant and use OP_FORMAT_VALUE
+    KronosValue *spec_val = value_new_string(format_spec, strlen(format_spec));
+    if (!spec_val) {
+      compiler_set_error(c, "Failed to allocate format specifier constant");
+      return;
+    }
+    size_t spec_idx = add_constant(c, spec_val);
+    if (spec_idx == SIZE_MAX) {
+      value_release(spec_val);
+      return;
+    }
+    emit_byte(c, OP_FORMAT_VALUE);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)spec_idx);
+  } else {
+    // Call to_string to convert expression result to string
+    size_t to_string_idx = get_to_string_constant(c);
+    if (to_string_idx == SIZE_MAX) {
+      return;
+    }
+    emit_byte(c, OP_CALL_FUNC);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)to_string_idx);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, 1); // 1 argument
+  }
+}
+
+/**
  * @brief Compile an f-string expression
  */
 static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
@@ -907,6 +949,10 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
 
   // Compile first part
   ASTNode *first_part = node->as.fstring.parts[0];
+  const char *first_format_spec = node->as.fstring.format_specs
+                                      ? node->as.fstring.format_specs[0]
+                                      : NULL;
+
   if (first_part->type == AST_STRING) {
     // First part is a string - emit it
     compile_expression(c, first_part);
@@ -930,20 +976,8 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
       return;
     }
 
-    // Call to_string to convert expression result to string
-    size_t to_string_idx = get_to_string_constant(c);
-    if (to_string_idx == SIZE_MAX) {
-      return;
-    }
-    emit_byte(c, OP_CALL_FUNC);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_uint16(c, (uint16_t)to_string_idx);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_byte(c, 1); // 1 argument
+    // Convert to string (with optional format specifier)
+    emit_expr_to_string(c, first_format_spec);
     if (compiler_has_error(c)) {
       return;
     }
@@ -957,6 +991,9 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
   // Process remaining parts (pairs of expr, string)
   for (size_t i = 1; i < node->as.fstring.part_count; i++) {
     ASTNode *part = node->as.fstring.parts[i];
+    const char *format_spec = node->as.fstring.format_specs
+                                  ? node->as.fstring.format_specs[i]
+                                  : NULL;
 
     if (part->type == AST_STRING) {
       // String literal - just compile it
@@ -971,14 +1008,8 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
         return;
       }
 
-      // Call to_string to convert expression result to string
-      size_t to_string_idx = get_to_string_constant(c);
-      if (to_string_idx == SIZE_MAX) {
-        return;
-      }
-      emit_byte(c, OP_CALL_FUNC);
-      emit_uint16(c, (uint16_t)to_string_idx);
-      emit_byte(c, 1); // 1 argument
+      // Convert to string (with optional format specifier)
+      emit_expr_to_string(c, format_spec);
       if (compiler_has_error(c)) {
         return;
       }
@@ -3073,6 +3104,18 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
 
+    case OP_FORMAT_VALUE: {
+      if (offset + 2 >= bytecode->count) {
+        printf("FORMAT_VALUE <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t spec_idx =
+          (uint16_t)(bytecode->code[offset + 1] << 8 | bytecode->code[offset + 2]);
+      printf("FORMAT_VALUE spec=%u\n", spec_idx);
+      offset += 3;
+      break;
+    }
     case OP_HALT:
       printf("HALT\n");
       offset++;
