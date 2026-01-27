@@ -514,12 +514,16 @@ static ASTNode *parse_fstring(Parser *p);
 static ASTNode *fstring_create_string_part(const char *content, size_t start,
                                            size_t end);
 static ASTNode *fstring_parse_expression(const char *content, size_t expr_start,
-                                         size_t expr_end);
+                                         size_t expr_end,
+                                         char **out_format_spec);
 static size_t fstring_find_next_brace(const char *content, size_t content_len,
                                       size_t start);
 static size_t fstring_find_matching_brace(const char *content,
-                                          size_t content_len, size_t start);
-static void fstring_cleanup_parts(ASTNode **parts, size_t part_count);
+                                          size_t content_len, size_t start,
+                                          size_t *out_colon_pos);
+static void fstring_cleanup_format_specs(char **format_specs, size_t count);
+static void fstring_cleanup_parts(ASTNode **parts, char **format_specs,
+                                  size_t part_count);
 static bool fstring_grow_parts_array(ASTNode ***parts, size_t *capacity);
 static bool fstring_add_part(ASTNode ***parts, size_t *part_count,
                              size_t *capacity, ASTNode *part);
@@ -587,8 +591,20 @@ static ASTNode *fstring_create_string_part(const char *content, size_t start,
 // significant architectural changes (e.g., position tracking in tokens,
 // ability to parse substrings of the token stream). The current approach
 // works correctly and is acceptable for most use cases.
+//
+// @param content F-string content
+// @param expr_start Start position of expression
+// @param expr_end End position of expression (exclusive)
+// @param out_format_spec If non-NULL, receives heap-allocated format specifier
+//                        string (caller must free), or NULL if no format spec
+// @return Parsed expression AST node, or NULL on error
 static ASTNode *fstring_parse_expression(const char *content, size_t expr_start,
-                                         size_t expr_end) {
+                                         size_t expr_end,
+                                         char **out_format_spec) {
+  if (out_format_spec) {
+    *out_format_spec = NULL;
+  }
+
   // Extract expression string
   size_t expr_len = expr_end - expr_start;
   char *expr_str = malloc(expr_len + 1);
@@ -651,17 +667,22 @@ static size_t fstring_find_next_brace(const char *content, size_t content_len,
  * @brief Find the matching closing brace for an opening brace
  *
  * Handles nested braces by tracking depth. Returns content_len if no matching
- * brace is found.
+ * brace is found. Also finds the position of ':' at depth 1 (format specifier
+ * separator).
  *
  * @param content F-string content
  * @param content_len Length of content
  * @param start Position after the opening brace
+ * @param out_colon_pos If non-NULL, set to position of ':' at depth 1, or
+ *                      content_len if no colon found
  * @return Position of matching closing brace, or content_len if not found
  */
 static size_t fstring_find_matching_brace(const char *content,
-                                          size_t content_len, size_t start) {
+                                          size_t content_len, size_t start,
+                                          size_t *out_colon_pos) {
   size_t i = start;
   int depth = 1;
+  size_t colon_pos = content_len; // Not found by default
 
   while (i < content_len && depth > 0) {
     if (content[i] == '\\' && i + 1 < content_len) {
@@ -672,32 +693,64 @@ static size_t fstring_find_matching_brace(const char *content,
     } else if (content[i] == '}') {
       depth--;
       if (depth == 0) {
+        if (out_colon_pos) {
+          *out_colon_pos = colon_pos;
+        }
         return i;
       }
+      i++;
+    } else if (content[i] == ':' && depth == 1 && colon_pos == content_len) {
+      // First colon at depth 1 marks format specifier start
+      colon_pos = i;
       i++;
     } else {
       i++;
     }
   }
+
+  if (out_colon_pos) {
+    *out_colon_pos = content_len;
+  }
   return content_len; // No matching brace found
 }
 
 /**
- * @brief Cleanup allocated parts array
+ * @brief Cleanup allocated format_specs array
  *
- * Frees all AST nodes in the parts array and the array itself.
+ * Frees all format spec strings in the array and the array itself.
  *
- * @param parts Array of AST nodes
- * @param part_count Number of parts in the array
+ * @param format_specs Array of format spec strings (may contain NULLs)
+ * @param count Number of entries in the array
  */
-static void fstring_cleanup_parts(ASTNode **parts, size_t part_count) {
-  if (!parts) {
+static void fstring_cleanup_format_specs(char **format_specs, size_t count) {
+  if (!format_specs) {
     return;
   }
-  for (size_t i = 0; i < part_count; i++) {
-    ast_node_free(parts[i]);
+  for (size_t i = 0; i < count; i++) {
+    free(format_specs[i]);
   }
-  free(parts);
+  free(format_specs);
+}
+
+/**
+ * @brief Cleanup allocated parts array and format_specs array
+ *
+ * Frees all AST nodes in the parts array, all format spec strings,
+ * and both arrays themselves.
+ *
+ * @param parts Array of AST nodes
+ * @param format_specs Array of format spec strings (may be NULL)
+ * @param part_count Number of parts in the arrays
+ */
+static void fstring_cleanup_parts(ASTNode **parts, char **format_specs,
+                                  size_t part_count) {
+  if (parts) {
+    for (size_t i = 0; i < part_count; i++) {
+      ast_node_free(parts[i]);
+    }
+    free(parts);
+  }
+  fstring_cleanup_format_specs(format_specs, part_count);
 }
 
 /**
@@ -1414,9 +1467,10 @@ static ASTNode *parse_map_literal(Parser *p) {
 }
 
 /**
- * @brief Parse an f-string with embedded expressions
+ * @brief Parse an f-string with embedded expressions and format specifiers
  *
  * F-strings allow embedding expressions: f"Hello {name}".
+ * Format specifiers are supported: f"Price: {price:.2f}".
  * Handles nested braces and escape sequences. Each expression
  * is tokenized and parsed separately.
  *
@@ -1441,6 +1495,15 @@ static ASTNode *parse_fstring(Parser *p) {
     return NULL;
   }
 
+  // Allocate parallel format_specs array
+  char **format_specs = calloc(part_capacity, sizeof(char *));
+  if (!format_specs) {
+    fprintf(stderr, "Failed to allocate memory for format specifiers\n");
+    free(parts);
+    return NULL;
+  }
+  size_t format_specs_capacity = part_capacity;
+
   size_t i = 0;
   while (i < content_len) {
     size_t start = i;
@@ -1452,31 +1515,83 @@ static ASTNode *parse_fstring(Parser *p) {
           fstring_create_string_part(content, start, brace_start);
       if (!str_node ||
           !fstring_add_part(&parts, &part_count, &part_capacity, str_node)) {
-        fstring_cleanup_parts(parts, part_count);
+        fstring_cleanup_parts(parts, format_specs, part_count);
         return NULL;
       }
+      // Grow format_specs array if parts array grew
+      if (part_capacity > format_specs_capacity) {
+        char **new_specs = realloc(format_specs, part_capacity * sizeof(char *));
+        if (!new_specs) {
+          fstring_cleanup_parts(parts, format_specs, part_count);
+          return NULL;
+        }
+        // Zero-initialize new entries
+        for (size_t j = format_specs_capacity; j < part_capacity; j++) {
+          new_specs[j] = NULL;
+        }
+        format_specs = new_specs;
+        format_specs_capacity = part_capacity;
+      }
+      format_specs[part_count - 1] = NULL; // String literals have no format spec
     }
 
     // If we found a {, parse the expression inside
     if (brace_start < content_len) {
       size_t expr_start = brace_start + 1;
+      size_t colon_pos = content_len;
       size_t brace_end =
-          fstring_find_matching_brace(content, content_len, expr_start);
+          fstring_find_matching_brace(content, content_len, expr_start,
+                                      &colon_pos);
 
       if (brace_end >= content_len) {
         fprintf(stderr, "Unmatched { in f-string\n");
-        fstring_cleanup_parts(parts, part_count);
+        fstring_cleanup_parts(parts, format_specs, part_count);
         return NULL;
+      }
+
+      // Determine expression end (either colon or brace)
+      size_t expr_end = (colon_pos < brace_end) ? colon_pos : brace_end;
+
+      // Extract format specifier if present
+      char *format_spec = NULL;
+      if (colon_pos < brace_end) {
+        size_t spec_len = brace_end - colon_pos - 1;
+        if (spec_len > 0) {
+          format_spec = malloc(spec_len + 1);
+          if (!format_spec) {
+            fstring_cleanup_parts(parts, format_specs, part_count);
+            return NULL;
+          }
+          memcpy(format_spec, content + colon_pos + 1, spec_len);
+          format_spec[spec_len] = '\0';
+        }
       }
 
       // Parse expression from f-string content
       ASTNode *expr_node =
-          fstring_parse_expression(content, expr_start, brace_end);
+          fstring_parse_expression(content, expr_start, expr_end, NULL);
       if (!expr_node ||
           !fstring_add_part(&parts, &part_count, &part_capacity, expr_node)) {
-        fstring_cleanup_parts(parts, part_count);
+        free(format_spec);
+        fstring_cleanup_parts(parts, format_specs, part_count);
         return NULL;
       }
+
+      // Grow format_specs array if parts array grew
+      if (part_capacity > format_specs_capacity) {
+        char **new_specs = realloc(format_specs, part_capacity * sizeof(char *));
+        if (!new_specs) {
+          free(format_spec);
+          fstring_cleanup_parts(parts, format_specs, part_count);
+          return NULL;
+        }
+        for (size_t j = format_specs_capacity; j < part_capacity; j++) {
+          new_specs[j] = NULL;
+        }
+        format_specs = new_specs;
+        format_specs_capacity = part_capacity;
+      }
+      format_specs[part_count - 1] = format_spec;
 
       i = brace_end + 1; // Skip }
     } else {
@@ -1489,27 +1604,31 @@ static ASTNode *parse_fstring(Parser *p) {
     ASTNode *empty_str = ast_node_new_checked(AST_STRING);
     if (!empty_str) {
       free(parts);
+      free(format_specs);
       return NULL;
     }
     empty_str->as.string.value = malloc(1);
     if (!empty_str->as.string.value) {
       free(parts);
+      free(format_specs);
       free(empty_str);
       return NULL;
     }
     empty_str->as.string.value[0] = '\0';
     empty_str->as.string.length = 0;
     parts[part_count++] = empty_str;
+    format_specs[0] = NULL;
   }
 
   ASTNode *node = ast_node_new_checked(AST_FSTRING);
   if (!node) {
-    fstring_cleanup_parts(parts, part_count);
+    fstring_cleanup_parts(parts, format_specs, part_count);
     return NULL;
   }
   ast_node_set_position(node, tok);
   node->as.fstring.parts = parts;
   node->as.fstring.part_count = part_count;
+  node->as.fstring.format_specs = format_specs;
   return node;
 }
 
@@ -4024,8 +4143,10 @@ void ast_node_free(ASTNode *node) {
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
       ast_node_free(node->as.fstring.parts[i]);
+      free(node->as.fstring.format_specs[i]);
     }
     free(node->as.fstring.parts);
+    free(node->as.fstring.format_specs);
     break;
   default:
     break;
