@@ -1,0 +1,16 @@
+# Test: F-strings with precision format specifiers
+# Expected: Pass
+
+set price to 19.99
+print f"Price: {price:.2f}"
+
+set pi to 3.14159265
+print f"Pi to 4 places: {pi:.4f}"
+print f"Pi to 0 places: {pi:.0f}"
+
+set rate to 0.1234567
+print f"Rate: {rate:.3f}"
+
+# Precision with integer (converted to float)
+set n to 42
+print f"As float: {n:.2f}"
