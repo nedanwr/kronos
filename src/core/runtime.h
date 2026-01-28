@@ -19,6 +19,7 @@ typedef enum {
   VAL_CHANNEL,
   VAL_RANGE,
   VAL_MAP,
+  VAL_TUPLE, // Immutable fixed-size container for multiple return values
 } ValueType;
 
 // Reference-counted value
@@ -60,6 +61,10 @@ typedef struct KronosValue {
       size_t count;      // Number of active entries
       size_t capacity;   // Total capacity of hash table
     } map;
+    struct {
+      struct KronosValue **items; // Fixed-size array of values
+      size_t count;               // Number of items (immutable after creation)
+    } tuple;
   } as;
 } KronosValue;
 
@@ -85,6 +90,7 @@ KronosValue *value_new_list(size_t initial_capacity);
 KronosValue *value_new_channel(Channel *channel);
 KronosValue *value_new_range(double start, double end, double step);
 KronosValue *value_new_map(size_t initial_capacity);
+KronosValue *value_new_tuple(KronosValue **items, size_t count);
 
 // Reference counting
 // Both helpers treat NULL inputs as no-ops for convenience.
