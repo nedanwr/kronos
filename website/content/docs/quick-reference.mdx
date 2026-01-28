@@ -68,6 +68,15 @@ function greet with name:
     print f"Hello, {name}!"
 
 call greet with "Alice"
+
+# Multiple return values
+function divide with a, b:
+    return a divided by b, a mod b
+
+set q, r to call divide with 10, 3
+
+# Variable swapping
+let x, y to y, x
 ```
 
 ## Strings

@@ -46,6 +46,66 @@ print result  # Prints: 8
 
 If no return statement is provided, the function returns `null`.
 
+## Multiple Return Values
+
+Functions can return multiple values using comma-separated expressions:
+
+```kronos
+function divide_with_remainder with a, b:
+    let quotient to a divided by b
+    let quotient to call floor with quotient
+    set remainder to a mod b
+    return quotient, remainder
+
+set q, r to call divide_with_remainder with 10, 3
+print q  # Prints: 3
+print r  # Prints: 1
+```
+
+### Unpacking Multiple Values
+
+Use comma-separated variable names to unpack multiple return values:
+
+```kronos
+function get_point:
+    return 10, 20
+
+set x, y to call get_point
+print x  # Prints: 10
+print y  # Prints: 20
+```
+
+### Variable Swapping
+
+Multiple assignment also enables elegant variable swapping:
+
+```kronos
+let x to 10
+let y to 20
+let x, y to y, x  # Swap values
+print x  # Prints: 20
+print y  # Prints: 10
+```
+
+### Practical Example
+
+```kronos
+function get_min_max with nums:
+    let min_val to nums at 0
+    let max_val to nums at 0
+    for n in nums:
+        if n is less than min_val:
+            let min_val to n
+        if n is greater than max_val:
+            let max_val to n
+    return min_val, max_val
+
+set numbers to list 5, 2, 8, 1, 9, 3
+set lo, hi to call get_min_max with numbers
+print lo  # Prints: 1
+print hi  # Prints: 9
+```
+
 ## Anonymous Functions (Lambdas)
 
 Anonymous functions (also called lambdas) are functions that can be assigned to variables and passed around as values. They are defined using the `function with` syntax without a function name.

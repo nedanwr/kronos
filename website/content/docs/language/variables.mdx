@@ -76,6 +76,58 @@ let counter to 100
 print counter  # 100
 ```
 
+## Unpacking Assignment
+
+Multiple variables can be assigned at once using unpacking syntax. This works with both `set` (immutable) and `let` (mutable).
+
+### Multiple Assignment
+
+```kronos
+set x, y to 10, 20
+print x  # 10
+print y  # 20
+
+let a, b, c to 1, 2, 3
+print a  # 1
+print b  # 2
+print c  # 3
+```
+
+### Variable Swapping
+
+Unpacking enables elegant variable swapping without a temporary variable:
+
+```kronos
+let x to 10
+let y to 20
+print x  # 10
+print y  # 20
+
+let x, y to y, x
+print x  # 20
+print y  # 10
+```
+
+### Unpacking Function Returns
+
+Functions can return multiple values, which can be unpacked into variables:
+
+```kronos
+function get_coordinates:
+    return 100, 200
+
+set x, y to call get_coordinates
+print x  # 100
+print y  # 200
+```
+
+<Callout type="warn">
+The number of variables must match the number of values being unpacked.
+```kronos
+set x, y to 1, 2, 3  # Error: count mismatch
+```
+</Callout>
+
 ---
 
 ## Type Annotations
