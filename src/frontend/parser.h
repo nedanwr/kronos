@@ -33,6 +33,7 @@ typedef enum {
   AST_DELETE,       // Map key deletion: delete var at key
   AST_TRY,          // Try/catch/finally exception handling
   AST_RAISE,        // Raise exception: raise ErrorType "message"
+  AST_LAMBDA,       // Anonymous function expression
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -177,6 +178,18 @@ struct ASTNode {
     struct {
       ASTNode *value;
     } return_stmt;
+
+    // Lambda: anonymous function expression
+    // Single-line: function with params: expr
+    // Multi-line: function with params:\n    block
+    struct {
+      char **params;
+      size_t param_count;
+      ASTNode *body_expr;  // For single-line: the return expression
+      ASTNode **block;     // For multi-line: block of statements
+      size_t block_size;
+      bool is_single_line; // true if single-line form
+    } lambda;
 
     // Import: import module_name [from "file.kr"] or from module_name import
     // func1, func2
