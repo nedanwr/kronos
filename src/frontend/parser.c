@@ -2207,6 +2207,186 @@ static ASTNode *parse_assignment(Parser *p, int indent) {
     return assignment_parse_index(p, indent, name);
   }
 
+  // Check if this is an unpack assignment: set x, y to expr
+  Token *comma_token = peek(p, 0);
+  if (comma_token && comma_token->type == TOK_COMMA) {
+    // Parse unpack assignment with multiple names
+    char **names = malloc(sizeof(char *));
+    if (!names) {
+      return NULL;
+    }
+    names[0] = strdup(name->text);
+    if (!names[0]) {
+      free(names);
+      return NULL;
+    }
+    size_t name_count = 1;
+    size_t name_capacity = 1;
+
+    // Collect additional names
+    while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+      consume(p, TOK_COMMA);
+      Token *next_name = consume(p, TOK_NAME);
+      if (!next_name) {
+        for (size_t i = 0; i < name_count; i++) {
+          free(names[i]);
+        }
+        free(names);
+        return NULL;
+      }
+
+      // Grow array if needed
+      if (name_count >= name_capacity) {
+        size_t new_capacity = name_capacity * 2;
+        char **new_names = realloc(names, new_capacity * sizeof(char *));
+        if (!new_names) {
+          for (size_t i = 0; i < name_count; i++) {
+            free(names[i]);
+          }
+          free(names);
+          return NULL;
+        }
+        names = new_names;
+        name_capacity = new_capacity;
+      }
+
+      names[name_count] = strdup(next_name->text);
+      if (!names[name_count]) {
+        for (size_t i = 0; i < name_count; i++) {
+          free(names[i]);
+        }
+        free(names);
+        return NULL;
+      }
+      name_count++;
+    }
+
+    // Expect 'to' keyword
+    if (!consume(p, TOK_TO)) {
+      for (size_t i = 0; i < name_count; i++) {
+        free(names[i]);
+      }
+      free(names);
+      return NULL;
+    }
+
+    // Parse the value expression (which should be a tuple or single value)
+    ASTNode *value = parse_expression(p);
+    if (!value) {
+      for (size_t i = 0; i < name_count; i++) {
+        free(names[i]);
+      }
+      free(names);
+      return NULL;
+    }
+
+    // Check for additional values (tuple on RHS): set x, y to a, b
+    Token *next = peek(p, 0);
+    if (next && next->type == TOK_COMMA) {
+      // Parse additional values into a tuple
+      ASTNode **tuple_elements = malloc(sizeof(ASTNode *));
+      if (!tuple_elements) {
+        for (size_t i = 0; i < name_count; i++) {
+          free(names[i]);
+        }
+        free(names);
+        ast_node_free(value);
+        return NULL;
+      }
+      tuple_elements[0] = value;
+      size_t elem_count = 1;
+      size_t elem_capacity = 1;
+
+      while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+        consume(p, TOK_COMMA);
+        ASTNode *additional = parse_expression(p);
+        if (!additional) {
+          for (size_t i = 0; i < elem_count; i++) {
+            ast_node_free(tuple_elements[i]);
+          }
+          free(tuple_elements);
+          for (size_t i = 0; i < name_count; i++) {
+            free(names[i]);
+          }
+          free(names);
+          return NULL;
+        }
+
+        // Grow array if needed
+        if (elem_count >= elem_capacity) {
+          size_t new_capacity = elem_capacity * 2;
+          ASTNode **new_elements =
+              realloc(tuple_elements, new_capacity * sizeof(ASTNode *));
+          if (!new_elements) {
+            ast_node_free(additional);
+            for (size_t i = 0; i < elem_count; i++) {
+              ast_node_free(tuple_elements[i]);
+            }
+            free(tuple_elements);
+            for (size_t i = 0; i < name_count; i++) {
+              free(names[i]);
+            }
+            free(names);
+            return NULL;
+          }
+          tuple_elements = new_elements;
+          elem_capacity = new_capacity;
+        }
+
+        tuple_elements[elem_count++] = additional;
+      }
+
+      // Create a tuple node for the RHS
+      ASTNode *tuple_node = ast_node_new_checked(AST_TUPLE);
+      if (!tuple_node) {
+        for (size_t i = 0; i < elem_count; i++) {
+          ast_node_free(tuple_elements[i]);
+        }
+        free(tuple_elements);
+        for (size_t i = 0; i < name_count; i++) {
+          free(names[i]);
+        }
+        free(names);
+        return NULL;
+      }
+      tuple_node->as.tuple.elements = tuple_elements;
+      tuple_node->as.tuple.element_count = elem_count;
+      value = tuple_node;
+    }
+
+    // Expect newline
+    next = peek(p, 0);
+    if (next && next->type == TOK_NEWLINE) {
+      consume(p, TOK_NEWLINE);
+    } else if (!(next && (next->type == TOK_INDENT || next->type == TOK_EOF))) {
+      for (size_t i = 0; i < name_count; i++) {
+        free(names[i]);
+      }
+      free(names);
+      ast_node_free(value);
+      return NULL;
+    }
+
+    // Create unpack assign node
+    ASTNode *node = ast_node_new_checked(AST_UNPACK_ASSIGN);
+    if (!node) {
+      for (size_t i = 0; i < name_count; i++) {
+        free(names[i]);
+      }
+      free(names);
+      ast_node_free(value);
+      return NULL;
+    }
+    ast_node_set_position(node, start_tok);
+    node->indent = indent;
+    node->as.unpack_assign.names = names;
+    node->as.unpack_assign.name_count = name_count;
+    node->as.unpack_assign.value = value;
+    node->as.unpack_assign.is_mutable = is_mutable;
+
+    return node;
+  }
+
   // Regular assignment: set/let var to value
   return assignment_parse_regular(p, indent, name, is_mutable, start_tok);
 }
@@ -3582,24 +3762,76 @@ static ASTNode *parse_return(Parser *p, int indent) {
     return NULL;
   }
 
-  ASTNode *value = parse_expression(p);
-  if (!value) {
+  // Parse first return value
+  ASTNode *first_value = parse_expression(p);
+  if (!first_value) {
     return NULL;
   }
 
+  // Collect values in a dynamic array
+  ASTNode **values = malloc(sizeof(ASTNode *));
+  if (!values) {
+    ast_node_free(first_value);
+    return NULL;
+  }
+  values[0] = first_value;
+  size_t value_count = 1;
+  size_t value_capacity = 1;
+
+  // Check for additional return values separated by commas
+  Token *next = peek(p, 0);
+  while (next && next->type == TOK_COMMA) {
+    consume(p, TOK_COMMA);
+
+    ASTNode *additional_value = parse_expression(p);
+    if (!additional_value) {
+      for (size_t i = 0; i < value_count; i++) {
+        ast_node_free(values[i]);
+      }
+      free(values);
+      return NULL;
+    }
+
+    // Grow array if needed
+    if (value_count >= value_capacity) {
+      size_t new_capacity = value_capacity * 2;
+      ASTNode **new_values = realloc(values, new_capacity * sizeof(ASTNode *));
+      if (!new_values) {
+        ast_node_free(additional_value);
+        for (size_t i = 0; i < value_count; i++) {
+          ast_node_free(values[i]);
+        }
+        free(values);
+        return NULL;
+      }
+      values = new_values;
+      value_capacity = new_capacity;
+    }
+
+    values[value_count++] = additional_value;
+    next = peek(p, 0);
+  }
+
   if (!consume(p, TOK_NEWLINE)) {
-    ast_node_free(value);
+    for (size_t i = 0; i < value_count; i++) {
+      ast_node_free(values[i]);
+    }
+    free(values);
     return NULL;
   }
 
   ASTNode *node = ast_node_new_checked(AST_RETURN);
   if (!node) {
-    ast_node_free(value);
+    for (size_t i = 0; i < value_count; i++) {
+      ast_node_free(values[i]);
+    }
+    free(values);
     return NULL;
   }
   ast_node_set_position(node, start_tok);
   node->indent = indent;
-  node->as.return_stmt.value = value;
+  node->as.return_stmt.values = values;
+  node->as.return_stmt.value_count = value_count;
 
   return node;
 }
@@ -4158,7 +4390,10 @@ void ast_node_free(ASTNode *node) {
     free(node->as.call.args);
     break;
   case AST_RETURN:
-    ast_node_free(node->as.return_stmt.value);
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      ast_node_free(node->as.return_stmt.values[i]);
+    }
+    free(node->as.return_stmt.values);
     break;
   case AST_IMPORT:
     free(node->as.import.module_name);
@@ -4264,6 +4499,19 @@ void ast_node_free(ASTNode *node) {
     free(node->as.fstring.parts);
     free(node->as.fstring.format_specs);
     break;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      ast_node_free(node->as.tuple.elements[i]);
+    }
+    free(node->as.tuple.elements);
+    break;
+  case AST_UNPACK_ASSIGN:
+    for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
+      free(node->as.unpack_assign.names[i]);
+    }
+    free(node->as.unpack_assign.names);
+    ast_node_free(node->as.unpack_assign.value);
+    break;
   default:
     break;
   }
@@ -4350,6 +4598,10 @@ static const char *ast_node_type_name(ASTNodeType type) {
     return "TRY";
   case AST_RAISE:
     return "RAISE";
+  case AST_TUPLE:
+    return "TUPLE";
+  case AST_UNPACK_ASSIGN:
+    return "UNPACK_ASSIGN";
   default:
     return "UNKNOWN";
   }
@@ -4560,8 +4812,10 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
     }
     break;
   case AST_RETURN:
-    printf("\n");
-    ast_node_print_recursive(node->as.return_stmt.value, indent + 1);
+    printf(" (%zu values)\n", node->as.return_stmt.value_count);
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      ast_node_print_recursive(node->as.return_stmt.values[i], indent + 1);
+    }
     break;
   case AST_IMPORT:
     printf(": ");
@@ -4715,6 +4969,22 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
       ast_node_print_recursive(node->as.fstring.parts[i], 0);
     }
     printf("\"\n");
+    break;
+  case AST_TUPLE:
+    printf(" (%zu elements)\n", node->as.tuple.element_count);
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      ast_node_print_recursive(node->as.tuple.elements[i], indent + 1);
+    }
+    break;
+  case AST_UNPACK_ASSIGN:
+    printf(": ");
+    for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
+      if (i > 0)
+        printf(", ");
+      printf("%s", node->as.unpack_assign.names[i]);
+    }
+    printf(" = %s\n", node->as.unpack_assign.is_mutable ? "(mutable)" : "");
+    ast_node_print_recursive(node->as.unpack_assign.value, indent + 1);
     break;
   default:
     printf(": (unhandled type)\n");
