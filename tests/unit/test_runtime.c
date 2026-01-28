@@ -271,18 +271,33 @@ TEST(string_intern) {
 
 TEST(value_new_function) {
   uint8_t bytecode[] = {1, 2, 3};
-  KronosValue *func = value_new_function(bytecode, 3, 2);
+  KronosValue *func = value_new_function(bytecode, 3, 2, NULL);
   ASSERT_PTR_NOT_NULL(func);
   ASSERT_INT_EQ(func->type, VAL_FUNCTION);
   ASSERT_INT_EQ(func->as.function.arity, 2);
   ASSERT_INT_EQ(func->as.function.length, 3);
+  ASSERT_PTR_NULL(func->as.function.param_names);
+
+  value_release(func);
+}
+
+TEST(value_new_function_with_params) {
+  uint8_t bytecode[] = {1, 2, 3};
+  char *params[] = {"x", "y"};
+  KronosValue *func = value_new_function(bytecode, 3, 2, params);
+  ASSERT_PTR_NOT_NULL(func);
+  ASSERT_INT_EQ(func->type, VAL_FUNCTION);
+  ASSERT_INT_EQ(func->as.function.arity, 2);
+  ASSERT_PTR_NOT_NULL(func->as.function.param_names);
+  ASSERT_STR_EQ(func->as.function.param_names[0], "x");
+  ASSERT_STR_EQ(func->as.function.param_names[1], "y");
 
   value_release(func);
 }
 
 TEST(value_new_function_null_bytecode) {
   // Should return NULL for invalid input
-  KronosValue *func = value_new_function(NULL, 0, 0);
+  KronosValue *func = value_new_function(NULL, 0, 0, NULL);
   ASSERT_PTR_NULL(func);
 }
 
