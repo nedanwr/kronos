@@ -10,6 +10,9 @@
  * - Value printing and formatting
  */
 
+// Enable POSIX functions like strdup on Linux
+#define _POSIX_C_SOURCE 200809L
+
 #include "runtime.h"
 #include "gc.h"
 #include <math.h>
@@ -299,14 +302,16 @@ KronosValue *value_new_nil(void) {
  * @brief Create a new function value
  *
  * Stores compiled bytecode for a user-defined function. The bytecode
- * is copied into the value.
+ * and parameter names are copied into the value.
  *
  * @param bytecode Function bytecode (will be copied)
  * @param length Length of bytecode in bytes
  * @param arity Number of parameters the function expects
+ * @param param_names Array of parameter name strings (will be copied), or NULL
  * @return New function value, or NULL on allocation failure
  */
-KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
+KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
+                                char **param_names) {
   if (!bytecode || length == 0)
     return NULL;
 
@@ -321,11 +326,36 @@ KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
   }
   memcpy(buffer, bytecode, length);
 
+  // Copy parameter names if provided
+  char **names_copy = NULL;
+  if (param_names && arity > 0) {
+    names_copy = malloc(sizeof(char *) * arity);
+    if (!names_copy) {
+      free(buffer);
+      free(val);
+      return NULL;
+    }
+    for (int i = 0; i < arity; i++) {
+      names_copy[i] = strdup(param_names[i]);
+      if (!names_copy[i]) {
+        // Cleanup on allocation failure
+        for (int j = 0; j < i; j++) {
+          free(names_copy[j]);
+        }
+        free(names_copy);
+        free(buffer);
+        free(val);
+        return NULL;
+      }
+    }
+  }
+
   val->type = VAL_FUNCTION;
   val->refcount = 1;
   val->as.function.bytecode = buffer;
   val->as.function.length = length;
   val->as.function.arity = arity;
+  val->as.function.param_names = names_copy;
 
   gc_track(val);
   return val;
@@ -650,6 +680,13 @@ void value_finalize(KronosValue *val) {
     break;
   case VAL_FUNCTION:
     free(val->as.function.bytecode);
+    // Free parameter names if present
+    if (val->as.function.param_names) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        free(val->as.function.param_names[i]);
+      }
+      free(val->as.function.param_names);
+    }
     break;
   case VAL_LIST:
     // Free the items array, but don't release the child values
@@ -724,6 +761,13 @@ void value_release(KronosValue *val) {
       break;
     case VAL_FUNCTION:
       free(current->as.function.bytecode);
+      // Free parameter names if present
+      if (current->as.function.param_names) {
+        for (int i = 0; i < current->as.function.arity; i++) {
+          free(current->as.function.param_names[i]);
+        }
+        free(current->as.function.param_names);
+      }
       break;
     case VAL_LIST:
       for (size_t i = 0; i < current->as.list.count; i++) {

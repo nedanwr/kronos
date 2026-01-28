@@ -73,7 +73,7 @@ void handle_completion(const char *id, const char *body) {
       {"from", "List slicing operator"},
       {"end", "End of list (for slicing)"},
       // Functions
-      {"function", "Define function"},
+      {"function", "Define function or lambda (function with x: expr)"},
       {"call", "Call function"},
       {"with", "Function arguments (call fn with args)"},
       {"return", "Return value"},

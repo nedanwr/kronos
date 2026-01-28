@@ -258,6 +258,205 @@ static void cleanup_call_frame_locals(CallFrame *frame) {
 // Forward declaration for vm_execute (needed by call_module_function)
 int vm_execute(KronosVM *vm, Bytecode *bytecode);
 
+// Forward declarations for functions used in call_function_value
+static KronosValue *pop(KronosVM *vm);
+static int vm_propagate_error(KronosVM *vm, KronosErrorCode fallback);
+
+// Forward declaration for call_function_value (needed by handle_op_call_func)
+static int call_function_value(KronosVM *vm, KronosValue *func_val,
+                               const char *func_name, uint8_t arg_count);
+
+/**
+ * @brief Call a function value (lambda)
+ *
+ * Handles calling a VAL_FUNCTION value stored in a variable. Creates a call
+ * frame, binds arguments to parameters, and executes the function body.
+ *
+ * @param vm The VM
+ * @param func_val The function value to call
+ * @param func_name The variable name (for error messages)
+ * @param arg_count Number of arguments on the stack
+ * @return 0 on success, negative error code on failure
+ */
+static int call_function_value(KronosVM *vm, KronosValue *func_val,
+                               const char *func_name, uint8_t arg_count) {
+  // Validate argument count
+  if (arg_count != func_val->as.function.arity) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' expects %d argument%s, but got %d",
+                     func_name, func_val->as.function.arity,
+                     func_val->as.function.arity == 1 ? "" : "s", arg_count);
+  }
+
+  // Check call stack size
+  if (vm->call_stack_size >= CALL_STACK_MAX) {
+    return vm_error(vm, KRONOS_ERR_RUNTIME, "Maximum call depth exceeded");
+  }
+
+  // Create new call frame
+  CallFrame *frame = &vm->call_stack[vm->call_stack_size++];
+  frame->function = NULL; // Lambda (no named function)
+  frame->return_ip = vm->ip;
+  frame->return_bytecode = vm->bytecode;
+  frame->frame_start = vm->stack_top;
+  frame->local_count = 0;
+  frame->owned_bytecode = NULL; // Will be set if we allocate bytecode
+  // Initialize local variable hash table to all NULL
+  for (size_t i = 0; i < LOCALS_MAX; i++) {
+    frame->local_hash[i] = NULL;
+  }
+
+  // Validate stack has enough arguments
+  if (vm->stack_top < vm->stack) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_error(vm, KRONOS_ERR_RUNTIME, "Stack pointer corruption");
+  }
+
+  size_t stack_size = vm->stack_top - vm->stack;
+  if (stack_size < arg_count) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Stack underflow: function expects %d arguments",
+                     arg_count);
+  }
+
+  // Pop arguments and bind to parameters
+  KronosValue **args =
+      arg_count > 0 ? malloc(sizeof(KronosValue *) * arg_count) : NULL;
+  if (arg_count > 0 && !args) {
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Failed to allocate argument buffer");
+  }
+
+  for (int i = arg_count - 1; i >= 0; i--) {
+    args[i] = pop(vm);
+    if (!args[i]) {
+      for (size_t j = i + 1; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      vm->call_stack_size--;
+      if (vm->call_stack_size > 0) {
+        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+      } else {
+        vm->current_frame = NULL;
+      }
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+    }
+  }
+
+  // Set current frame before setting locals
+  vm->current_frame = frame;
+
+  // Set parameters as local variables
+  for (int i = 0; i < arg_count; i++) {
+    const char *param_name = func_val->as.function.param_names[i];
+    int arg_status = vm_set_local(vm, frame, param_name, args[i], true, NULL);
+    value_release(args[i]);
+    if (arg_status != 0) {
+      for (size_t j = i + 1; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      // Clean up locals
+      for (size_t j = 0; j < frame->local_count; j++) {
+        free(frame->locals[j].name);
+        value_release(frame->locals[j].value);
+        free(frame->locals[j].type_name);
+      }
+      frame->local_count = 0;
+      vm->call_stack_size--;
+      if (vm->call_stack_size > 0) {
+        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+      } else {
+        vm->current_frame = NULL;
+      }
+      return arg_status;
+    }
+  }
+  free(args);
+
+  // Validate function bytecode
+  if (!func_val->as.function.bytecode || func_val->as.function.length == 0) {
+    // Clean up and error
+    for (size_t j = 0; j < frame->local_count; j++) {
+      free(frame->locals[j].name);
+      value_release(frame->locals[j].value);
+      free(frame->locals[j].type_name);
+    }
+    frame->local_count = 0;
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Function bytecode is invalid");
+  }
+
+  // Create temporary bytecode structure for lambda execution
+  // Lambda body uses the parent's constant pool
+  Bytecode lambda_bytecode;
+  lambda_bytecode.code = func_val->as.function.bytecode;
+  lambda_bytecode.count = func_val->as.function.length;
+  lambda_bytecode.capacity = func_val->as.function.length;
+  lambda_bytecode.constants = vm->bytecode->constants;
+  lambda_bytecode.const_count = vm->bytecode->const_count;
+  lambda_bytecode.const_capacity = vm->bytecode->const_capacity;
+
+  // Store lambda bytecode in frame for lifetime management
+  // Actually, we need to keep the bytecode alive during execution.
+  // Since the lambda's bytecode is in VAL_FUNCTION which is retained elsewhere,
+  // we can just point to it. The Bytecode struct is on the stack but that's ok
+  // since we return synchronously.
+
+  // Switch to lambda bytecode
+  // We need to allocate a Bytecode on the heap because we switch vm->bytecode
+  Bytecode *func_bytecode = malloc(sizeof(Bytecode));
+  if (!func_bytecode) {
+    for (size_t j = 0; j < frame->local_count; j++) {
+      free(frame->locals[j].name);
+      value_release(frame->locals[j].value);
+      free(frame->locals[j].type_name);
+    }
+    frame->local_count = 0;
+    vm->call_stack_size--;
+    if (vm->call_stack_size > 0) {
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+    } else {
+      vm->current_frame = NULL;
+    }
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Failed to allocate function bytecode structure");
+  }
+  *func_bytecode = lambda_bytecode;
+
+  // Store pointer for cleanup on return
+  frame->owned_bytecode = func_bytecode;
+
+  // Switch to lambda bytecode
+  vm->bytecode = func_bytecode;
+  vm->ip = func_bytecode->code;
+
+  return 0;
+}
+
 /**
  * @brief Call a function in an external module
  *
@@ -297,6 +496,7 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
   mod_frame->return_bytecode = NULL;
   mod_frame->frame_start = module_vm->stack_top;
   mod_frame->local_count = 0;
+  mod_frame->owned_bytecode = NULL;
   // Initialize local variable hash table to all NULL
   for (size_t i = 0; i < LOCALS_MAX; i++) {
     mod_frame->local_hash[i] = NULL;
@@ -1746,6 +1946,8 @@ static int handle_op_jump(KronosVM *vm);
 static int handle_op_jump_if_false(KronosVM *vm);
 static int handle_op_define_func(KronosVM *vm);
 static int handle_op_call_func(KronosVM *vm);
+static int handle_op_make_function(KronosVM *vm);
+static int handle_op_call_value(KronosVM *vm);
 static int handle_op_return_val(KronosVM *vm);
 static int handle_op_pop(KronosVM *vm);
 static int handle_op_list_new(KronosVM *vm);
@@ -4900,6 +5102,18 @@ static int handle_op_call_func(KronosVM *vm) {
     return builtin(vm, arg_count);
   }
 
+  // Try variable containing a function value (lambda)
+  KronosValue *var_val = vm_get_variable(vm, func_name);
+  if (var_val && var_val->type == VAL_FUNCTION) {
+    // Call the function value
+    return call_function_value(vm, var_val, func_name, arg_count);
+  }
+  // If vm_get_variable set an error (variable not found), clear it because
+  // we're going to try looking up a named function instead
+  if (!var_val) {
+    vm_clear_error(vm);
+  }
+
   // Try user-defined function
   Function *func = vm_get_function(vm, func_name);
   if (!func) {
@@ -4926,6 +5140,7 @@ static int handle_op_call_func(KronosVM *vm) {
   frame->return_bytecode = vm->bytecode;
   frame->frame_start = vm->stack_top;
   frame->local_count = 0;
+  frame->owned_bytecode = NULL;
   // Initialize local variable hash table to all NULL
   for (size_t i = 0; i < LOCALS_MAX; i++) {
     frame->local_hash[i] = NULL;
@@ -6440,6 +6655,122 @@ static int handle_op_define_func(KronosVM *vm) {
   return 0;
 }
 
+/**
+ * @brief Handle OP_MAKE_FUNCTION - create a function value (lambda)
+ *
+ * Bytecode format:
+ *   OP_MAKE_FUNCTION [param_count:1] [param_name_idx:2*N] [body_len:2] [body:N]
+ *
+ * Creates a VAL_FUNCTION value containing the bytecode and parameter names,
+ * pushes it onto the stack, and skips over the inline body bytecode.
+ */
+static int handle_op_make_function(KronosVM *vm) {
+  // Read parameter count
+  uint8_t param_count = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Read parameter names from constant pool
+  char **param_names = NULL;
+  if (param_count > 0) {
+    param_names = malloc(sizeof(char *) * param_count);
+    if (!param_names) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate parameter names array");
+    }
+
+    for (int i = 0; i < param_count; i++) {
+      KronosValue *name_val = read_constant(vm);
+      if (!name_val || name_val->type != VAL_STRING) {
+        // Cleanup and error
+        for (int j = 0; j < i; j++) {
+          free(param_names[j]);
+        }
+        free(param_names);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Invalid parameter name constant");
+      }
+      param_names[i] = strdup(name_val->as.string.data);
+      if (!param_names[i]) {
+        // Cleanup and error
+        for (int j = 0; j < i; j++) {
+          free(param_names[j]);
+        }
+        free(param_names);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to allocate parameter name");
+      }
+    }
+  }
+
+  // Read body length (2 bytes)
+  uint8_t high = read_byte(vm);
+  if (vm->last_error_message) {
+    for (int i = 0; i < param_count; i++) {
+      free(param_names[i]);
+    }
+    free(param_names);
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint8_t low = read_byte(vm);
+  if (vm->last_error_message) {
+    for (int i = 0; i < param_count; i++) {
+      free(param_names[i]);
+    }
+    free(param_names);
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+  uint16_t body_len = (uint16_t)((high << 8) | low);
+
+  // The body bytecode starts at current IP
+  uint8_t *body_bytecode = vm->ip;
+
+  // Create the function value
+  KronosValue *func_val = value_new_function(body_bytecode, body_len,
+                                              param_count, param_names);
+
+  // Free the temporary param_names array (value_new_function made copies)
+  for (int i = 0; i < param_count; i++) {
+    free(param_names[i]);
+  }
+  free(param_names);
+
+  if (!func_val) {
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Failed to create function value");
+  }
+
+  // Push function onto stack
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, func_val, value_release(func_val););
+  value_release(func_val); // Stack now owns it
+
+  // Skip over the inline body bytecode
+  vm->ip += body_len;
+
+  return 0;
+}
+
+/**
+ * @brief Handle OP_CALL_VALUE - call a function value from stack
+ *
+ * Bytecode format:
+ *   OP_CALL_VALUE [arg_count:1]
+ *
+ * Stack (before): [func_val] [arg0] [arg1] ... [argN-1]
+ * Stack (after): [return_value]
+ *
+ * Note: This is a placeholder - actual implementation would call the function.
+ * For now, function values in variables are called via handle_op_call_func.
+ */
+static int handle_op_call_value(KronosVM *vm) {
+  // This opcode is not currently emitted - function values in variables
+  // are called via OP_CALL_FUNC which checks for VAL_FUNCTION variables.
+  (void)vm;
+  return vm_error(vm, KRONOS_ERR_INTERNAL,
+                  "OP_CALL_VALUE not implemented (use OP_CALL_FUNC)");
+}
+
 static int handle_op_return_val(KronosVM *vm) {
   // Pop return value from stack
   KronosValue *return_value;
@@ -6478,6 +6809,13 @@ static int handle_op_return_val(KronosVM *vm) {
 
     vm->ip = frame->return_ip;
     vm->bytecode = frame->return_bytecode;
+
+    // Free dynamically allocated bytecode (for lambdas)
+    if (frame->owned_bytecode) {
+      free(frame->owned_bytecode);
+      frame->owned_bytecode = NULL;
+    }
+
     vm->call_stack_size--;
 
     // Update current frame pointer
@@ -6606,6 +6944,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       [OP_RETHROW] = NULL, // Reserved, never emitted
       [OP_IMPORT] = handle_op_import,
       [OP_FORMAT_VALUE] = handle_op_format_value,
+      [OP_MAKE_FUNCTION] = handle_op_make_function,
+      [OP_CALL_VALUE] = handle_op_call_value,
       [OP_HALT] = handle_op_halt,
   };
 

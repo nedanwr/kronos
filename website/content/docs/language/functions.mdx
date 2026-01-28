@@ -46,6 +46,68 @@ print result  # Prints: 8
 
 If no return statement is provided, the function returns `null`.
 
+## Anonymous Functions (Lambdas)
+
+Anonymous functions (also called lambdas) are functions that can be assigned to variables and passed around as values. They are defined using the `function with` syntax without a function name.
+
+### Single-Line Lambdas
+
+For simple expressions, use the single-line syntax:
+
+```kronos
+set double to function with x: return x times 2
+set result to call double with 5
+print result  # Prints: 10
+```
+
+The `return` keyword is optional for single-line lambdas:
+
+```kronos
+set triple to function with x: x times 3
+print call triple with 4  # Prints: 12
+```
+
+### Multi-Line Lambdas
+
+For more complex logic, use the multi-line block syntax:
+
+```kronos
+set calculate to function with a, b:
+    set sum to a plus b
+    print f"Sum: {sum}"
+    return sum
+
+set result to call calculate with 3, 4
+print result  # Prints: 7
+```
+
+### Multiple Parameters
+
+Lambdas can take any number of parameters:
+
+```kronos
+set add to function with a, b: a plus b
+set multiply to function with x, y: x times y
+
+print call add with 2, 3       # Prints: 5
+print call multiply with 4, 5  # Prints: 20
+```
+
+### Use Cases
+
+Lambdas are useful when you need a quick, reusable function without defining a named function:
+
+```kronos
+# Absolute value function
+set abs_value to function with n:
+    if n is less than 0:
+        return n times -1
+    return n
+
+print call abs_value with -5  # Prints: 5
+print call abs_value with 5   # Prints: 5
+```
+
 ## Multiple Parameters
 
 Functions can take multiple parameters:

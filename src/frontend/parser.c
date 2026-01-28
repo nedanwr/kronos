@@ -107,6 +107,7 @@ typedef struct {
 
 // Forward declarations
 static void parser_set_error(Parser *p, const char *message);
+static Token *consume(Parser *p, TokenType expected);
 
 /**
  * @brief Create a new parser instance
@@ -461,6 +462,7 @@ static ASTNode *parse_continue(Parser *p, int indent);
 static ASTNode *parse_delete(Parser *p, int indent);
 static ASTNode *parse_try(Parser *p, int indent);
 static ASTNode *parse_raise(Parser *p, int indent);
+static ASTNode *parse_lambda(Parser *p);
 
 // Helper functions for parse_try
 static bool try_parse_catch_block(Parser *p, int indent, ASTNode *try_node,
@@ -945,6 +947,11 @@ static ASTNode *parse_value(Parser *p) {
     // Function calls can be used as expressions
     return parse_call(
         p, -1); // -1 indicates expression context (no newline required)
+  }
+
+  if (tok->type == TOK_FUNCTION) {
+    // Anonymous function (lambda) expression
+    return parse_lambda(p);
   }
 
   // Handle parenthesized expressions: ( expression )
@@ -2115,7 +2122,15 @@ static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
     }
   }
 
-  if (!consume(p, TOK_NEWLINE)) {
+  // For multi-line expressions (like lambdas with blocks), the block's last
+  // statement already consumed the trailing NEWLINE. In that case, we're now
+  // at an INDENT token (start of next line) or EOF, which is also valid.
+  next = peek(p, 0);
+  if (next && next->type == TOK_NEWLINE) {
+    consume(p, TOK_NEWLINE);
+  } else if (!(next && (next->type == TOK_INDENT || next->type == TOK_EOF))) {
+    // Neither NEWLINE, INDENT, nor EOF - this is an error
+    parser_set_error(p, "Expected newline after assignment");
     ast_node_free(value);
     free(type_name);
     return NULL;
@@ -3327,6 +3342,91 @@ static ASTNode *parse_function(Parser *p, int indent) {
 }
 
 /**
+ * @brief Parse anonymous function (lambda) expression
+ *
+ * Syntax:
+ *   Single-line: function with x, y: return x plus y
+ *   Multi-line:  function with x, y:
+ *                    return x plus y
+ *
+ * @param p Parser state
+ * @return AST node for the lambda, or NULL on error
+ */
+static ASTNode *parse_lambda(Parser *p) {
+  Token *start_tok = consume(p, TOK_FUNCTION);
+  if (!start_tok) {
+    return NULL;
+  }
+
+  // Parse parameters using the same helper as named functions
+  size_t param_capacity = 0;
+  size_t param_count = 0;
+  char **params = NULL;
+  if (!function_parse_parameters(p, &params, &param_count, &param_capacity)) {
+    return NULL;
+  }
+
+  // Expect colon after parameters
+  if (!consume(p, TOK_COLON)) {
+    function_cleanup_parameters(params, param_count);
+    return NULL;
+  }
+
+  // Create the lambda node
+  ASTNode *node = ast_node_new_checked(AST_LAMBDA);
+  if (!node) {
+    function_cleanup_parameters(params, param_count);
+    return NULL;
+  }
+  ast_node_set_position(node, start_tok);
+  node->as.lambda.params = params;
+  node->as.lambda.param_count = param_count;
+
+  // Check if this is single-line or multi-line
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_NEWLINE) {
+    // Multi-line lambda: parse block
+    consume_any(p); // consume newline
+    node->as.lambda.is_single_line = false;
+    node->as.lambda.body_expr = NULL;
+
+    size_t block_size = 0;
+    ASTNode **block = parse_block(p, start_tok->indent_level, &block_size);
+    if (!block || block_size == 0) {
+      // Empty block is an error for lambdas
+      if (block) {
+        free(block);
+      }
+      parser_set_error(p, "Expected lambda body after colon");
+      ast_node_free(node);
+      return NULL;
+    }
+    node->as.lambda.block = block;
+    node->as.lambda.block_size = block_size;
+  } else {
+    // Single-line lambda: parse expression
+    node->as.lambda.is_single_line = true;
+    node->as.lambda.block = NULL;
+    node->as.lambda.block_size = 0;
+
+    // For single-line, check for optional 'return' keyword
+    next = peek(p, 0);
+    if (next && next->type == TOK_RETURN) {
+      consume_any(p); // consume "return"
+    }
+
+    // Parse the body expression
+    node->as.lambda.body_expr = parse_expression(p);
+    if (!node->as.lambda.body_expr) {
+      ast_node_free(node);
+      return NULL;
+    }
+  }
+
+  return node;
+}
+
+/**
  * @brief Parse function call arguments
  *
  * Parses: "with arg1, arg2, arg3"
@@ -4139,6 +4239,22 @@ void ast_node_free(ASTNode *node) {
   case AST_RAISE:
     free(node->as.raise_stmt.error_type);
     ast_node_free(node->as.raise_stmt.message);
+    break;
+  case AST_LAMBDA:
+    // Free parameters
+    for (size_t i = 0; i < node->as.lambda.param_count; i++) {
+      free(node->as.lambda.params[i]);
+    }
+    free(node->as.lambda.params);
+    // Free body (either expression or block)
+    if (node->as.lambda.is_single_line) {
+      ast_node_free(node->as.lambda.body_expr);
+    } else {
+      for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+        ast_node_free(node->as.lambda.block[i]);
+      }
+      free(node->as.lambda.block);
+    }
     break;
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
