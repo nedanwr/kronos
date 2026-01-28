@@ -226,11 +226,20 @@ This document outlines the planned features and release schedule for Kronos.
 
 #### Planned Features
 
-- **String Interpolation Enhancements** - Advanced formatting features
+- ✅ **String Interpolation Enhancements** - Advanced formatting features (completed)
 
   ```kronos
   set price to 19.99
   set formatted to f"Price: {price:.2f}"  # Format specifiers
+  set padded to f"|{x:>10}|"              # Width and alignment
+  set zeroed to f"{num:0>5}"              # Fill characters
+  ```
+
+- **Anonymous Functions / Lambdas** - First-class functions (foundation for functional features)
+
+  ```kronos
+  set double to function with x: return x times 2
+  set doubled to map numbers with function with x: return x times 2
   ```
 
 - **Multiple Return Values** - Tuple returns and destructuring
@@ -243,31 +252,24 @@ This document outlines the planned features and release schedule for Kronos.
   set x, y to y, x  # Swap
   ```
 
-- **Function Enhancements**
+- **Function Enhancements** - Extended function capabilities
 
   - Default parameter values: `function greet with name, greeting="Hello":`
   - Variadic functions: `function sum with ...numbers:`
   - Named arguments: `call create_user with name: "Alice", age: 30`
 
-- **Anonymous Functions / Lambdas** - First-class functions
+- **List Utilities (Higher-Order)** - `filter()` and `map()` functions (requires lambdas)
 
   ```kronos
-  set double to function with x: return x times 2
+  set evens to filter numbers with function with x: return x mod 2 is equal 0
   set doubled to map numbers with function with x: return x times 2
   ```
 
-- **List Utilities (Higher-Order)** - `filter()` and `map()` functions
-
-  ```kronos
-  set evens to filter numbers with function with x: return (x divided by 2) times 2 is equal x
-  set doubled to map numbers with function with x: return x times 2
-  ```
-
-- **List Comprehensions** - Concise list creation
+- **List Comprehensions** - Concise list creation (syntax sugar for filter/map)
 
   ```kronos
   set squares to [x times x for x in range 1 to 10]
-  set evens to [x for x in range 1 to 20 if (x divided by 2) times 2 is equal x]
+  set evens to [x for x in range 1 to 20 if x mod 2 is equal 0]
   ```
 
 - **Pattern Matching** - Advanced control flow
