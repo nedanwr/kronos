@@ -43,6 +43,7 @@ typedef struct {
   uint8_t *return_ip;        // Where to return to
   Bytecode *return_bytecode; // Which bytecode to return to
   KronosValue **frame_start; // Start of this frame's stack
+  Bytecode *owned_bytecode;  // Bytecode to free on return (for lambdas), or NULL
 
   // Local variables (includes parameters)
   struct LocalVar {
