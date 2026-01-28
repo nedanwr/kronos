@@ -1766,6 +1766,7 @@ static int handle_op_list_slice(KronosVM *vm);
 static int handle_op_list_iter(KronosVM *vm);
 static int handle_op_list_next(KronosVM *vm);
 static int handle_op_import(KronosVM *vm);
+static int handle_op_format_value(KronosVM *vm);
 static int handle_op_halt(KronosVM *vm);
 
 // Forward declarations for built-in function handlers
@@ -2416,6 +2417,288 @@ static int handle_op_list_new(KronosVM *vm) {
   }
   PUSH_OR_RETURN_WITH_CLEANUP(vm, list, value_release(list););
   value_release(list);
+  return 0;
+}
+
+/**
+ * @brief Format specifier structure
+ *
+ * Parsed from format strings like ".2f", ">10", "0>5d"
+ * Format: [[fill]align][width][.precision][type]
+ */
+typedef struct {
+  char fill_char;  // Fill character (default: ' ')
+  char align;      // '<' (left), '>' (right), '^' (center), or '\0' (default)
+  int width;       // Minimum width (0 = no minimum)
+  int precision;   // For floats: decimal places (-1 = not specified)
+  char type;       // 'd' (int), 'f' (float), 's' (string), or '\0' (default)
+} FormatSpec;
+
+/**
+ * @brief Parse a format specifier string
+ *
+ * @param spec Format specifier string (e.g., ".2f", ">10", "0>5d")
+ * @param len Length of the format specifier string
+ * @param out Output FormatSpec structure
+ * @return 0 on success, -1 on invalid format
+ */
+static int parse_format_spec(const char *spec, size_t len, FormatSpec *out) {
+  out->fill_char = ' ';
+  out->align = '\0';
+  out->width = 0;
+  out->precision = -1;
+  out->type = '\0';
+
+  if (!spec || len == 0) {
+    return 0; // Empty spec is valid (default formatting)
+  }
+
+  size_t i = 0;
+
+  // Check for fill and align: [[fill]align]
+  // If second char is an align char, first char is fill
+  if (len >= 2 && (spec[1] == '<' || spec[1] == '>' || spec[1] == '^')) {
+    out->fill_char = spec[0];
+    out->align = spec[1];
+    i = 2;
+  } else if (len >= 1 && (spec[0] == '<' || spec[0] == '>' || spec[0] == '^')) {
+    out->align = spec[0];
+    i = 1;
+  }
+
+  // Parse width
+  while (i < len && spec[i] >= '0' && spec[i] <= '9') {
+    out->width = out->width * 10 + (spec[i] - '0');
+    i++;
+  }
+
+  // Parse precision (.N)
+  if (i < len && spec[i] == '.') {
+    i++;
+    out->precision = 0;
+    while (i < len && spec[i] >= '0' && spec[i] <= '9') {
+      out->precision = out->precision * 10 + (spec[i] - '0');
+      i++;
+    }
+  }
+
+  // Parse type (d, f, s)
+  if (i < len) {
+    char t = spec[i];
+    if (t == 'd' || t == 'f' || t == 's') {
+      out->type = t;
+      i++;
+    } else {
+      return -1; // Invalid type character
+    }
+  }
+
+  // Should have consumed entire spec
+  if (i != len) {
+    return -1; // Extra characters after type
+  }
+
+  return 0;
+}
+
+/**
+ * @brief Apply alignment and padding to a string
+ *
+ * @param str String to pad
+ * @param str_len Length of input string
+ * @param spec Format specification
+ * @param out_len Output length (set on success)
+ * @return Newly allocated padded string, or NULL on error
+ */
+static char *apply_alignment(const char *str, size_t str_len,
+                             const FormatSpec *spec, size_t *out_len) {
+  if (spec->width <= 0 || str_len >= (size_t)spec->width) {
+    // No padding needed
+    char *result = malloc(str_len + 1);
+    if (!result) return NULL;
+    memcpy(result, str, str_len);
+    result[str_len] = '\0';
+    *out_len = str_len;
+    return result;
+  }
+
+  size_t pad_len = (size_t)spec->width - str_len;
+  size_t total_len = (size_t)spec->width;
+  char *result = malloc(total_len + 1);
+  if (!result) return NULL;
+
+  char align = spec->align ? spec->align : '>'; // Default: right-align
+  char fill = spec->fill_char;
+
+  if (align == '<') {
+    // Left-align: string then padding
+    memcpy(result, str, str_len);
+    memset(result + str_len, fill, pad_len);
+  } else if (align == '>') {
+    // Right-align: padding then string
+    memset(result, fill, pad_len);
+    memcpy(result + pad_len, str, str_len);
+  } else if (align == '^') {
+    // Center: padding on both sides
+    size_t left_pad = pad_len / 2;
+    size_t right_pad = pad_len - left_pad;
+    memset(result, fill, left_pad);
+    memcpy(result + left_pad, str, str_len);
+    memset(result + left_pad + str_len, fill, right_pad);
+  }
+
+  result[total_len] = '\0';
+  *out_len = total_len;
+  return result;
+}
+
+/**
+ * @brief Format a value according to a format specifier
+ *
+ * @param vm VM instance (for error reporting)
+ * @param value Value to format
+ * @param spec Format specification
+ * @return Newly allocated formatted string value, or NULL on error
+ */
+static KronosValue *format_value_with_spec(KronosVM *vm, KronosValue *value,
+                                           const FormatSpec *spec) {
+  char buf[256];
+  const char *str = NULL;
+  size_t str_len = 0;
+  bool free_str = false;
+
+  // Format based on value type and format spec type
+  if (value->type == VAL_NUMBER) {
+    double num = value->as.number;
+
+    if (spec->type == 'f' || spec->precision >= 0) {
+      // Floating-point format
+      int prec = (spec->precision >= 0) ? spec->precision : 6;
+      int written = snprintf(buf, sizeof(buf), "%.*f", prec, num);
+      if (written < 0 || (size_t)written >= sizeof(buf)) {
+        vm_error(vm, KRONOS_ERR_RUNTIME, "Number too large to format");
+        return NULL;
+      }
+      str = buf;
+      str_len = (size_t)written;
+    } else if (spec->type == 'd') {
+      // Integer format
+      long long int_val = (long long)num;
+      int written = snprintf(buf, sizeof(buf), "%lld", int_val);
+      if (written < 0 || (size_t)written >= sizeof(buf)) {
+        vm_error(vm, KRONOS_ERR_RUNTIME, "Number too large to format");
+        return NULL;
+      }
+      str = buf;
+      str_len = (size_t)written;
+    } else {
+      // Default number format: use %g for cleaner output
+      int written = snprintf(buf, sizeof(buf), "%g", num);
+      if (written < 0 || (size_t)written >= sizeof(buf)) {
+        vm_error(vm, KRONOS_ERR_RUNTIME, "Number too large to format");
+        return NULL;
+      }
+      str = buf;
+      str_len = (size_t)written;
+    }
+  } else if (value->type == VAL_STRING) {
+    if (spec->type == 'd' || spec->type == 'f') {
+      vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                "Cannot use numeric format '%%%c' with string value",
+                spec->type);
+      return NULL;
+    }
+    str = value->as.string.data;
+    str_len = value->as.string.length;
+
+    // Apply precision to strings (max length)
+    if (spec->precision >= 0 && str_len > (size_t)spec->precision) {
+      str_len = (size_t)spec->precision;
+    }
+  } else if (value->type == VAL_BOOL) {
+    str = value->as.boolean ? "true" : "false";
+    str_len = strlen(str);
+  } else if (value->type == VAL_NIL) {
+    str = "null";
+    str_len = 4;
+  } else {
+    // Other types (list, map, range, etc.): convert to string representation
+    char *str_repr = value_to_string_repr(value);
+    if (!str_repr) {
+      vm_error(vm, KRONOS_ERR_RUNTIME, "Failed to convert value to string");
+      return NULL;
+    }
+    str = str_repr;
+    str_len = strlen(str_repr);
+    free_str = true;
+  }
+
+  // Apply alignment and width
+  size_t result_len = 0;
+  char *result_str = apply_alignment(str, str_len, spec, &result_len);
+
+  if (free_str) {
+    free((void *)str);
+  }
+
+  if (!result_str) {
+    vm_error(vm, KRONOS_ERR_RUNTIME, "Memory allocation failed during formatting");
+    return NULL;
+  }
+
+  KronosValue *result = value_new_string(result_str, result_len);
+  free(result_str);
+
+  if (!result) {
+    vm_error(vm, KRONOS_ERR_RUNTIME, "Failed to create formatted string value");
+    return NULL;
+  }
+
+  return result;
+}
+
+static int handle_op_format_value(KronosVM *vm) {
+  // Read format spec constant index
+  uint16_t spec_idx = read_uint16(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Get format spec string from constant pool
+  if (!vm->bytecode || spec_idx >= vm->bytecode->const_count) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Invalid format spec constant index: %u", spec_idx);
+  }
+
+  KronosValue *spec_val = vm->bytecode->constants[spec_idx];
+  if (!spec_val || spec_val->type != VAL_STRING) {
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Format spec constant must be a string");
+  }
+
+  // Parse format spec
+  FormatSpec spec;
+  if (parse_format_spec(spec_val->as.string.data, spec_val->as.string.length,
+                        &spec) < 0) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Invalid format specifier: %s",
+                     spec_val->as.string.data);
+  }
+
+  // Pop value to format
+  KronosValue *value;
+  POP_OR_RETURN(vm, value);
+
+  // Format the value
+  KronosValue *result = format_value_with_spec(vm, value, &spec);
+  value_release(value);
+
+  if (!result) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Push result
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+  value_release(result);
   return 0;
 }
 
@@ -6322,6 +6605,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       [OP_THROW] = handle_op_throw,
       [OP_RETHROW] = NULL, // Reserved, never emitted
       [OP_IMPORT] = handle_op_import,
+      [OP_FORMAT_VALUE] = handle_op_format_value,
       [OP_HALT] = handle_op_halt,
   };
 

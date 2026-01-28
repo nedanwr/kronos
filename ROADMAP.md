@@ -24,8 +24,6 @@ This document outlines the planned features and release schedule for Kronos.
 
 ---
 
-## Upcoming Releases
-
 ### Version 0.4.0: "Modules & Error Handling"
 
 **Target:** Q4 2025

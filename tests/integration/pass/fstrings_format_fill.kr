@@ -1,0 +1,21 @@
+# Test: F-strings with fill character format specifiers
+# Expected: Pass
+
+set num to 7
+
+# Zero-padding (common for IDs)
+print f"{num:0>5}"
+
+# Dash-padding
+print f"{num:->5}"
+
+# Star-padding centered
+print f"{num:*^9}"
+
+# Space-padding explicit
+print f"|{num: >5}|"
+
+# With strings
+set code to "AB"
+print f"{code:0>6}"
+print f"{code:_^10}"

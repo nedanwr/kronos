@@ -55,6 +55,7 @@ typedef enum {
   OP_THROW,         // Throw exception (error_message -> exception)
   OP_RETHROW,       // Rethrow current exception
   OP_IMPORT,        // Import module (module_name, file_path constants)
+  OP_FORMAT_VALUE,  // Format value with spec (value, spec_idx -> formatted string)
   OP_HALT,          // End program
 } OpCode;
 

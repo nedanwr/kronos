@@ -1,0 +1,29 @@
+# Test: F-strings with combined format specifiers
+# Expected: Pass
+
+# Precision with width
+set pi to 3.14159265
+print f"|{pi:>12.4f}|"
+print f"|{pi:<12.4f}|"
+print f"|{pi:^12.4f}|"
+
+# Zero-padded numbers with precision
+set price to 9.5
+print f"${price:06.2f}"
+
+# Integer format with width
+set count to 42
+print f"Count: {count:>5d}"
+print f"Count: {count:0>5d}"
+
+# Type specifiers
+set x to 123.456
+print f"As int: {x:d}"
+print f"As float: {x:f}"
+print f"As string: {x:s}"
+
+# Multiple formatted expressions in one f-string
+set name to "Item"
+set qty to 5
+set unit_price to 19.99
+print f"{name:<10} x {qty:>3d} @ ${unit_price:>7.2f}"

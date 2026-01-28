@@ -76,6 +76,10 @@ struct ASTNode {
       // etc.
       ASTNode **parts;
       size_t part_count;
+      // Format specifiers: parallel array, NULL for string literals or
+      // expressions without format specs. format_specs[i] corresponds to
+      // parts[i]. Example: f"{price:.2f}" -> format_specs[i] = ".2f"
+      char **format_specs;
     } fstring;
     bool boolean;
     char *var_name;
