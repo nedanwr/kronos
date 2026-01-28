@@ -212,6 +212,30 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     }
     break;
 
+  case AST_UNPACK_ASSIGN:
+    // Check each unpacking target for references
+    for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
+      if (node->as.unpack_assign.names[i] &&
+          strcmp(node->as.unpack_assign.names[i], ctx->symbol_name) == 0) {
+        add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+      }
+    }
+    if (node->as.unpack_assign.value) {
+      search_node_for_references_recursive(node->as.unpack_assign.value, line_num, ctx,
+                                           depth + 1);
+    }
+    break;
+
+  case AST_TUPLE:
+    // Search each tuple element for references
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      if (node->as.tuple.elements[i]) {
+        search_node_for_references_recursive(node->as.tuple.elements[i], line_num,
+                                             ctx, depth + 1);
+      }
+    }
+    break;
+
   case AST_VAR:
     if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
@@ -309,9 +333,11 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     break;
 
   case AST_RETURN:
-    if (node->as.return_stmt.value) {
-      search_node_for_references_recursive(node->as.return_stmt.value, line_num,
-                                           ctx, depth + 1);
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      if (node->as.return_stmt.values[i]) {
+        search_node_for_references_recursive(node->as.return_stmt.values[i], line_num,
+                                             ctx, depth + 1);
+      }
     }
     break;
 
