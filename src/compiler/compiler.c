@@ -654,6 +654,8 @@ static void compile_slice_expression(Compiler *c, const ASTNode *node);
 static void compile_call_expression(Compiler *c, const ASTNode *node);
 static void compile_fstring_expression(Compiler *c, const ASTNode *node);
 static void compile_lambda_expression(Compiler *c, const ASTNode *node);
+static void compile_tuple_expression(Compiler *c, const ASTNode *node);
+static void compile_unpack_assign_statement(Compiler *c, const ASTNode *node);
 
 // Forward declarations for statement compilation helpers
 static void compile_statement(Compiler *c, const ASTNode *node);
@@ -1255,6 +1257,43 @@ static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a tuple expression
+ *
+ * Creates a tuple from the elements on the stack.
+ *
+ * @param c Compiler state
+ * @param node Tuple AST node (AST_TUPLE)
+ */
+static void compile_tuple_expression(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t element_count = node->as.tuple.element_count;
+
+  // Validate element count fits in 1 byte
+  if (element_count > 255) {
+    compiler_set_error(c, "Tuple has too many elements (max 255)");
+    return;
+  }
+
+  // Compile each element (pushes onto stack)
+  for (size_t i = 0; i < element_count; i++) {
+    compile_expression(c, node->as.tuple.elements[i]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  // Emit OP_TUPLE_NEW with element count
+  emit_byte(c, OP_TUPLE_NEW);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, (uint8_t)element_count);
+}
+
+/**
  * @brief Compile an expression AST node to bytecode
  *
  * Recursively compiles expressions, emitting instructions that leave
@@ -1325,6 +1364,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     compile_lambda_expression(c, node);
     break;
 
+  case AST_TUPLE:
+    compile_tuple_expression(c, node);
+    break;
+
   default:
     compiler_set_error(c, "Unknown expression node type");
     break;
@@ -1371,6 +1414,71 @@ static void compile_assign_statement(Compiler *c, const ASTNode *node) {
   }
   if (compiler_has_error(c)) {
     return;
+  }
+}
+
+/**
+ * @brief Compile an unpacking assignment statement
+ *
+ * Handles destructuring like: set x, y to call func with args
+ * Or swap: set x, y to y, x
+ *
+ * @param c Compiler state
+ * @param node Unpack assign AST node (AST_UNPACK_ASSIGN)
+ */
+static void compile_unpack_assign_statement(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t name_count = node->as.unpack_assign.name_count;
+
+  // Validate name count fits in 1 byte
+  if (name_count > 255) {
+    compiler_set_error(c, "Unpacking assignment has too many targets (max 255)");
+    return;
+  }
+
+  // Compile the value expression (should evaluate to tuple or list)
+  compile_expression(c, node->as.unpack_assign.value);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Emit OP_UNPACK with the number of values to unpack
+  emit_byte(c, OP_UNPACK);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, (uint8_t)name_count);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Store each value in its corresponding variable (in reverse order since
+  // OP_UNPACK pushes values in order, so last name gets first popped value)
+  for (size_t i = name_count; i > 0; i--) {
+    KronosValue *name = value_new_string(node->as.unpack_assign.names[i - 1],
+                                         strlen(node->as.unpack_assign.names[i - 1]));
+    emit_byte(c, OP_STORE_VAR);
+    if (!emit_constant_index(c, name)) {
+      return;
+    }
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    // Emit mutability flag
+    emit_byte(c, node->as.unpack_assign.is_mutable ? 1 : 0);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    // No type annotation for unpacking
+    emit_byte(c, 0);
+    if (compiler_has_error(c)) {
+      return;
+    }
   }
 }
 
@@ -1445,13 +1553,38 @@ static void compile_print_statement(Compiler *c, const ASTNode *node) {
 
 /**
  * @brief Compile a return statement
+ *
+ * Supports single and multiple return values. Multiple return values
+ * are packaged into a tuple before returning.
  */
 static void compile_return_statement(Compiler *c, const ASTNode *node) {
-  // Compile return value
-  compile_expression(c, node->as.return_stmt.value);
-  if (compiler_has_error(c)) {
-    return;
+  size_t value_count = node->as.return_stmt.value_count;
+
+  if (value_count == 1) {
+    // Single return value - compile directly
+    compile_expression(c, node->as.return_stmt.values[0]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  } else {
+    // Multiple return values - compile each and create a tuple
+    for (size_t i = 0; i < value_count; i++) {
+      compile_expression(c, node->as.return_stmt.values[i]);
+      if (compiler_has_error(c)) {
+        return;
+      }
+    }
+    // Create tuple from the values on the stack
+    emit_byte(c, OP_TUPLE_NEW);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, (uint8_t)value_count);
+    if (compiler_has_error(c)) {
+      return;
+    }
   }
+
   emit_byte(c, OP_RETURN_VAL);
   if (compiler_has_error(c)) {
     return;
@@ -2623,6 +2756,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_assign_index_statement(c, node);
     break;
 
+  case AST_UNPACK_ASSIGN:
+    compile_unpack_assign_statement(c, node);
+    break;
+
   case AST_DELETE:
     compile_delete_statement(c, node);
     break;
@@ -3245,6 +3382,28 @@ void bytecode_print(Bytecode *bytecode) {
       }
       uint8_t arg_count = bytecode->code[offset + 1];
       printf("CALL_VALUE args=%u\n", arg_count);
+      offset += 2;
+      break;
+    }
+    case OP_TUPLE_NEW: {
+      if (offset + 1 >= bytecode->count) {
+        printf("TUPLE_NEW <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t count = bytecode->code[offset + 1];
+      printf("TUPLE_NEW %d\n", count);
+      offset += 2;
+      break;
+    }
+    case OP_UNPACK: {
+      if (offset + 1 >= bytecode->count) {
+        printf("UNPACK <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t count = bytecode->code[offset + 1];
+      printf("UNPACK %d\n", count);
       offset += 2;
       break;
     }

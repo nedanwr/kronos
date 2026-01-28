@@ -1,0 +1,32 @@
+# Test: Unpacking assignment
+# Expected: Pass
+
+# Function returning a tuple
+function get_point:
+    return 10, 20
+
+# Unpack into variables
+set x, y to call get_point
+print x
+print y
+
+# Function returning three values
+function get_color:
+    return 255, 128, 64
+
+set r, g, b to call get_color
+print r
+print g
+print b
+
+# Nested function returning tuple
+function outer:
+    return 1, 2, 3
+
+function inner:
+    return call outer
+
+set p, q, s to call inner
+print p
+print q
+print s

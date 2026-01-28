@@ -590,6 +590,43 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       }
       break;
     }
+    case AST_UNPACK_ASSIGN: {
+      // Create a symbol for each unpacked variable
+      for (size_t j = 0; j < node->as.unpack_assign.name_count; j++) {
+        // Check if symbol already exists (for reassignments)
+        Symbol *existing = head ? *head : NULL;
+        while (existing) {
+          if (existing->name &&
+              strcmp(existing->name, node->as.unpack_assign.names[j]) == 0 &&
+              existing->type == SYMBOL_VARIABLE) {
+            existing->written = true;
+            break;
+          }
+          existing = existing->next;
+        }
+
+        // Only create new symbol if it doesn't exist
+        if (!existing) {
+          sym = malloc(sizeof(Symbol));
+          if (!sym)
+            continue;
+          sym->name = strdup(node->as.unpack_assign.names[j]);
+          sym->type = SYMBOL_VARIABLE;
+          sym->is_mutable = node->as.unpack_assign.is_mutable;
+          sym->type_name = NULL;  // No type annotation for unpacking
+          sym->param_count = 0;
+          sym->written = true;
+          sym->read = false;
+          get_node_position(node, &line, &col);
+          sym->line = line;
+          sym->column = col;
+          sym->next = NULL;
+          **tail = sym;
+          *tail = &sym->next;
+        }
+      }
+      break;
+    }
     case AST_FUNCTION: {
       sym = malloc(sizeof(Symbol));
       if (!sym)
@@ -1504,6 +1541,28 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     }
     break;
 
+  case AST_UNPACK_ASSIGN:
+    // Check each unpacking target for references
+    for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
+      if (node->as.unpack_assign.names[i] &&
+          strcmp(node->as.unpack_assign.names[i], ctx->symbol_name) == 0) {
+        ctx->count++;
+      }
+    }
+    if (node->as.unpack_assign.value) {
+      count_references_in_node_recursive(node->as.unpack_assign.value, ctx, depth + 1);
+    }
+    break;
+
+  case AST_TUPLE:
+    // Search each tuple element for references
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      if (node->as.tuple.elements[i]) {
+        count_references_in_node_recursive(node->as.tuple.elements[i], ctx, depth + 1);
+      }
+    }
+    break;
+
   case AST_VAR:
     if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
       ctx->count++;
@@ -1597,9 +1656,11 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     break;
 
   case AST_RETURN:
-    if (node->as.return_stmt.value) {
-      count_references_in_node_recursive(node->as.return_stmt.value, ctx,
-                                         depth + 1);
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      if (node->as.return_stmt.values[i]) {
+        count_references_in_node_recursive(node->as.return_stmt.values[i], ctx,
+                                           depth + 1);
+      }
     }
     break;
 

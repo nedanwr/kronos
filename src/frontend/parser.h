@@ -34,6 +34,8 @@ typedef enum {
   AST_TRY,          // Try/catch/finally exception handling
   AST_RAISE,        // Raise exception: raise ErrorType "message"
   AST_LAMBDA,       // Anonymous function expression
+  AST_TUPLE,        // Tuple expression: a, b, c
+  AST_UNPACK_ASSIGN, // Destructuring assignment: set x, y to expr
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -175,8 +177,10 @@ struct ASTNode {
       size_t arg_count;
     } call;
 
+    // Return statement: return expr [, expr2, expr3, ...]
     struct {
-      ASTNode *value;
+      ASTNode **values;    // Array of return values
+      size_t value_count;  // Number of return values (1 for single return)
     } return_stmt;
 
     // Lambda: anonymous function expression
@@ -247,6 +251,20 @@ struct ASTNode {
       ASTNode *target; // Variable (map)
       ASTNode *key;    // Key expression
     } delete_stmt;
+
+    // Tuple expression: a, b, c (for multiple return values and swapping)
+    struct {
+      ASTNode **elements;
+      size_t element_count;
+    } tuple;
+
+    // Unpacking assignment: set x, y, z to expr
+    struct {
+      char **names;       // Array of variable names
+      size_t name_count;  // Number of names
+      ASTNode *value;     // Expression to unpack (should eval to tuple/list)
+      bool is_mutable;    // true for 'let', false for 'set'
+    } unpack_assign;
   } as;
 };
 

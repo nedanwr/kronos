@@ -373,7 +373,7 @@ TEST(parse_return_statement) {
   ASSERT_PTR_NOT_NULL(ast);
   ASSERT_INT_EQ(ast->count, 1);
   ASSERT_INT_EQ(ast->statements[0]->type, AST_RETURN);
-  ASSERT_INT_EQ(ast->statements[0]->as.return_stmt.value->type, AST_NUMBER);
+  ASSERT_INT_EQ(ast->statements[0]->as.return_stmt.values[0]->type, AST_NUMBER);
 
   ast_free(ast);
   token_array_free(tokens);

@@ -244,7 +244,7 @@ This document outlines the planned features and release schedule for Kronos.
   print call double with 5  # Prints: 10
   ```
 
-- **Multiple Return Values** - Tuple returns and destructuring
+- ✅ **Multiple Return Values** - Tuple returns and destructuring (completed)
 
   ```kronos
   function divide_with_remainder with a, b:

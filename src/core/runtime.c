@@ -473,6 +473,57 @@ KronosValue *value_new_range(double start, double end, double step) {
 }
 
 /**
+ * @brief Create a new tuple value
+ *
+ * Creates an immutable fixed-size container for multiple values. Tuples are
+ * used for multiple return values and destructuring assignments. The items
+ * array is copied and each item is retained.
+ *
+ * DESIGN DECISION: Tuples are immutable (no append, set operations). This
+ * distinguishes them from lists and makes their semantics clearer for
+ * multiple return values.
+ *
+ * EDGE CASES:
+ * - count of 0: Creates empty tuple (valid but rarely useful)
+ * - count of 1: Creates single-element tuple (distinct from the value itself)
+ * - NULL items: Returns NULL (invalid input)
+ * - NULL item in array: Stored as-is (caller's responsibility)
+ *
+ * @param items Array of values to include (will be copied and retained)
+ * @param count Number of items
+ * @return New tuple value, or NULL on allocation failure or NULL items
+ */
+KronosValue *value_new_tuple(KronosValue **items, size_t count) {
+  if (!items && count > 0)
+    return NULL;
+
+  KronosValue *val = malloc(sizeof(KronosValue));
+  if (!val)
+    return NULL;
+
+  KronosValue **tuple_items = NULL;
+  if (count > 0) {
+    tuple_items = malloc(count * sizeof(KronosValue *));
+    if (!tuple_items) {
+      free(val);
+      return NULL;
+    }
+    for (size_t i = 0; i < count; i++) {
+      tuple_items[i] = items[i];
+      value_retain(items[i]);
+    }
+  }
+
+  val->type = VAL_TUPLE;
+  val->refcount = 1;
+  val->as.tuple.items = tuple_items;
+  val->as.tuple.count = count;
+
+  gc_track(val);
+  return val;
+}
+
+/**
  * @brief Hash function for map keys
  *
  * DESIGN DECISIONS: Strings use pre-computed hash, numbers hash bit
@@ -545,6 +596,15 @@ static uint32_t hash_value(KronosValue *key) {
           h *= 16777619;
         }
       }
+    }
+    return h;
+  }
+  case VAL_TUPLE: {
+    // Hash tuple by hashing each element (content-based, order-dependent)
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < key->as.tuple.count; i++) {
+      h ^= hash_value(key->as.tuple.items[i]);
+      h *= 16777619;
     }
     return h;
   }
@@ -699,6 +759,11 @@ void value_finalize(KronosValue *val) {
     free(val->as.map.entries);
     break;
   }
+  case VAL_TUPLE:
+    // Free the items array, but don't release the child values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.tuple.items);
+    break;
   case VAL_CHANNEL:
     // Channels are currently managed externally.
     break;
@@ -803,6 +868,19 @@ void value_release(KronosValue *val) {
       free(entries);
       break;
     }
+    case VAL_TUPLE:
+      for (size_t i = 0; i < current->as.tuple.count; i++) {
+        KronosValue *child = current->as.tuple.items[i];
+        if (child) {
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  child)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release(child);
+          }
+        }
+      }
+      free(current->as.tuple.items);
+      break;
     case VAL_CHANNEL:
       // Channels are currently managed externally.
       break;
@@ -923,6 +1001,19 @@ static void value_fprint_recursive(FILE *out, KronosValue *val, int depth) {
     fprintf(out, "}");
     break;
   }
+  case VAL_TUPLE:
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "(<max depth exceeded>)");
+      break;
+    }
+    fprintf(out, "(");
+    for (size_t i = 0; i < val->as.tuple.count; i++) {
+      if (i > 0)
+        fprintf(out, ", ");
+      value_fprint_recursive(out, val->as.tuple.items[i], depth + 1);
+    }
+    fprintf(out, ")");
+    break;
   default:
     fprintf(out, "<unknown>");
     break;
@@ -1107,6 +1198,16 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
     }
     return true;
   }
+  case VAL_TUPLE:
+    if (a->as.tuple.count != b->as.tuple.count)
+      return false;
+    for (size_t i = 0; i < a->as.tuple.count; i++) {
+      if (!value_equals_recursive(a->as.tuple.items[i], b->as.tuple.items[i],
+                                  depth + 1, visited_a, visited_b,
+                                  visited_count, visited_capacity))
+        return false;
+    }
+    return true;
   default:
     return a == b; // Pointer equality for complex types
   }
@@ -1479,6 +1580,10 @@ bool value_is_type(KronosValue *val, const char *type_name) {
   case 's':
     if (len == 6 && strcmp(type_name, "string") == 0)
       return val->type == VAL_STRING;
+    break;
+  case 't':
+    if (len == 5 && strcmp(type_name, "tuple") == 0)
+      return val->type == VAL_TUPLE;
     break;
   }
 
