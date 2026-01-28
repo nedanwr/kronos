@@ -817,6 +817,16 @@ static void check_expression_recursive(ASTNode *node, const char *text,
     return;
   }
 
+  // Check tuples recursively
+  if (node->type == AST_TUPLE) {
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      check_expression_recursive(node->as.tuple.elements[i], text, symbols, ast,
+                                 diagnostics, pos, remaining, has_diagnostics,
+                                 seen_vars, seen_count, capacity, depth + 1);
+    }
+    return;
+  }
+
   // Check function calls recursively
   if (node->type == AST_CALL) {
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
@@ -1269,6 +1279,89 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
       }
     }
 
+    // Check unpacking assignments for immutable reassignment
+    if (node->type == AST_UNPACK_ASSIGN) {
+      // Add each unpacked variable to seen_vars
+      for (size_t j = 0; j < node->as.unpack_assign.name_count; j++) {
+        const char *var_name = node->as.unpack_assign.names[j];
+        bool found = false;
+        bool was_immutable = false;
+        size_t occurrence = 0;
+
+        for (size_t k = 0; k < seen_count; k++) {
+          if (strcmp(seen_vars[k].name, var_name) == 0) {
+            found = true;
+            was_immutable = !seen_vars[k].is_mutable;
+            occurrence = seen_vars[k].assignment_count;
+            seen_vars[k].assignment_count++;
+            break;
+          }
+        }
+
+        // Add new variable to seen_vars if not found
+        if (!found) {
+          if (seen_count >= seen_capacity) {
+            seen_capacity *= 2;
+            SeenVar *new_vars =
+                realloc(seen_vars, seen_capacity * sizeof(SeenVar));
+            if (!new_vars) {
+              for (size_t k = 0; k < seen_count; k++) {
+                free(seen_vars[k].name);
+              }
+              free(seen_vars);
+              return;
+            }
+            seen_vars = new_vars;
+          }
+          seen_vars[seen_count].name = strdup(var_name);
+          if (!seen_vars[seen_count].name) {
+            for (size_t k = 0; k < seen_count; k++) {
+              free(seen_vars[k].name);
+            }
+            free(seen_vars);
+            return;
+          }
+          seen_vars[seen_count].is_mutable = node->as.unpack_assign.is_mutable;
+          seen_vars[seen_count].assignment_count = 1;
+          seen_vars[seen_count].first_statement_index = i;
+          seen_count++;
+        }
+
+        // Check for immutable variable reassignment
+        if (found && was_immutable) {
+          size_t line = 1, col = 0;
+          if (!find_nth_occurrence(text, var_name, occurrence, &line, &col)) {
+            char pattern[LSP_PATTERN_BUFFER_SIZE];
+            snprintf(pattern, sizeof(pattern), "set %s", var_name);
+            find_node_position(node, text, pattern, &line, &col);
+          }
+
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg),
+                   "Cannot reassign immutable variable '%s'", var_name);
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+          json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
+
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"%s\"}",
+              *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+              escaped_msg_final);
+          *has_diagnostics = true;
+        }
+
+        // Mark variable as written
+        Symbol *sym = find_symbol(var_name);
+        if (sym && sym->type == SYMBOL_VARIABLE) {
+          sym->written = true;
+        }
+      }
+    }
+
     // Check expressions in print statements
     if (node->type == AST_PRINT) {
       if (node->as.print.value) {
@@ -1332,8 +1425,19 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
 
     // Check expressions in return statements
     if (node->type == AST_RETURN) {
-      if (node->as.return_stmt.value) {
-        check_expression(node->as.return_stmt.value, text, symbols, ast,
+      for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+        if (node->as.return_stmt.values[i]) {
+          check_expression(node->as.return_stmt.values[i], text, symbols, ast,
+                           diagnostics, pos, remaining, has_diagnostics,
+                           seen_vars, seen_count, capacity);
+        }
+      }
+    }
+
+    // Check expressions in unpacking assignments
+    if (node->type == AST_UNPACK_ASSIGN) {
+      if (node->as.unpack_assign.value) {
+        check_expression(node->as.unpack_assign.value, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
                          seen_vars, seen_count, capacity);
       }
