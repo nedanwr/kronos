@@ -235,11 +235,13 @@ This document outlines the planned features and release schedule for Kronos.
   set zeroed to f"{num:0>5}"              # Fill characters
   ```
 
-- **Anonymous Functions / Lambdas** - First-class functions (foundation for functional features)
+- ✅ **Anonymous Functions / Lambdas** - First-class functions (foundation for functional features) (completed)
 
   ```kronos
   set double to function with x: return x times 2
-  set doubled to map numbers with function with x: return x times 2
+  set add to function with a, b:
+      return a plus b
+  print call double with 5  # Prints: 10
   ```
 
 - **Multiple Return Values** - Tuple returns and destructuring
