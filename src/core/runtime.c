@@ -10,6 +10,9 @@
  * - Value printing and formatting
  */
 
+// Enable POSIX functions like strdup on Linux
+#define _POSIX_C_SOURCE 200809L
+
 #include "runtime.h"
 #include "gc.h"
 #include <math.h>
