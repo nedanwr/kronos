@@ -37,6 +37,7 @@ typedef struct KronosValue {
       uint8_t *bytecode;
       size_t length;
       int arity;
+      char **param_names; // Parameter names for argument binding (may be NULL)
     } function;
     struct {
       struct KronosValue **items;
@@ -78,7 +79,8 @@ KronosValue *value_new_number(double num);
 KronosValue *value_new_string(const char *str, size_t len);
 KronosValue *value_new_bool(bool val);
 KronosValue *value_new_nil(void);
-KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity);
+KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
+                                char **param_names);
 KronosValue *value_new_list(size_t initial_capacity);
 KronosValue *value_new_channel(Channel *channel);
 KronosValue *value_new_range(double start, double end, double step);
