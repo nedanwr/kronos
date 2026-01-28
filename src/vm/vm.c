@@ -1948,6 +1948,8 @@ static int handle_op_define_func(KronosVM *vm);
 static int handle_op_call_func(KronosVM *vm);
 static int handle_op_make_function(KronosVM *vm);
 static int handle_op_call_value(KronosVM *vm);
+static int handle_op_tuple_new(KronosVM *vm);
+static int handle_op_unpack(KronosVM *vm);
 static int handle_op_return_val(KronosVM *vm);
 static int handle_op_pop(KronosVM *vm);
 static int handle_op_list_new(KronosVM *vm);
@@ -6771,6 +6773,123 @@ static int handle_op_call_value(KronosVM *vm) {
                   "OP_CALL_VALUE not implemented (use OP_CALL_FUNC)");
 }
 
+/**
+ * @brief Handle OP_TUPLE_NEW opcode
+ *
+ * Creates a new tuple from N values on the stack.
+ *
+ * Opcode format:
+ *   OP_TUPLE_NEW [count:1]
+ *
+ * Stack (before): [val0] [val1] ... [valN-1]
+ * Stack (after): [tuple]
+ */
+static int handle_op_tuple_new(KronosVM *vm) {
+  uint8_t count = read_byte(vm);
+
+  // Pop values from stack (in reverse order to maintain element order)
+  KronosValue **items = NULL;
+  if (count > 0) {
+    items = malloc(count * sizeof(KronosValue *));
+    if (!items) {
+      return vm_error(vm, KRONOS_ERR_RUNTIME, "Failed to allocate tuple items");
+    }
+
+    // Pop values in reverse order (stack is LIFO)
+    for (int i = count - 1; i >= 0; i--) {
+      POP_OR_RETURN_WITH_CLEANUP(vm, items[i], {
+        // Clean up already-popped items on failure
+        for (int j = count - 1; j > i; j--) {
+          value_release(items[j]);
+        }
+        free(items);
+      });
+    }
+  }
+
+  // Create tuple (items are retained by value_new_tuple)
+  KronosValue *tuple = value_new_tuple(items, count);
+
+  // Release our references since tuple now owns them
+  for (uint8_t i = 0; i < count; i++) {
+    value_release(items[i]);
+  }
+  free(items);
+
+  if (!tuple) {
+    return vm_error(vm, KRONOS_ERR_RUNTIME, "Failed to create tuple");
+  }
+
+  // Push tuple onto stack
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, tuple, value_release(tuple););
+  value_release(tuple); // Stack now owns the tuple
+
+  return 0;
+}
+
+/**
+ * @brief Handle OP_UNPACK opcode
+ *
+ * Unpacks a tuple or list into N values on the stack.
+ *
+ * Opcode format:
+ *   OP_UNPACK [count:1]
+ *
+ * Stack (before): [tuple_or_list]
+ * Stack (after): [val0] [val1] ... [valN-1]
+ *
+ * Note: Values are pushed so that the first element is deepest on the stack,
+ * allowing OP_STORE_VAR to pop them in reverse declaration order.
+ */
+static int handle_op_unpack(KronosVM *vm) {
+  uint8_t expected_count = read_byte(vm);
+
+  KronosValue *container;
+  POP_OR_RETURN(vm, container);
+
+  size_t actual_count = 0;
+  KronosValue **items = NULL;
+
+  if (container->type == VAL_TUPLE) {
+    actual_count = container->as.tuple.count;
+    items = container->as.tuple.items;
+  } else if (container->type == VAL_LIST) {
+    actual_count = container->as.list.count;
+    items = container->as.list.items;
+  } else {
+    value_release(container);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Cannot unpack value of type %d (expected tuple or list)",
+                     container->type);
+  }
+
+  if (actual_count != expected_count) {
+    value_release(container);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Unpack count mismatch: expected %d values, got %zu",
+                     expected_count, actual_count);
+  }
+
+  // Push values onto stack in order (first element first, deepest on stack)
+  for (size_t i = 0; i < actual_count; i++) {
+    value_retain(items[i]);
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, items[i], {
+      value_release(items[i]);
+      // Release already-pushed items
+      for (size_t j = 0; j < i; j++) {
+        KronosValue *val;
+        POP_OR_RETURN(vm, val);
+        value_release(val);
+      }
+      value_release(container);
+    });
+    value_release(items[i]); // Stack now owns the value
+  }
+
+  value_release(container);
+  return 0;
+}
+
 static int handle_op_return_val(KronosVM *vm) {
   // Pop return value from stack
   KronosValue *return_value;
@@ -6946,6 +7065,8 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       [OP_FORMAT_VALUE] = handle_op_format_value,
       [OP_MAKE_FUNCTION] = handle_op_make_function,
       [OP_CALL_VALUE] = handle_op_call_value,
+      [OP_TUPLE_NEW] = handle_op_tuple_new,
+      [OP_UNPACK] = handle_op_unpack,
       [OP_HALT] = handle_op_halt,
   };
 
