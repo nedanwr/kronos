@@ -408,6 +408,14 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
                              remaining, has_diagnostics, capacity);
       }
+    } else if (node->type == AST_LAMBDA) {
+      // Check function calls in lambda body (multi-line lambdas)
+      if (node->as.lambda.block) {
+        AST temp_ast = {node->as.lambda.block, node->as.lambda.block_size,
+                        node->as.lambda.block_size};
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics, capacity);
+      }
     }
   }
 }
@@ -1875,6 +1883,14 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
       if (node->as.function.block) {
         AST temp_ast = {node->as.function.block, node->as.function.block_size,
                         node->as.function.block_size};
+        check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
+                                  remaining, has_diagnostics, capacity);
+      }
+    } else if (node->type == AST_LAMBDA) {
+      // Check undefined variables in lambda body (multi-line lambdas)
+      if (node->as.lambda.block) {
+        AST temp_ast = {node->as.lambda.block, node->as.lambda.block_size,
+                        node->as.lambda.block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
                                   remaining, has_diagnostics, capacity);
       }
