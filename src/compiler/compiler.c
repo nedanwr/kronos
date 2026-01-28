@@ -653,6 +653,7 @@ static void compile_index_expression(Compiler *c, const ASTNode *node);
 static void compile_slice_expression(Compiler *c, const ASTNode *node);
 static void compile_call_expression(Compiler *c, const ASTNode *node);
 static void compile_fstring_expression(Compiler *c, const ASTNode *node);
+static void compile_lambda_expression(Compiler *c, const ASTNode *node);
 
 // Forward declarations for statement compilation helpers
 static void compile_statement(Compiler *c, const ASTNode *node);
@@ -1172,6 +1173,88 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a lambda (anonymous function) expression
+ *
+ * Compiles the lambda body and emits OP_MAKE_FUNCTION to create a function
+ * value on the stack. The function value contains the bytecode for the body
+ * and parameter names for argument binding.
+ *
+ * Bytecode format:
+ *   OP_MAKE_FUNCTION [param_count:1] [param_name_idx:2*N] [body_len:2] [body:N]
+ *
+ * @param c Compiler state
+ * @param node Lambda AST node (AST_LAMBDA)
+ */
+static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Validate parameter count fits in 1 byte
+  if (node->as.lambda.param_count > 255) {
+    compiler_set_error(c, "Lambda has too many parameters (max 255)");
+    return;
+  }
+
+  // Emit OP_MAKE_FUNCTION opcode
+  emit_byte(c, OP_MAKE_FUNCTION);
+
+  // Emit parameter count (1 byte)
+  emit_byte(c, (uint8_t)node->as.lambda.param_count);
+
+  // Emit parameter names as constant indices (2 bytes each)
+  for (size_t i = 0; i < node->as.lambda.param_count; i++) {
+    KronosValue *param_name = value_new_string(node->as.lambda.params[i],
+                                                strlen(node->as.lambda.params[i]));
+    if (!emit_constant_index(c, param_name)) {
+      return;
+    }
+  }
+
+  // Reserve space for body length (2 bytes, will be patched)
+  size_t body_len_pos = c->bytecode->count;
+  emit_byte(c, 0); // Placeholder high byte
+  emit_byte(c, 0); // Placeholder low byte
+
+  // Record start of function body
+  size_t body_start = c->bytecode->count;
+
+  // Compile function body
+  if (node->as.lambda.is_single_line) {
+    // Single-line: compile expression and emit return
+    compile_expression(c, node->as.lambda.body_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_RETURN_VAL);
+  } else {
+    // Multi-line: compile block statements
+    for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+      compile_statement(c, node->as.lambda.block[i]);
+      if (compiler_has_error(c)) {
+        return;
+      }
+    }
+    // Implicit return nil if no explicit return
+    KronosValue *nil_val = value_new_nil();
+    emit_constant(c, nil_val);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_RETURN_VAL);
+  }
+
+  // Calculate and patch body length
+  size_t body_len = c->bytecode->count - body_start;
+  if (body_len > 65535) {
+    compiler_set_error(c, "Lambda body too large (max 65535 bytes)");
+    return;
+  }
+  c->bytecode->code[body_len_pos] = (uint8_t)(body_len >> 8);
+  c->bytecode->code[body_len_pos + 1] = (uint8_t)(body_len & 0xFF);
+}
+
+/**
  * @brief Compile an expression AST node to bytecode
  *
  * Recursively compiles expressions, emitting instructions that leave
@@ -1236,6 +1319,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
 
   case AST_CALL:
     compile_call_expression(c, node);
+    break;
+
+  case AST_LAMBDA:
+    compile_lambda_expression(c, node);
     break;
 
   default:
@@ -3114,6 +3201,51 @@ void bytecode_print(Bytecode *bytecode) {
           (uint16_t)(bytecode->code[offset + 1] << 8 | bytecode->code[offset + 2]);
       printf("FORMAT_VALUE spec=%u\n", spec_idx);
       offset += 3;
+      break;
+    }
+    case OP_MAKE_FUNCTION: {
+      if (offset + 1 >= bytecode->count) {
+        printf("MAKE_FUNCTION <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t param_count = bytecode->code[offset + 1];
+      printf("MAKE_FUNCTION params=%u", param_count);
+      offset += 2;
+      // Skip param name indices
+      for (int i = 0; i < param_count; i++) {
+        if (offset + 1 >= bytecode->count) {
+          printf(" <truncated>\n");
+          offset = bytecode->count;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[offset] << 8 |
+                                   bytecode->code[offset + 1]);
+        printf(" name%d=%u", i, idx);
+        offset += 2;
+      }
+      if (offset + 1 >= bytecode->count) {
+        printf(" <body_len truncated>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t body_len = (uint16_t)(bytecode->code[offset] << 8 |
+                                      bytecode->code[offset + 1]);
+      printf(" body_len=%u\n", body_len);
+      offset += 2;
+      // Skip over inline body bytecode
+      offset += body_len;
+      break;
+    }
+    case OP_CALL_VALUE: {
+      if (offset + 1 >= bytecode->count) {
+        printf("CALL_VALUE <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t arg_count = bytecode->code[offset + 1];
+      printf("CALL_VALUE args=%u\n", arg_count);
+      offset += 2;
       break;
     }
     case OP_HALT:
