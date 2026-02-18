@@ -23,7 +23,10 @@ typedef struct {
   char *name;
   char **params;
   size_t param_count;
-  Bytecode bytecode; // Full bytecode structure
+  size_t required_param_count;   // Number of required params (without defaults)
+  bool has_variadic;             // true if last param is variadic (...param)
+  KronosValue **param_defaults;  // Default values for optional params (NULL for required)
+  Bytecode bytecode;             // Full bytecode structure
 } Function;
 
 // Module definition (for file-based modules)
