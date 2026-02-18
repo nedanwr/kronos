@@ -166,7 +166,10 @@ struct ASTNode {
     struct {
       char *name;
       char **params;
+      ASTNode **param_defaults;    // Default value expressions (NULL for required params)
       size_t param_count;
+      size_t required_param_count; // Number of required params (without defaults)
+      bool has_variadic;           // true if last param is variadic (...param)
       ASTNode **block;
       size_t block_size;
     } function;
@@ -174,6 +177,7 @@ struct ASTNode {
     struct {
       char *name;
       ASTNode **args;
+      char **arg_names;    // Parallel array: NULL for positional, name for named args
       size_t arg_count;
     } call;
 
@@ -188,7 +192,10 @@ struct ASTNode {
     // Multi-line: function with params:\n    block
     struct {
       char **params;
+      ASTNode **param_defaults;    // Default value expressions (NULL for required params)
       size_t param_count;
+      size_t required_param_count; // Number of required params (without defaults)
+      bool has_variadic;           // true if last param is variadic (...param)
       ASTNode *body_expr;  // For single-line: the return expression
       ASTNode **block;     // For multi-line: block of statements
       size_t block_size;
