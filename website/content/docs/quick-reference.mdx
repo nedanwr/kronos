@@ -69,6 +69,25 @@ function greet with name:
 
 call greet with "Alice"
 
+# Default parameters
+function greet with name, greeting = "Hello":
+    return f"{greeting}, {name}!"
+
+call greet with "Alice"         # Uses default
+call greet with "Bob", "Hi"     # Override default
+
+# Variadic parameters
+function sum with ...numbers:
+    let total to 0
+    for n in numbers:
+        let total to total plus n
+    return total
+
+call sum with 1, 2, 3, 4, 5     # Accepts any number of args
+
+# Named arguments
+call create_point with z: 3, x: 1, y: 2
+
 # Multiple return values
 function divide with a, b:
     return a divided by b, a mod b
