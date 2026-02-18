@@ -271,12 +271,15 @@ TEST(string_intern) {
 
 TEST(value_new_function) {
   uint8_t bytecode[] = {1, 2, 3};
-  KronosValue *func = value_new_function(bytecode, 3, 2, NULL);
+  KronosValue *func = value_new_function(bytecode, 3, 2, 2, false, NULL, NULL);
   ASSERT_PTR_NOT_NULL(func);
   ASSERT_INT_EQ(func->type, VAL_FUNCTION);
   ASSERT_INT_EQ(func->as.function.arity, 2);
+  ASSERT_INT_EQ(func->as.function.required_arity, 2);
+  ASSERT_INT_EQ(func->as.function.has_variadic, false);
   ASSERT_INT_EQ(func->as.function.length, 3);
   ASSERT_PTR_NULL(func->as.function.param_names);
+  ASSERT_PTR_NULL(func->as.function.param_defaults);
 
   value_release(func);
 }
@@ -284,10 +287,11 @@ TEST(value_new_function) {
 TEST(value_new_function_with_params) {
   uint8_t bytecode[] = {1, 2, 3};
   char *params[] = {"x", "y"};
-  KronosValue *func = value_new_function(bytecode, 3, 2, params);
+  KronosValue *func = value_new_function(bytecode, 3, 2, 2, false, params, NULL);
   ASSERT_PTR_NOT_NULL(func);
   ASSERT_INT_EQ(func->type, VAL_FUNCTION);
   ASSERT_INT_EQ(func->as.function.arity, 2);
+  ASSERT_INT_EQ(func->as.function.required_arity, 2);
   ASSERT_PTR_NOT_NULL(func->as.function.param_names);
   ASSERT_STR_EQ(func->as.function.param_names[0], "x");
   ASSERT_STR_EQ(func->as.function.param_names[1], "y");
@@ -297,7 +301,7 @@ TEST(value_new_function_with_params) {
 
 TEST(value_new_function_null_bytecode) {
   // Should return NULL for invalid input
-  KronosValue *func = value_new_function(NULL, 0, 0, NULL);
+  KronosValue *func = value_new_function(NULL, 0, 0, 0, false, NULL, NULL);
   ASSERT_PTR_NULL(func);
 }
 
