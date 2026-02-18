@@ -499,16 +499,24 @@ static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name);
 static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
                                          bool is_mutable, Token *start_tok);
 
+// Result structure for extended parameter parsing
+typedef struct {
+  char **params;                // Parameter names
+  ASTNode **defaults;           // Default value expressions (NULL for required params)
+  size_t count;                 // Total parameter count
+  size_t required_count;        // Number of required params (without defaults)
+  bool has_variadic;            // true if last param is variadic (...param)
+} ParsedParams;
+
 // Helper functions for parse_function
-static bool function_parse_parameters(Parser *p, char ***params,
-                                      size_t *param_count,
-                                      size_t *param_capacity);
-static void function_cleanup_parameters(char **params, size_t param_count);
+static bool function_parse_parameters_ext(Parser *p, ParsedParams *result);
+static void function_cleanup_parsed_params(ParsedParams *params);
 
 // Helper functions for parse_call
-static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
-                                 size_t *arg_capacity);
-static void call_cleanup_arguments(ASTNode **args, size_t arg_count);
+static bool call_parse_arguments(Parser *p, ASTNode ***args, char ***arg_names,
+                                 size_t *arg_count, size_t *arg_capacity);
+static void call_cleanup_arguments(ASTNode **args, char **arg_names,
+                                   size_t arg_count);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
 
@@ -3344,97 +3352,238 @@ static ASTNode *parse_while(Parser *p, int indent) {
   return node;
 }
 
+
 /**
- * @brief Parse function parameters
+ * @brief Cleanup parsed parameters structure
  *
- * Parses: "with param1, param2, param3"
- * Returns false on error. On success, params array is allocated and populated.
+ * Frees all parameter names, default value expressions, and arrays.
+ *
+ * @param params ParsedParams structure to cleanup
+ */
+static void function_cleanup_parsed_params(ParsedParams *params) {
+  if (!params) {
+    return;
+  }
+  if (params->params) {
+    for (size_t i = 0; i < params->count; i++) {
+      free(params->params[i]);
+    }
+    free(params->params);
+  }
+  if (params->defaults) {
+    for (size_t i = 0; i < params->count; i++) {
+      if (params->defaults[i]) {
+        ast_node_free(params->defaults[i]);
+      }
+    }
+    free(params->defaults);
+  }
+  params->params = NULL;
+  params->defaults = NULL;
+  params->count = 0;
+  params->required_count = 0;
+  params->has_variadic = false;
+}
+
+/**
+ * @brief Extended parameter parsing with defaults and variadic support
+ *
+ * Parses parameter list with support for:
+ * - Required parameters: param
+ * - Parameters with defaults: param = expr
+ * - Variadic parameters: ...param (must be last)
+ *
+ * Rules:
+ * - Required params must come before params with defaults
+ * - Variadic param must be last and cannot have a default
+ * - Only one variadic param allowed
  *
  * @param p Parser state
- * @param params Output parameter for parameters array
- * @param param_count Output parameter for number of parameters
- * @param param_capacity Output parameter for capacity of params array
+ * @param result Output structure for parsed parameters
  * @return true on success, false on error
  */
-static bool function_parse_parameters(Parser *p, char ***params,
-                                      size_t *param_count,
-                                      size_t *param_capacity) {
+static bool function_parse_parameters_ext(Parser *p, ParsedParams *result) {
+  // Initialize result
+  result->params = NULL;
+  result->defaults = NULL;
+  result->count = 0;
+  result->required_count = 0;
+  result->has_variadic = false;
+
   Token *tok = peek(p, 0);
   if (!tok || tok->type != TOK_WITH) {
-    *params = NULL;
-    *param_count = 0;
-    *param_capacity = 0;
     return true; // No parameters is valid
   }
 
-  consume_any(p);
+  consume_any(p); // consume 'with'
 
-  *param_capacity = INITIAL_ARRAY_CAPACITY;
-  *param_count = 0;
-  *params = malloc(sizeof(char *) * *param_capacity);
-  if (!*params) {
-    fprintf(stderr, "parse_function: failed to allocate params array\n");
+  size_t capacity = INITIAL_ARRAY_CAPACITY;
+  result->params = malloc(sizeof(char *) * capacity);
+  result->defaults = malloc(sizeof(ASTNode *) * capacity);
+  if (!result->params || !result->defaults) {
+    free(result->params);
+    free(result->defaults);
+    result->params = NULL;
+    result->defaults = NULL;
+    parser_set_error(p, "Failed to allocate parameters array");
     return false;
+  }
+
+  bool seen_default = false; // Track if we've seen a param with default
+
+  // Parse first parameter
+  tok = peek(p, 0);
+
+  // Check for variadic parameter
+  bool is_variadic = false;
+  if (tok && tok->type == TOK_ELLIPSIS) {
+    consume_any(p); // consume '...'
+    is_variadic = true;
+    result->has_variadic = true;
   }
 
   Token *param = consume(p, TOK_NAME);
   if (!param) {
-    free(*params);
-    *params = NULL;
+    function_cleanup_parsed_params(result);
     return false;
   }
+
   char *param_name = strdup(param->text);
   if (!param_name) {
-    free(*params);
-    *params = NULL;
+    function_cleanup_parsed_params(result);
+    parser_set_error(p, "Failed to allocate parameter name");
     return false;
   }
-  (*params)[(*param_count)++] = param_name;
+  result->params[result->count] = param_name;
+  result->defaults[result->count] = NULL;
+  result->count++;  // Increment now so cleanup will free param_name on error
 
+  // Check for default value
+  ASTNode *default_val = NULL;
+  tok = peek(p, 0);
+  if (tok && tok->type == TOK_EQUAL) {
+    if (is_variadic) {
+      function_cleanup_parsed_params(result);
+      parser_set_error(p, "Variadic parameter cannot have a default value");
+      return false;
+    }
+    consume_any(p); // consume '='
+    default_val = parse_expression(p);
+    if (!default_val) {
+      function_cleanup_parsed_params(result);
+      return false;
+    }
+    result->defaults[result->count - 1] = default_val;
+    seen_default = true;
+  } else if (!is_variadic) {
+    result->required_count++;
+  }
+
+  // If first param was variadic, check that no more params follow
+  if (is_variadic) {
+    tok = peek(p, 0);
+    if (tok && tok->type == TOK_COMMA) {
+      function_cleanup_parsed_params(result);
+      parser_set_error(p, "Variadic parameter must be the last parameter");
+      return false;
+    }
+    return true;
+  }
+
+  // Parse remaining parameters
   while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
-    consume_any(p);
+    consume_any(p); // consume ','
+
+    // Grow arrays if needed
+    if (result->count >= capacity) {
+      size_t new_capacity = capacity * 2;
+      char **new_params = realloc(result->params, sizeof(char *) * new_capacity);
+      if (!new_params) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Failed to grow parameters array");
+        return false;
+      }
+      result->params = new_params;
+      ASTNode **new_defaults = realloc(result->defaults, sizeof(ASTNode *) * new_capacity);
+      if (!new_defaults) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Failed to grow parameters array");
+        return false;
+      }
+      result->defaults = new_defaults;
+      capacity = new_capacity;
+    }
+
+    // Check for variadic parameter
+    is_variadic = false;
+    tok = peek(p, 0);
+    if (tok && tok->type == TOK_ELLIPSIS) {
+      if (result->has_variadic) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Only one variadic parameter allowed");
+        return false;
+      }
+      consume_any(p); // consume '...'
+      is_variadic = true;
+      result->has_variadic = true;
+    }
+
     param = consume(p, TOK_NAME);
     if (!param) {
-      function_cleanup_parameters(*params, *param_count);
-      *params = NULL;
+      function_cleanup_parsed_params(result);
       return false;
     }
 
-    if (!grow_array((void **)params, *param_count, param_capacity,
-                    sizeof(char *))) {
-      fprintf(stderr, "parse_function: failed to grow params array\n");
-      function_cleanup_parameters(*params, *param_count);
-      *params = NULL;
+    param_name = strdup(param->text);
+    if (!param_name) {
+      function_cleanup_parsed_params(result);
+      parser_set_error(p, "Failed to allocate parameter name");
       return false;
     }
-    char *param_name_loop = strdup(param->text);
-    if (!param_name_loop) {
-      function_cleanup_parameters(*params, *param_count);
-      *params = NULL;
-      return false;
+    result->params[result->count] = param_name;
+    result->defaults[result->count] = NULL;
+    result->count++;  // Increment now so cleanup will free param_name on error
+
+    // Check for default value
+    default_val = NULL;
+    tok = peek(p, 0);
+    if (tok && tok->type == TOK_EQUAL) {
+      if (is_variadic) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Variadic parameter cannot have a default value");
+        return false;
+      }
+      consume_any(p); // consume '='
+      default_val = parse_expression(p);
+      if (!default_val) {
+        function_cleanup_parsed_params(result);
+        return false;
+      }
+      result->defaults[result->count - 1] = default_val;
+      seen_default = true;
+    } else if (!is_variadic) {
+      // Required parameter - check ordering
+      if (seen_default) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Required parameter cannot follow parameter with default value");
+        return false;
+      }
+      result->required_count++;
     }
-    (*params)[(*param_count)++] = param_name_loop;
+
+    // If this param was variadic, no more params allowed
+    if (is_variadic) {
+      tok = peek(p, 0);
+      if (tok && tok->type == TOK_COMMA) {
+        function_cleanup_parsed_params(result);
+        parser_set_error(p, "Variadic parameter must be the last parameter");
+        return false;
+      }
+      break;
+    }
   }
 
   return true;
-}
-
-/**
- * @brief Cleanup function parameters array
- *
- * Frees all parameter strings and the array itself.
- *
- * @param params Parameters array
- * @param param_count Number of parameters
- */
-static void function_cleanup_parameters(char **params, size_t param_count) {
-  if (!params) {
-    return;
-  }
-  for (size_t i = 0; i < param_count; i++) {
-    free(params[i]);
-  }
-  free(params);
 }
 
 /**
@@ -3458,34 +3607,32 @@ static ASTNode *parse_function(Parser *p, int indent) {
     return NULL;
   }
 
-  // Parse parameters
-  size_t param_capacity = 0;
-  size_t param_count = 0;
-  char **params = NULL;
-  if (!function_parse_parameters(p, &params, &param_count, &param_capacity)) {
+  // Parse parameters with extended syntax (defaults, variadic)
+  ParsedParams parsed_params;
+  if (!function_parse_parameters_ext(p, &parsed_params)) {
     return NULL;
   }
 
   if (!consume(p, TOK_COLON)) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     return NULL;
   }
 
   if (!consume(p, TOK_NEWLINE)) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     return NULL;
   }
 
   size_t block_size = 0;
   ASTNode **block = parse_block(p, indent, &block_size);
   if (!block) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     return NULL;
   }
 
   ASTNode *node = ast_node_new_checked(AST_FUNCTION);
   if (!node) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     // Free block and its statements
     if (block) {
       for (size_t i = 0; i < block_size; i++) {
@@ -3499,10 +3646,7 @@ static ASTNode *parse_function(Parser *p, int indent) {
   node->indent = indent;
   node->as.function.name = strdup(name->text);
   if (!node->as.function.name) {
-    // Free params
-    for (size_t i = 0; i < param_count; i++)
-      free(params[i]);
-    free(params);
+    function_cleanup_parsed_params(&parsed_params);
     // Free block and its statements
     if (block) {
       for (size_t i = 0; i < block_size; i++) {
@@ -3513,8 +3657,12 @@ static ASTNode *parse_function(Parser *p, int indent) {
     free(node);
     return NULL;
   }
-  node->as.function.params = params;
-  node->as.function.param_count = param_count;
+  // Transfer ownership from parsed_params to node
+  node->as.function.params = parsed_params.params;
+  node->as.function.param_defaults = parsed_params.defaults;
+  node->as.function.param_count = parsed_params.count;
+  node->as.function.required_param_count = parsed_params.required_count;
+  node->as.function.has_variadic = parsed_params.has_variadic;
   node->as.function.block = block;
   node->as.function.block_size = block_size;
 
@@ -3538,29 +3686,31 @@ static ASTNode *parse_lambda(Parser *p) {
     return NULL;
   }
 
-  // Parse parameters using the same helper as named functions
-  size_t param_capacity = 0;
-  size_t param_count = 0;
-  char **params = NULL;
-  if (!function_parse_parameters(p, &params, &param_count, &param_capacity)) {
+  // Parse parameters with extended syntax (defaults, variadic)
+  ParsedParams parsed_params;
+  if (!function_parse_parameters_ext(p, &parsed_params)) {
     return NULL;
   }
 
   // Expect colon after parameters
   if (!consume(p, TOK_COLON)) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     return NULL;
   }
 
   // Create the lambda node
   ASTNode *node = ast_node_new_checked(AST_LAMBDA);
   if (!node) {
-    function_cleanup_parameters(params, param_count);
+    function_cleanup_parsed_params(&parsed_params);
     return NULL;
   }
   ast_node_set_position(node, start_tok);
-  node->as.lambda.params = params;
-  node->as.lambda.param_count = param_count;
+  // Transfer ownership from parsed_params to node
+  node->as.lambda.params = parsed_params.params;
+  node->as.lambda.param_defaults = parsed_params.defaults;
+  node->as.lambda.param_count = parsed_params.count;
+  node->as.lambda.required_param_count = parsed_params.required_count;
+  node->as.lambda.has_variadic = parsed_params.has_variadic;
 
   // Check if this is single-line or multi-line
   Token *next = peek(p, 0);
@@ -3618,11 +3768,12 @@ static ASTNode *parse_lambda(Parser *p) {
  * @param arg_capacity Output parameter for capacity of args array
  * @return true on success, false on error
  */
-static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
-                                 size_t *arg_capacity) {
+static bool call_parse_arguments(Parser *p, ASTNode ***args, char ***arg_names,
+                                 size_t *arg_count, size_t *arg_capacity) {
   Token *tok = peek(p, 0);
   if (!tok || tok->type != TOK_WITH) {
     *args = NULL;
+    *arg_names = NULL;
     *arg_count = 0;
     *arg_capacity = 0;
     return true; // No arguments is valid
@@ -3633,36 +3784,115 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
   *arg_capacity = INITIAL_ARRAY_CAPACITY;
   *arg_count = 0;
   *args = malloc(sizeof(ASTNode *) * *arg_capacity);
-  if (!*args) {
-    fprintf(stderr, "parse_call: failed to allocate argument array\n");
+  *arg_names = calloc(*arg_capacity, sizeof(char *));
+  if (!*args || !*arg_names) {
+    fprintf(stderr, "parse_call: failed to allocate argument arrays\n");
+    free(*args);
+    free(*arg_names);
+    *args = NULL;
+    *arg_names = NULL;
     return false;
+  }
+
+  bool seen_named_arg = false;
+
+  // Parse first argument (may be positional or named)
+  // Check for named argument: identifier followed by colon
+  Token *name_tok = peek(p, 0);
+  Token *colon_tok = peek(p, 1);
+  if (name_tok && name_tok->type == TOK_NAME && colon_tok &&
+      colon_tok->type == TOK_COLON) {
+    // Named argument: name: value
+    consume_any(p); // consume name
+    consume_any(p); // consume colon
+    seen_named_arg = true;
+    (*arg_names)[0] = strdup(name_tok->text);
+    if (!(*arg_names)[0]) {
+      call_cleanup_arguments(*args, *arg_names, 0);
+      *args = NULL;
+      *arg_names = NULL;
+      return false;
+    }
   }
 
   ASTNode *arg = parse_expression(p);
   if (!arg) {
-    free(*args);
+    call_cleanup_arguments(*args, *arg_names, 0);
     *args = NULL;
+    *arg_names = NULL;
     return false;
   }
   (*args)[(*arg_count)++] = arg;
 
   while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
     consume_any(p);
-    arg = parse_expression(p);
-    if (!arg) {
-      call_cleanup_arguments(*args, *arg_count);
+
+    // Check for named argument
+    char *arg_name = NULL;
+    name_tok = peek(p, 0);
+    colon_tok = peek(p, 1);
+    if (name_tok && name_tok->type == TOK_NAME && colon_tok &&
+        colon_tok->type == TOK_COLON) {
+      // Named argument
+      consume_any(p); // consume name
+      consume_any(p); // consume colon
+      arg_name = strdup(name_tok->text);
+      if (!arg_name) {
+        call_cleanup_arguments(*args, *arg_names, *arg_count);
+        *args = NULL;
+        *arg_names = NULL;
+        return false;
+      }
+      seen_named_arg = true;
+    } else if (seen_named_arg) {
+      // Positional argument after named argument - error
+      parser_set_error(p, "Positional argument cannot follow named argument");
+      call_cleanup_arguments(*args, *arg_names, *arg_count);
       *args = NULL;
+      *arg_names = NULL;
       return false;
     }
 
-    if (!grow_array((void **)args, *arg_count, arg_capacity,
-                    sizeof(ASTNode *))) {
-      fprintf(stderr, "parse_call: failed to grow argument array\n");
-      call_cleanup_arguments(*args, *arg_count);
+    arg = parse_expression(p);
+    if (!arg) {
+      free(arg_name);
+      call_cleanup_arguments(*args, *arg_names, *arg_count);
       *args = NULL;
+      *arg_names = NULL;
       return false;
     }
-    (*args)[(*arg_count)++] = arg;
+
+    // Grow arrays if needed
+    if (*arg_count >= *arg_capacity) {
+      size_t new_capacity = *arg_capacity * 2;
+      ASTNode **new_args = realloc(*args, new_capacity * sizeof(ASTNode *));
+      char **new_names = realloc(*arg_names, new_capacity * sizeof(char *));
+      if (!new_args || !new_names) {
+        fprintf(stderr, "parse_call: failed to grow argument arrays\n");
+        free(arg_name);
+        ast_node_free(arg);
+        // Partial realloc recovery
+        if (new_args)
+          *args = new_args;
+        if (new_names)
+          *arg_names = new_names;
+        call_cleanup_arguments(*args, *arg_names, *arg_count);
+        *args = NULL;
+        *arg_names = NULL;
+        return false;
+      }
+      *args = new_args;
+      *arg_names = new_names;
+      // Initialize new slots to NULL
+      for (size_t i = *arg_capacity; i < new_capacity; i++) {
+        (*arg_names)[i] = NULL;
+      }
+      *arg_capacity = new_capacity;
+    }
+
+    (*args)[*arg_count] = arg;
+    (*arg_names)[*arg_count] = arg_name;
+    (*arg_count)++;
   }
 
   return true;
@@ -3671,19 +3901,26 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, size_t *arg_count,
 /**
  * @brief Cleanup function call arguments array
  *
- * Frees all argument AST nodes and the array itself.
+ * Frees all argument AST nodes, argument names, and the arrays themselves.
  *
  * @param args Arguments array
+ * @param arg_names Argument names array (parallel, may contain NULLs)
  * @param arg_count Number of arguments
  */
-static void call_cleanup_arguments(ASTNode **args, size_t arg_count) {
-  if (!args) {
-    return;
+static void call_cleanup_arguments(ASTNode **args, char **arg_names,
+                                   size_t arg_count) {
+  if (args) {
+    for (size_t i = 0; i < arg_count; i++) {
+      ast_node_free(args[i]);
+    }
+    free(args);
   }
-  for (size_t i = 0; i < arg_count; i++) {
-    ast_node_free(args[i]);
+  if (arg_names) {
+    for (size_t i = 0; i < arg_count; i++) {
+      free(arg_names[i]);
+    }
+    free(arg_names);
   }
-  free(args);
 }
 
 /**
@@ -3708,39 +3945,39 @@ static ASTNode *parse_call(Parser *p, int indent) {
     return NULL;
   }
 
-  // Parse arguments
+  // Parse arguments (including named arguments)
   size_t arg_capacity = 0;
   size_t arg_count = 0;
   ASTNode **args = NULL;
-  if (!call_parse_arguments(p, &args, &arg_count, &arg_capacity)) {
+  char **arg_names = NULL;
+  if (!call_parse_arguments(p, &args, &arg_names, &arg_count, &arg_capacity)) {
     return NULL;
   }
 
   // Only require newline if it's a statement (indent >= 0)
   if (indent >= 0) {
     if (!consume(p, TOK_NEWLINE)) {
-      call_cleanup_arguments(args, arg_count);
+      call_cleanup_arguments(args, arg_names, arg_count);
       return NULL;
     }
   }
 
   ASTNode *node = ast_node_new_checked(AST_CALL);
   if (!node) {
-    call_cleanup_arguments(args, arg_count);
+    call_cleanup_arguments(args, arg_names, arg_count);
     return NULL;
   }
   ast_node_set_position(node, start_tok);
   node->indent = indent;
   node->as.call.name = strdup(name->text);
   if (!node->as.call.name) {
-    // Free args
-    for (size_t i = 0; i < arg_count; i++)
-      ast_node_free(args[i]);
-    free(args);
+    // Free args and arg_names
+    call_cleanup_arguments(args, arg_names, arg_count);
     free(node);
     return NULL;
   }
   node->as.call.args = args;
+  node->as.call.arg_names = arg_names;
   node->as.call.arg_count = arg_count;
 
   return node;
@@ -4377,6 +4614,15 @@ void ast_node_free(ASTNode *node) {
       free(node->as.function.params[i]);
     }
     free(node->as.function.params);
+    // Free default value expressions
+    if (node->as.function.param_defaults) {
+      for (size_t i = 0; i < node->as.function.param_count; i++) {
+        if (node->as.function.param_defaults[i]) {
+          ast_node_free(node->as.function.param_defaults[i]);
+        }
+      }
+      free(node->as.function.param_defaults);
+    }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
       ast_node_free(node->as.function.block[i]);
     }
@@ -4388,6 +4634,13 @@ void ast_node_free(ASTNode *node) {
       ast_node_free(node->as.call.args[i]);
     }
     free(node->as.call.args);
+    // Free argument names for named arguments
+    if (node->as.call.arg_names) {
+      for (size_t i = 0; i < node->as.call.arg_count; i++) {
+        free(node->as.call.arg_names[i]); // NULL is safe to free
+      }
+      free(node->as.call.arg_names);
+    }
     break;
   case AST_RETURN:
     for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
@@ -4481,6 +4734,15 @@ void ast_node_free(ASTNode *node) {
       free(node->as.lambda.params[i]);
     }
     free(node->as.lambda.params);
+    // Free default value expressions
+    if (node->as.lambda.param_defaults) {
+      for (size_t i = 0; i < node->as.lambda.param_count; i++) {
+        if (node->as.lambda.param_defaults[i]) {
+          ast_node_free(node->as.lambda.param_defaults[i]);
+        }
+      }
+      free(node->as.lambda.param_defaults);
+    }
     // Free body (either expression or block)
     if (node->as.lambda.is_single_line) {
       ast_node_free(node->as.lambda.body_expr);
