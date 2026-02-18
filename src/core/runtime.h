@@ -37,8 +37,11 @@ typedef struct KronosValue {
     struct {
       uint8_t *bytecode;
       size_t length;
-      int arity;
-      char **param_names; // Parameter names for argument binding (may be NULL)
+      int arity;                        // Total parameter count
+      int required_arity;               // Required parameters (without defaults)
+      bool has_variadic;                // true if last param is variadic (...param)
+      char **param_names;               // Parameter names for argument binding (may be NULL)
+      struct KronosValue **param_defaults; // Default values (NULL slots for required params)
     } function;
     struct {
       struct KronosValue **items;
@@ -85,7 +88,9 @@ KronosValue *value_new_string(const char *str, size_t len);
 KronosValue *value_new_bool(bool val);
 KronosValue *value_new_nil(void);
 KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
-                                char **param_names);
+                                int required_arity, bool has_variadic,
+                                char **param_names,
+                                struct KronosValue **param_defaults);
 KronosValue *value_new_list(size_t initial_capacity);
 KronosValue *value_new_channel(Channel *channel);
 KronosValue *value_new_range(double start, double end, double step);
