@@ -80,15 +80,54 @@ void handle_hover(const char *id, const char *body) {
             if (func_sym->type == SYMBOL_FUNCTION &&
                 strcmp(func_sym->name, func_name) == 0) {
               // Build hover info for the function
-              char hover_text[512];
-              snprintf(hover_text, sizeof(hover_text),
-                       "**function** `%s.%s`\n\n**Module:** "
-                       "`%s`\n**Parameters:** %zu",
-                       module_name, func_name, module_name,
-                       func_sym->param_count);
+              char hover_text[1024];
+              size_t pos = 0;
+              int ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                       "**function** `%s.%s`\n\n**Module:** `%s`\n\n",
+                       module_name, func_name, module_name);
+              if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+                pos += (size_t)ret;
+              }
 
-              char escaped_hover[1024];
-              json_escape(hover_text, escaped_hover, sizeof(escaped_hover));
+              // Show parameter information
+              if (func_sym->param_count > 0 && func_sym->param_names) {
+                ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                               "**Parameters:**\n");
+                if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+                  pos += (size_t)ret;
+                }
+
+                for (size_t i = 0; i < func_sym->param_count && pos < sizeof(hover_text) - 1; i++) {
+                  const char *param_name = func_sym->param_names[i]
+                                               ? func_sym->param_names[i]
+                                               : "?";
+                  bool is_required = i < func_sym->required_param_count;
+                  bool is_variadic = func_sym->has_variadic && i == func_sym->param_count - 1;
+
+                  if (is_variadic) {
+                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                                   "- `...%s` (variadic)\n", param_name);
+                  } else if (!is_required) {
+                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                                   "- `%s` (optional)\n", param_name);
+                  } else {
+                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                                   "- `%s` (required)\n", param_name);
+                  }
+                  if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+                    pos += (size_t)ret;
+                  }
+                }
+              } else {
+                ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                               "**Parameters:** %zu\n", func_sym->param_count);
+                if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+                  pos += (size_t)ret;
+                }
+              }
+
+              char escaped_hover[2048];
+              json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
 
               char result[2048];
               snprintf(
@@ -186,7 +225,7 @@ void handle_hover(const char *id, const char *body) {
   }
 
   // Build hover info
-  char hover_text[512];
+  char hover_text[1024];
   const char *type_str = "variable";
   if (sym->type == SYMBOL_FUNCTION)
     type_str = "function";
@@ -200,7 +239,65 @@ void handle_hover(const char *id, const char *body) {
   }
   json_escape(sym->name, escaped_name, strlen(sym->name) * 2 + 1);
 
-  if (sym->type_name) {
+  if (sym->type == SYMBOL_FUNCTION) {
+    // Build function signature with parameter info
+    size_t pos = 0;
+    int ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                       "**function** `%s`\n\n", escaped_name);
+    if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+      pos += (size_t)ret;
+    }
+
+    // Show parameter information
+    if (sym->param_count > 0) {
+      ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                     "**Parameters:**\n");
+      if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+        pos += (size_t)ret;
+      }
+
+      for (size_t i = 0; i < sym->param_count && pos < sizeof(hover_text) - 1; i++) {
+        const char *param_name = (sym->param_names && sym->param_names[i])
+                                     ? sym->param_names[i]
+                                     : "?";
+        bool is_required = i < sym->required_param_count;
+        bool is_variadic = sym->has_variadic && i == sym->param_count - 1;
+
+        if (is_variadic) {
+          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                         "- `...%s` (variadic)\n", param_name);
+        } else if (!is_required) {
+          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                         "- `%s` (optional, has default)\n", param_name);
+        } else {
+          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                         "- `%s` (required)\n", param_name);
+        }
+        if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+          pos += (size_t)ret;
+        }
+      }
+    } else {
+      ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
+                     "No parameters\n");
+      if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
+        pos += (size_t)ret;
+      }
+    }
+
+    // Show summary
+    if (sym->has_variadic) {
+      snprintf(hover_text + pos, sizeof(hover_text) - pos,
+               "\n*Accepts %zu or more argument%s*",
+               sym->required_param_count,
+               sym->required_param_count == 1 ? "" : "s");
+    } else if (sym->required_param_count < sym->param_count) {
+      snprintf(hover_text + pos, sizeof(hover_text) - pos,
+               "\n*Accepts %zu to %zu argument%s*",
+               sym->required_param_count, sym->param_count,
+               sym->param_count == 1 ? "" : "s");
+    }
+  } else if (sym->type_name) {
     char *escaped_type = malloc(strlen(sym->type_name) * 2 + 1);
     if (escaped_type) {
       json_escape(sym->type_name, escaped_type, strlen(sym->type_name) * 2 + 1);
@@ -218,10 +315,10 @@ void handle_hover(const char *id, const char *body) {
   }
   free(escaped_name);
 
-  char escaped_hover[1024];
-  json_escape(hover_text, escaped_hover, sizeof(escaped_hover));
+  char escaped_hover[2048];
+  json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
 
-  char result[1024];
+  char result[2048];
   snprintf(result, sizeof(result),
            "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
            escaped_hover);
