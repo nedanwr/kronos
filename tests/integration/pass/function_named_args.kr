@@ -1,0 +1,43 @@
+# Test: Named arguments in function calls
+
+# Basic named arguments - reorder parameters
+function create_user with name, role, active:
+    return f"{name}:{role}:{active}"
+
+# Using named arguments in different order
+set user1 to call create_user with role: "admin", name: "Alice", active: true
+print user1
+
+# Mix positional and named arguments
+set user2 to call create_user with "Bob", role: "user", active: false
+print user2
+
+# Named arguments with default parameters
+function greet with name, greeting = "Hello", punctuation = "!":
+    return f"{greeting}, {name}{punctuation}"
+
+# Only override specific parameters by name
+set msg1 to call greet with name: "Charlie", punctuation: "?"
+print msg1
+
+# Named argument to skip middle parameter
+set msg2 to call greet with "Dave", punctuation: "..."
+print msg2
+
+# All named arguments
+set msg3 to call greet with punctuation: "!!!", greeting: "Hey", name: "Eve"
+print msg3
+
+# Variadic functions still work with positional args
+function log_messages with level, ...messages:
+    for msg in messages:
+        print f"[{level}] {msg}"
+
+# Note: Named args can't be followed by positional args, so use all positional
+call log_messages with "INFO", "Starting", "Loading", "Ready"
+
+# Verify standard calls still work
+set user3 to call create_user with "Frank", "guest", true
+print user3
+
+print "All named argument tests passed!"

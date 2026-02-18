@@ -1,0 +1,8 @@
+# Test: Named argument with unknown parameter name should fail
+# Expected: Error - Function has no parameter named 'unknown'
+
+function example with a, b:
+    return a plus b
+
+# This should fail - 'unknown' is not a parameter
+call example with a: 1, unknown: 2

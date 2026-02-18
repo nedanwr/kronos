@@ -1,0 +1,5 @@
+# Test: Variadic parameter not last should fail
+# Expected: Error - Variadic parameter must be the last parameter
+
+function invalid with ...args, extra:
+    return 0
