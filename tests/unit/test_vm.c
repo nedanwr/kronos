@@ -40,6 +40,21 @@ static Bytecode *compile_string(const char *source) {
   return bytecode;
 }
 
+static Function *create_empty_test_function(const char *name) {
+  Function *func = calloc(1, sizeof(Function));
+  if (!func) {
+    return NULL;
+  }
+
+  func->name = strdup(name);
+  if (!func->name) {
+    free(func);
+    return NULL;
+  }
+
+  return func;
+}
+
 TEST(vm_new_free) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
@@ -468,6 +483,90 @@ TEST(vm_define_function_direct) {
   ASSERT_PTR_NOT_NULL(retrieved);
   ASSERT_STR_EQ(retrieved->name, "test_func");
 
+  vm_free(vm);
+}
+
+TEST(vm_define_function_duplicate_keeps_vm_state_consistent) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Function *first = create_empty_test_function("dup_func");
+  ASSERT_PTR_NOT_NULL(first);
+  int result = vm_define_function(vm, first);
+  ASSERT_INT_EQ(result, 0);
+
+  size_t count_before_duplicate = vm->function_count;
+
+  Function *duplicate = create_empty_test_function("dup_func");
+  ASSERT_PTR_NOT_NULL(duplicate);
+  result = vm_define_function(vm, duplicate);
+  ASSERT_NE(result, 0);
+
+  ASSERT_EQ(vm->function_count, count_before_duplicate);
+  ASSERT_PTR_NOT_NULL(vm_get_function(vm, "dup_func"));
+
+  // vm_define_function() leaves ownership to caller on failure.
+  function_free(duplicate);
+  vm_free(vm);
+}
+
+TEST(vm_execute_rejects_malformed_define_func_required_count) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *constants[1];
+  constants[0] = value_new_string("f", 1);
+  ASSERT_PTR_NOT_NULL(constants[0]);
+
+  // Malformed: required_param_count (2) > param_count (1).
+  uint8_t code[] = {OP_DEFINE_FUNC, 0x00, 0x00, 0x01, 0x02, 0x00,
+                    0x00,          0x00, 0x00, 0x00, 0x00, OP_HALT};
+  Bytecode bytecode = {
+      .code = code,
+      .count = sizeof(code),
+      .capacity = sizeof(code),
+      .constants = constants,
+      .const_count = 1,
+      .const_capacity = 1,
+  };
+
+  int result = vm_execute(vm, &bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_INT_EQ((int)vm->function_count, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message, "required_param_count") != NULL);
+
+  value_release(constants[0]);
+  vm_free(vm);
+}
+
+TEST(vm_execute_rejects_malformed_make_function_required_count) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *constants[1];
+  constants[0] = value_new_string("x", 1);
+  ASSERT_PTR_NOT_NULL(constants[0]);
+
+  // Malformed: required_param_count (2) > param_count (1).
+  uint8_t code[] = {OP_MAKE_FUNCTION, 0x01, 0x02, 0x00, 0x00, 0x00,
+                    0x00,             0x00, 0x00, 0x00, OP_HALT};
+  Bytecode bytecode = {
+      .code = code,
+      .count = sizeof(code),
+      .capacity = sizeof(code),
+      .constants = constants,
+      .const_count = 1,
+      .const_capacity = 1,
+  };
+
+  int result = vm_execute(vm, &bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message, "required_param_count") != NULL);
+  ASSERT_EQ(vm->stack_top - vm->stack, 0);
+
+  value_release(constants[0]);
   vm_free(vm);
 }
 
