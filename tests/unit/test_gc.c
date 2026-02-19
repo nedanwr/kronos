@@ -1,6 +1,11 @@
 #include "../../src/core/gc.h"
 #include "../../src/core/runtime.h"
 #include "../framework/test_framework.h"
+#include <stdint.h>
+
+static size_t test_gc_bucket_for_ptr(KronosValue *val, size_t capacity) {
+  return (size_t)(((uintptr_t)val * 2654435761u) % capacity);
+}
 
 TEST(gc_init_cleanup) {
   // Should not crash
@@ -84,6 +89,63 @@ TEST(gc_collect_cycles) {
   gc_collect_cycles();
 
   gc_cleanup();
+}
+
+TEST(gc_untrack_after_tombstone_collision) {
+  gc_init();
+
+  GCStats stats = {0};
+  gc_stats(&stats);
+  ASSERT_TRUE(stats.array_capacity > 0);
+
+  enum { VALUE_COUNT = 49 };
+  KronosValue *values[VALUE_COUNT];
+  memset(values, 0, sizeof(values));
+
+  for (size_t i = 0; i < VALUE_COUNT; i++) {
+    values[i] = value_new_number((double)i);
+    ASSERT_PTR_NOT_NULL(values[i]);
+  }
+
+  size_t first = SIZE_MAX;
+  size_t second = SIZE_MAX;
+  for (size_t i = 0; i < VALUE_COUNT && second == SIZE_MAX; i++) {
+    size_t bucket_i = test_gc_bucket_for_ptr(values[i], stats.array_capacity);
+    for (size_t j = i + 1; j < VALUE_COUNT; j++) {
+      size_t bucket_j =
+          test_gc_bucket_for_ptr(values[j], stats.array_capacity);
+      if (bucket_i == bucket_j) {
+        first = i;
+        second = j;
+        break;
+      }
+    }
+  }
+
+  bool untrack_found_second = false;
+  if (first != SIZE_MAX && second != SIZE_MAX) {
+    value_release(values[first]);
+    values[first] = NULL;
+    size_t count_after_first_release = gc_get_object_count();
+
+    value_release(values[second]);
+    values[second] = NULL;
+    size_t count_after_second_release = gc_get_object_count();
+
+    untrack_found_second =
+        (count_after_second_release + 1 == count_after_first_release);
+  }
+
+  for (size_t i = 0; i < VALUE_COUNT; i++) {
+    if (values[i]) {
+      value_release(values[i]);
+    }
+  }
+
+  gc_cleanup();
+
+  ASSERT_TRUE(first != SIZE_MAX && second != SIZE_MAX);
+  ASSERT_TRUE(untrack_found_second);
 }
 
 TEST(gc_cleanup_nested_list) {

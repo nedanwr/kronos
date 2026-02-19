@@ -865,9 +865,15 @@ int main(int argc, char **argv) {
     switch (opt) {
     case 'h':
       print_usage(argv[0]);
+      if (execute_args) {
+        free(execute_args);
+      }
       return 0;
     case 'v':
       print_version();
+      if (execute_args) {
+        free(execute_args);
+      }
       return 0;
     case 'd':
       debug_mode = true;

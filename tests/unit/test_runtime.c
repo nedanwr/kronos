@@ -1,6 +1,33 @@
 #include "../../src/core/runtime.h"
 #include "../framework/test_framework.h"
 
+static KronosValue *build_nested_single_item_list(size_t depth, double leaf) {
+  KronosValue *current = value_new_number(leaf);
+  if (!current) {
+    return NULL;
+  }
+
+  for (size_t i = 0; i < depth; i++) {
+    KronosValue *list = value_new_list(1);
+    if (!list || !list->as.list.items || list->as.list.capacity == 0) {
+      if (list) {
+        value_release(list);
+      }
+      value_release(current);
+      return NULL;
+    }
+
+    value_retain(current);
+    list->as.list.items[0] = current;
+    list->as.list.count = 1;
+
+    value_release(current);
+    current = list;
+  }
+
+  return current;
+}
+
 TEST(value_new_number) {
   KronosValue *val = value_new_number(42.5);
   ASSERT_PTR_NOT_NULL(val);
@@ -128,6 +155,23 @@ TEST(value_equals_nil) {
 
   value_release(a);
   value_release(b);
+}
+
+TEST(value_equals_deep_nested_lists) {
+  // Depth > 8 forces visited-pair growth in value_equals_recursive().
+  KronosValue *a = build_nested_single_item_list(12, 7.0);
+  KronosValue *b = build_nested_single_item_list(12, 7.0);
+  KronosValue *c = build_nested_single_item_list(12, 8.0);
+  ASSERT_PTR_NOT_NULL(a);
+  ASSERT_PTR_NOT_NULL(b);
+  ASSERT_PTR_NOT_NULL(c);
+
+  ASSERT_TRUE(value_equals(a, b));
+  ASSERT_FALSE(value_equals(a, c));
+
+  value_release(a);
+  value_release(b);
+  value_release(c);
 }
 
 TEST(value_equals_different_types) {

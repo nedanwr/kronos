@@ -2956,16 +2956,18 @@ static bool if_parse_else_if(Parser *p, int indent, ASTNode *if_node) {
     return false;
   }
 
-  // Grow arrays
+  // Grow arrays using all-or-nothing allocation to avoid partial realloc
+  // failures leaving moved pointers behind.
+  size_t old_count = if_node->as.if_stmt.else_if_count;
   size_t new_count = if_node->as.if_stmt.else_if_count + 1;
-  ASTNode **new_conditions = realloc(if_node->as.if_stmt.else_if_conditions,
-                                     sizeof(ASTNode *) * new_count);
-  ASTNode ***new_blocks = realloc(if_node->as.if_stmt.else_if_blocks,
-                                  sizeof(ASTNode **) * new_count);
-  size_t *new_block_sizes = realloc(if_node->as.if_stmt.else_if_block_sizes,
-                                    sizeof(size_t) * new_count);
+  ASTNode **new_conditions = malloc(sizeof(ASTNode *) * new_count);
+  ASTNode ***new_blocks = malloc(sizeof(ASTNode **) * new_count);
+  size_t *new_block_sizes = malloc(sizeof(size_t) * new_count);
 
   if (!new_conditions || !new_blocks || !new_block_sizes) {
+    free(new_conditions);
+    free(new_blocks);
+    free(new_block_sizes);
     ast_node_free(else_if_condition);
     for (size_t i = 0; i < else_if_block_size; i++) {
       ast_node_free(else_if_block[i]);
@@ -2974,12 +2976,25 @@ static bool if_parse_else_if(Parser *p, int indent, ASTNode *if_node) {
     return false;
   }
 
+  if (old_count > 0) {
+    memcpy(new_conditions, if_node->as.if_stmt.else_if_conditions,
+           sizeof(ASTNode *) * old_count);
+    memcpy(new_blocks, if_node->as.if_stmt.else_if_blocks,
+           sizeof(ASTNode **) * old_count);
+    memcpy(new_block_sizes, if_node->as.if_stmt.else_if_block_sizes,
+           sizeof(size_t) * old_count);
+  }
+
+  new_conditions[new_count - 1] = else_if_condition;
+  new_blocks[new_count - 1] = else_if_block;
+  new_block_sizes[new_count - 1] = else_if_block_size;
+
+  free(if_node->as.if_stmt.else_if_conditions);
+  free(if_node->as.if_stmt.else_if_blocks);
+  free(if_node->as.if_stmt.else_if_block_sizes);
   if_node->as.if_stmt.else_if_conditions = new_conditions;
   if_node->as.if_stmt.else_if_blocks = new_blocks;
   if_node->as.if_stmt.else_if_block_sizes = new_block_sizes;
-  if_node->as.if_stmt.else_if_conditions[new_count - 1] = else_if_condition;
-  if_node->as.if_stmt.else_if_blocks[new_count - 1] = else_if_block;
-  if_node->as.if_stmt.else_if_block_sizes[new_count - 1] = else_if_block_size;
   if_node->as.if_stmt.else_if_count = new_count;
 
   return true;
@@ -4385,6 +4400,7 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
 
   AST *ast = malloc(sizeof(AST));
   if (!ast) {
+    parser_free(p);
     return NULL;
   }
 
@@ -4393,6 +4409,7 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
   ast->statements = malloc(sizeof(ASTNode *) * ast->capacity);
   if (!ast->statements) {
     free(ast);
+    parser_free(p);
     return NULL;
   }
 
@@ -4420,6 +4437,7 @@ AST *parse(TokenArray *tokens, ParseError **out_err) {
         }
         free(ast->statements);
         free(ast);
+        parser_free(p);
         return NULL;
       }
       ast->statements[ast->count++] = stmt;

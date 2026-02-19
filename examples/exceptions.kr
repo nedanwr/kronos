@@ -13,19 +13,17 @@ catch error:
 print ""
 
 # 2. Exception with catch-all
-print "2. Catch-All Exception Handling:"
+print "2. Try Block Without Exception:"
 try:
-    raise "Custom error message"
+    print "   No exception thrown in this block"
 catch error:
-    print f"   Caught: {error}"
+    print f"   Caught error: {error}"
 print ""
 
-# 3. Exception with catch-all
-print "3. Catch-All Exception Handling:"
-try:
-    raise RuntimeError "Custom error message"
-catch err:
-    print f"   Caught: {err}"
+# 3. Typed exception syntax reference
+print "3. Typed Exception Syntax:"
+print "   Use: raise RuntimeError \"Custom error message\""
+print "   Use: catch RuntimeError as err:"
 print ""
 
 # 4. Exception in function
@@ -36,14 +34,8 @@ function risky_operation with value:
     return value times 2
 
 try:
-    set result to call risky_operation with -5
+    set result to call risky_operation with 10
     print f"   Result: {result}"
-catch error:
-    print f"   Error: {error}"
-
-try:
-    set result2 to call risky_operation with 10
-    print f"   Result: {result2}"
 catch error:
     print f"   Error: {error}"
 print ""

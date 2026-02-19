@@ -117,7 +117,9 @@ export default function HomePage() {
                         <span className="text-[#8B5CF6]">set</span>{" "}
                         <span className="text-white">name</span>{" "}
                         <span className="text-[#8B5CF6]">to</span>{" "}
-                        <span className="text-green-400">"Kronos"</span>
+                        <span className="text-green-400">
+                          &quot;Kronos&quot;
+                        </span>
                         {"\n"}
                         <span className="text-[#8B5CF6]">set</span>{" "}
                         <span className="text-white">numbers</span>{" "}
@@ -141,9 +143,11 @@ export default function HomePage() {
                         {"\n"}
                         {"    "}
                         <span className="text-[#8B5CF6]">return</span>{" "}
-                        <span className="text-green-400">f"Hello, {"{"}</span>
+                        <span className="text-green-400">
+                          f&quot;Hello, {"{"}
+                        </span>
                         <span className="text-white">person</span>
-                        <span className="text-green-400">{"}"}!"</span>
+                        <span className="text-green-400">{"}"}!&quot;</span>
                         {"\n\n"}
                         <span className="text-[#8B5CF6]">for</span>{" "}
                         <span className="text-white">n</span>{" "}

@@ -137,6 +137,36 @@ TEST(parse_if_statement) {
   token_array_free(tokens);
 }
 
+TEST(parse_if_else_if_chain) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize(
+      "if true:\n"
+      "    print 1\n"
+      "else if false:\n"
+      "    print 2\n"
+      "else if true:\n"
+      "    print 3\n"
+      "else:\n"
+      "    print 4",
+      &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_IF);
+  ASSERT_INT_EQ(ast->statements[0]->as.if_stmt.else_if_count, 2);
+  ASSERT_INT_EQ(ast->statements[0]->as.if_stmt.else_block_size, 1);
+  ASSERT_INT_EQ(ast->statements[0]->as.if_stmt.else_if_conditions[0]->type,
+                AST_BOOL);
+  ASSERT_INT_EQ(ast->statements[0]->as.if_stmt.else_if_conditions[1]->type,
+                AST_BOOL);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
 TEST(parse_variable_reference) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize("print x", &tok_err);

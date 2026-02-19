@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Github, Search, Menu, X } from "lucide-react";
+import Link from "next/link";
 import { Button } from "~/components/ui/button";
 
 export function Navigation() {
@@ -31,7 +32,7 @@ export function Navigation() {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <a href="/" className="flex items-center">
+        <Link href="/" className="flex items-center">
           <span
             className="text-xl font-semibold text-[#F59E0B]"
             style={{
@@ -41,7 +42,7 @@ export function Navigation() {
           >
             Kronos
           </span>
-        </a>
+        </Link>
 
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-8 md:flex">

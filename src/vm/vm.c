@@ -1072,10 +1072,14 @@ void function_free(Function *func) {
 
   // Free bytecode structure
   free(func->bytecode.code);
-  for (size_t i = 0; i < func->bytecode.const_count; i++) {
-    value_release(func->bytecode.constants[i]);
+  if (func->bytecode.constants) {
+    for (size_t i = 0; i < func->bytecode.const_count; i++) {
+      if (func->bytecode.constants[i]) {
+        value_release(func->bytecode.constants[i]);
+      }
+    }
+    free(func->bytecode.constants);
   }
-  free(func->bytecode.constants);
 
   free(func);
 }
@@ -1144,35 +1148,34 @@ int vm_define_function(KronosVM *vm, Function *func) {
                      FUNCTIONS_MAX);
   }
 
-  // Add to array (for iteration/debugging)
-  vm->functions[vm->function_count++] = func;
-
-  // Add to hash table for O(1) lookup
+  // Add to hash table for O(1) lookup.
+  // Probe first so VM state is not mutated on duplicate/hash-full errors.
   if (func->name) {
     size_t index = hash_function_name(func->name);
+    size_t empty_slot = SIZE_MAX;
 
-    // Linear probing to find empty slot
     for (size_t i = 0; i < FUNCTIONS_MAX; i++) {
       size_t idx = (index + i) % FUNCTIONS_MAX;
-      if (!vm->function_hash[idx]) {
-        // Found empty slot
-        vm->function_hash[idx] = func;
-        return 0;
+      Function *existing = vm->function_hash[idx];
+      if (!existing) {
+        empty_slot = idx;
+        break;
       }
-      // Check if function already exists (shouldn't happen, but be safe)
-      if (vm->function_hash[idx]->name &&
-          strcmp(vm->function_hash[idx]->name, func->name) == 0) {
-        // Function already exists - this is an error
+      if (existing->name && strcmp(existing->name, func->name) == 0) {
         return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                          "Function '%s' is already defined", func->name);
       }
     }
 
-    // Hash table full (shouldn't happen if FUNCTIONS_MAX is respected)
-    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                     "Function hash table is full (internal error)");
+    if (empty_slot == SIZE_MAX) {
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Function hash table is full (internal error)");
+    }
+    vm->function_hash[empty_slot] = func;
   }
 
+  // Add to array (for iteration/debugging)
+  vm->functions[vm->function_count++] = func;
   return 0;
 }
 
@@ -1354,60 +1357,86 @@ static int vm_load_module(KronosVM *vm, const char *module_name,
   // Read file (using portable fopen for UTF-8 support)
   FILE *file = portable_fopen(resolved_path, "r");
   if (!file) {
+    int err =
+        vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s",
+                  file_path);
     free(resolved_path);
-    return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Failed to open module file: %s",
-                     file_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   // Determine file size
   if (fseek(file, 0, SEEK_END) != 0) {
-    free(resolved_path);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to end of file: %s",
+                        resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to end of file: %s",
-                     resolved_path);
+    free(resolved_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   long size = ftell(file);
   if (size < 0) {
-    free(resolved_path);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s",
+                        resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to determine file size: %s",
-                     resolved_path);
+    free(resolved_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   if ((uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
-    free(resolved_path);
+    int err =
+        vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s", resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "File too large to read: %s",
-                     resolved_path);
+    free(resolved_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   if (fseek(file, 0, SEEK_SET) != 0) {
-    free(resolved_path);
+    int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to start of file: %s",
+                        resolved_path);
     fclose(file);
-    return vm_errorf(vm, KRONOS_ERR_IO, "Failed to seek to start of file: %s",
-                     resolved_path);
+    free(resolved_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   // Allocate buffer
   size_t length = (size_t)size;
   char *source = malloc(length + 1);
   if (!source) {
+    int err = vm_error(vm, KRONOS_ERR_INTERNAL,
+                       "Failed to allocate memory for module file");
     free(resolved_path);
     fclose(file);
-    return vm_error(vm, KRONOS_ERR_INTERNAL,
-                    "Failed to allocate memory for module file");
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
+    return err;
   }
 
   size_t read_size = fread(source, 1, length, file);
   if (ferror(file) || (read_size < length && !feof(file))) {
-    char *path_copy = strdup(resolved_path);
-    free(source);
-    free(resolved_path);
-    fclose(file);
     int err = vm_errorf(vm, KRONOS_ERR_IO, "Failed to read module file: %s",
-                        path_copy);
-    free(path_copy);
+                        resolved_path);
+    free(source);
+    fclose(file);
+    free(resolved_path);
+    root_vm->loading_count--;
+    free(root_vm->loading_modules[root_vm->loading_count]);
+    root_vm->loading_modules[root_vm->loading_count] = NULL;
     return err;
   }
 
@@ -6851,8 +6880,30 @@ static int handle_op_define_func(KronosVM *vm) {
   // Read has_variadic flag
   uint8_t has_variadic = read_byte(vm);
 
+  if (has_variadic > 1) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Invalid function metadata: has_variadic=%u",
+                     (unsigned)has_variadic);
+  }
+  size_t regular_param_count = (size_t)param_count;
+  if (has_variadic) {
+    if (param_count == 0) {
+      return vm_error(vm, KRONOS_ERR_RUNTIME,
+                      "Invalid function metadata: variadic function has zero "
+                      "parameters");
+    }
+    regular_param_count--;
+  }
+  if ((size_t)required_param_count > regular_param_count) {
+    return vm_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Invalid function metadata: required_param_count (%u) exceeds "
+        "non-variadic parameter count (%zu)",
+        (unsigned)required_param_count, regular_param_count);
+  }
+
   // Create function
-  Function *func = malloc(sizeof(Function));
+  Function *func = calloc(1, sizeof(Function));
   if (!func) {
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Failed to allocate function structure");
@@ -6869,8 +6920,7 @@ static int handle_op_define_func(KronosVM *vm) {
   func->param_count = param_count;
   func->required_param_count = required_param_count;
   func->has_variadic = (has_variadic != 0);
-  func->param_defaults = NULL;
-  func->params = param_count > 0 ? malloc(sizeof(char *) * param_count) : NULL;
+  func->params = param_count > 0 ? calloc(param_count, sizeof(char *)) : NULL;
   if (param_count > 0 && !func->params) {
     // Allocation failure: free func->name and func, then return error
     free(func->name);
@@ -6916,23 +6966,14 @@ static int handle_op_define_func(KronosVM *vm) {
 
   // Cleanup on any error: free all allocated resources
   if (param_error != 0) {
-    // Free all successfully allocated parameter names (0..filled_params-1)
-    for (size_t j = 0; j < filled_params; j++) {
-      free(func->params[j]);
-    }
-    // Free parameter array if allocated
-    free(func->params);
-    // Free function name
-    free(func->name);
-    // Free function structure
-    free(func);
+    (void)filled_params;
+    function_free(func);
     return param_error;
   }
 
   // Read default value constants
   // Number of defaults = param_count - required_param_count - (has_variadic ? 1 : 0)
-  size_t num_defaults = param_count - required_param_count -
-                        (func->has_variadic ? 1 : 0);
+  size_t num_defaults = regular_param_count - (size_t)required_param_count;
   if (num_defaults > 0) {
     func->param_defaults = malloc(sizeof(KronosValue *) * param_count);
     if (!func->param_defaults) {
@@ -6963,19 +7004,19 @@ static int handle_op_define_func(KronosVM *vm) {
   // [OP_DEFINE_FUNC][name_idx:2][param_count:1][required:1][variadic:1][params:2*N][defaults:2*M][body_start:2][OP_JUMP][skip_offset:2]
   read_byte(vm); // body_start high byte
   if (vm->last_error_message) {
-    // Cleanup already done above
+    function_free(func);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
   read_byte(vm); // body_start low byte
   if (vm->last_error_message) {
-    // Cleanup already done above
+    function_free(func);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
   // Consume OP_JUMP instruction byte (part of bytecode format)
   read_byte(vm);
   if (vm->last_error_message) {
-    // Cleanup already done above
+    function_free(func);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
@@ -6989,7 +7030,7 @@ static int handle_op_define_func(KronosVM *vm) {
   // In VM terms: func_end = (vm->ip - 1) + offset
   uint16_t skip_offset = read_uint16(vm);
   if (vm->last_error_message) {
-    // Cleanup already done above
+    function_free(func);
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
@@ -7163,6 +7204,28 @@ static int handle_op_make_function(KronosVM *vm) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
 
+  if (has_variadic > 1) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Invalid function metadata: has_variadic=%u",
+                     (unsigned)has_variadic);
+  }
+  size_t regular_param_count = (size_t)param_count;
+  if (has_variadic) {
+    if (param_count == 0) {
+      return vm_error(vm, KRONOS_ERR_RUNTIME,
+                      "Invalid lambda metadata: variadic function has zero "
+                      "parameters");
+    }
+    regular_param_count--;
+  }
+  if ((size_t)required_param_count > regular_param_count) {
+    return vm_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Invalid lambda metadata: required_param_count (%u) exceeds "
+        "non-variadic parameter count (%zu)",
+        (unsigned)required_param_count, regular_param_count);
+  }
+
   // Read parameter names from constant pool
   char **param_names = NULL;
   if (param_count > 0) {
@@ -7197,8 +7260,7 @@ static int handle_op_make_function(KronosVM *vm) {
   }
 
   // Calculate number of default values
-  size_t num_defaults = param_count - required_param_count -
-                        (has_variadic ? 1 : 0);
+  size_t num_defaults = regular_param_count - (size_t)required_param_count;
 
   // Read default value constants
   KronosValue **param_defaults = NULL;
@@ -7267,6 +7329,44 @@ static int handle_op_make_function(KronosVM *vm) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
   uint16_t body_len = (uint16_t)((high << 8) | low);
+
+  if (!vm->bytecode || !vm->bytecode->code ||
+      vm->ip < vm->bytecode->code ||
+      vm->ip > vm->bytecode->code + vm->bytecode->count) {
+    if (param_defaults) {
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (param_defaults[i])
+          value_release(param_defaults[i]);
+      }
+      free(param_defaults);
+    }
+    for (int i = 0; i < param_count; i++) {
+      free(param_names[i]);
+    }
+    free(param_names);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Malformed bytecode: invalid function body pointer");
+  }
+  size_t remaining_body_bytes =
+      (size_t)(vm->bytecode->code + vm->bytecode->count - vm->ip);
+  if ((size_t)body_len > remaining_body_bytes) {
+    if (param_defaults) {
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (param_defaults[i])
+          value_release(param_defaults[i]);
+      }
+      free(param_defaults);
+    }
+    for (int i = 0; i < param_count; i++) {
+      free(param_names[i]);
+    }
+    free(param_names);
+    return vm_errorf(
+        vm, KRONOS_ERR_RUNTIME,
+        "Malformed bytecode: function body length %u exceeds remaining bytes "
+        "%zu",
+        (unsigned)body_len, remaining_body_bytes);
+  }
 
   // The body bytecode starts at current IP
   uint8_t *body_bytecode = vm->ip;
