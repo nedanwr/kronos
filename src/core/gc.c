@@ -127,12 +127,16 @@ static size_t gc_find_slot_locked(KronosValue *object, bool insert) {
     GCHashEntry *entry = &gc_state.entries[idx];
 
     if (entry->object == NULL) {
-      // Empty slot found
-      if (insert) {
-        // Return first tombstone if found, otherwise this empty slot
-        return (first_tombstone != SIZE_MAX) ? first_tombstone : idx;
+      if (entry->is_tombstone) {
+        // Deleted slot: keep probing for lookups; remember for reuse on insert.
+        if (first_tombstone == SIZE_MAX) {
+          first_tombstone = idx;
+        }
       } else {
-        // Not found
+        // Never-used empty slot: lookup can stop; insert can reuse tombstone.
+        if (insert) {
+          return (first_tombstone != SIZE_MAX) ? first_tombstone : idx;
+        }
         return SIZE_MAX;
       }
     }
