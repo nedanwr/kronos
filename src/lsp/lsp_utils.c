@@ -3,6 +3,9 @@
  * @brief Helper functions for LSP server
  */
 
+// Enable POSIX function declarations (e.g., strdup) on strict C builds.
+#define _POSIX_C_SOURCE 200809L
+
 #include "../frontend/tokenizer.h"
 #include "lsp.h"
 #include <ctype.h>
