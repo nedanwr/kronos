@@ -690,25 +690,37 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       *tail = &sym->next;
 
       // Add parameters as symbols
-      for (size_t j = 0; j < node->as.function.param_count; j++) {
-        Symbol *param = malloc(sizeof(Symbol));
-        if (!param)
-          continue;
-        param->name = strdup(node->as.function.params[j]);
-        param->type = SYMBOL_PARAMETER;
-        param->is_mutable = false;
-        param->type_name = NULL;
-        param->param_count = 0;
-        param->required_param_count = 0;
-        param->has_variadic = false;
-        param->param_names = NULL;
-        param->written = false; // Parameters are passed in, not written
-        param->read = false;
-        param->line = line;
-        param->column = col;
-        param->next = NULL;
-        **tail = param;
-        *tail = &param->next;
+      if (node->as.function.param_count > 0 && node->as.function.params) {
+        for (size_t j = 0; j < node->as.function.param_count; j++) {
+          const char *param_name = node->as.function.params[j];
+          if (!param_name)
+            continue;
+
+          Symbol *param = malloc(sizeof(Symbol));
+          if (!param)
+            continue;
+
+          param->name = strdup(param_name);
+          if (!param->name) {
+            free(param);
+            continue;
+          }
+
+          param->type = SYMBOL_PARAMETER;
+          param->is_mutable = false;
+          param->type_name = NULL;
+          param->param_count = 0;
+          param->required_param_count = 0;
+          param->has_variadic = false;
+          param->param_names = NULL;
+          param->written = false; // Parameters are passed in, not written
+          param->read = false;
+          param->line = line;
+          param->column = col;
+          param->next = NULL;
+          **tail = param;
+          *tail = &param->next;
+        }
       }
 
       // Recursively process function body to add local variables
