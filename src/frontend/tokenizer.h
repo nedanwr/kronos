@@ -62,6 +62,7 @@ typedef enum {
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,
+  TOK_ELLIPSIS,  // ... for variadic parameters
   TOK_LPAREN,
   TOK_RPAREN,
   TOK_NEWLINE,

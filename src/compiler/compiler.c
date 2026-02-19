@@ -656,6 +656,8 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node);
 static void compile_lambda_expression(Compiler *c, const ASTNode *node);
 static void compile_tuple_expression(Compiler *c, const ASTNode *node);
 static void compile_unpack_assign_statement(Compiler *c, const ASTNode *node);
+static KronosValue *compile_default_value_to_constant(Compiler *c,
+                                                       const ASTNode *expr);
 
 // Forward declarations for statement compilation helpers
 static void compile_statement(Compiler *c, const ASTNode *node);
@@ -929,6 +931,7 @@ static void emit_expr_to_string(Compiler *c, const char *format_spec) {
       return;
     }
     emit_byte(c, 1); // 1 argument
+    emit_byte(c, 0); // 0 named arguments
   }
 }
 
@@ -1053,6 +1056,37 @@ static void compile_call_expression(Compiler *c, const ASTNode *node) {
   emit_byte(c, (uint8_t)node->as.call.arg_count);
   if (compiler_has_error(c)) {
     return;
+  }
+
+  // Count named arguments
+  size_t named_count = 0;
+  if (node->as.call.arg_names) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        named_count++;
+      }
+    }
+  }
+
+  // Emit named argument count
+  if (named_count > 255) {
+    compiler_set_error(c, "Named argument count exceeds limit (255)");
+    return;
+  }
+  emit_byte(c, (uint8_t)named_count);
+
+  // Emit named argument info: for each named arg, emit position + name index
+  if (named_count > 0) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        emit_byte(c, (uint8_t)i); // Position in args array
+        KronosValue *name_val = value_new_string(node->as.call.arg_names[i],
+                                                 strlen(node->as.call.arg_names[i]));
+        if (!emit_constant_index(c, name_val)) {
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -1187,6 +1221,20 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
  * @param c Compiler state
  * @param node Lambda AST node (AST_LAMBDA)
  */
+/**
+ * @brief Compile a lambda expression
+ *
+ * Bytecode format:
+ *   [OP_MAKE_FUNCTION]
+ *   [param_count:1]
+ *   [required_param_count:1]
+ *   [has_variadic:1]
+ *   [param_name:2] × N
+ *   [default_const:2] × M     - default values for optional params
+ *   [body_len:2]
+ *   [function_body...]
+ *   [OP_RETURN_VAL]
+ */
 static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
   if (compiler_has_error(c)) {
     return;
@@ -1204,11 +1252,48 @@ static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
   // Emit parameter count (1 byte)
   emit_byte(c, (uint8_t)node->as.lambda.param_count);
 
+  // Emit required_param_count (for default parameters support)
+  emit_byte(c, (uint8_t)node->as.lambda.required_param_count);
+
+  // Emit has_variadic flag
+  emit_byte(c, node->as.lambda.has_variadic ? 1 : 0);
+
   // Emit parameter names as constant indices (2 bytes each)
   for (size_t i = 0; i < node->as.lambda.param_count; i++) {
     KronosValue *param_name = value_new_string(node->as.lambda.params[i],
                                                 strlen(node->as.lambda.params[i]));
     if (!emit_constant_index(c, param_name)) {
+      return;
+    }
+  }
+
+  // Calculate number of default values
+  size_t num_defaults = node->as.lambda.param_count -
+                        node->as.lambda.required_param_count -
+                        (node->as.lambda.has_variadic ? 1 : 0);
+
+  // Emit default value constants
+  for (size_t i = 0; i < num_defaults; i++) {
+    size_t param_idx = node->as.lambda.required_param_count + i;
+    ASTNode *default_expr = node->as.lambda.param_defaults
+                                ? node->as.lambda.param_defaults[param_idx]
+                                : NULL;
+    if (!default_expr) {
+      KronosValue *nil_val = value_new_nil();
+      if (!emit_constant_index(c, nil_val)) {
+        return;
+      }
+    } else {
+      KronosValue *default_val =
+          compile_default_value_to_constant(c, default_expr);
+      if (!default_val || compiler_has_error(c)) {
+        return;
+      }
+      if (!emit_constant_index(c, default_val)) {
+        return;
+      }
+    }
+    if (compiler_has_error(c)) {
       return;
     }
   }
@@ -1681,6 +1766,37 @@ static void compile_call_statement(Compiler *c, const ASTNode *node) {
   emit_byte(c, (uint8_t)node->as.call.arg_count);
   if (compiler_has_error(c)) {
     return;
+  }
+
+  // Count named arguments
+  size_t named_count = 0;
+  if (node->as.call.arg_names) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        named_count++;
+      }
+    }
+  }
+
+  // Emit named argument count
+  if (named_count > 255) {
+    compiler_set_error(c, "Named argument count exceeds limit (255)");
+    return;
+  }
+  emit_byte(c, (uint8_t)named_count);
+
+  // Emit named argument info: for each named arg, emit position + name index
+  if (named_count > 0) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        emit_byte(c, (uint8_t)i); // Position in args array
+        KronosValue *name_val = value_new_string(node->as.call.arg_names[i],
+                                                 strlen(node->as.call.arg_names[i]));
+        if (!emit_constant_index(c, name_val)) {
+          return;
+        }
+      }
+    }
   }
 
   // For built-in functions, print the result instead of discarding it
@@ -2481,7 +2597,46 @@ static void compile_while_statement(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a default value expression to a constant
+ *
+ * Evaluates simple literal expressions at compile time.
+ * Returns the constant KronosValue, or NULL if not a compile-time constant.
+ */
+static KronosValue *compile_default_value_to_constant(Compiler *c,
+                                                       const ASTNode *expr) {
+  if (!expr) {
+    return NULL;
+  }
+  switch (expr->type) {
+  case AST_NUMBER:
+    return value_new_number(expr->as.number);
+  case AST_STRING:
+    return value_new_string(expr->as.string.value, expr->as.string.length);
+  case AST_BOOL:
+    return value_new_bool(expr->as.boolean);
+  case AST_NULL:
+    return value_new_nil();
+  default:
+    compiler_set_error(c, "Default parameter value must be a literal constant");
+    return NULL;
+  }
+}
+
+/**
  * @brief Compile a function definition statement
+ *
+ * Bytecode format:
+ *   [OP_DEFINE_FUNC]
+ *   [function_name:2]         - constant index
+ *   [param_count:1]           - uint8_t
+ *   [required_param_count:1]  - uint8_t (params without defaults)
+ *   [has_variadic:1]          - uint8_t (0 or 1)
+ *   [param_name:2] × N        - constant indices for param names
+ *   [default_const:2] × M     - constant indices for default values
+ *   [body_start:2]            - uint16_t position
+ *   [OP_JUMP][skip:2]
+ *   [function_body...]
+ *   [OP_RETURN_VAL]
  */
 static void compile_function_statement(Compiler *c, const ASTNode *node) {
   // Store function name
@@ -2504,12 +2659,63 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
     return;
   }
 
+  // Emit required_param_count (for default parameters support)
+  if (node->as.function.required_param_count > 255) {
+    compiler_set_error(c,
+                       "Function required parameter count exceeds limit (255)");
+    return;
+  }
+  emit_byte(c, (uint8_t)node->as.function.required_param_count);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Emit has_variadic flag
+  emit_byte(c, node->as.function.has_variadic ? 1 : 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
   // Store parameter names as constants
   for (size_t i = 0; i < node->as.function.param_count; i++) {
     KronosValue *param_name = value_new_string(
         node->as.function.params[i], strlen(node->as.function.params[i]));
     if (!emit_constant_index(c, param_name)) {
       return;
+    }
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  // Calculate number of default values to emit
+  // defaults = param_count - required_param_count - (has_variadic ? 1 : 0)
+  size_t num_defaults = node->as.function.param_count -
+                        node->as.function.required_param_count -
+                        (node->as.function.has_variadic ? 1 : 0);
+
+  // Emit default value constants
+  // Default values correspond to parameters starting at index required_param_count
+  for (size_t i = 0; i < num_defaults; i++) {
+    size_t param_idx = node->as.function.required_param_count + i;
+    ASTNode *default_expr = node->as.function.param_defaults
+                                ? node->as.function.param_defaults[param_idx]
+                                : NULL;
+    if (!default_expr) {
+      // This shouldn't happen if parser is correct, but handle gracefully
+      KronosValue *nil_val = value_new_nil();
+      if (!emit_constant_index(c, nil_val)) {
+        return;
+      }
+    } else {
+      KronosValue *default_val =
+          compile_default_value_to_constant(c, default_expr);
+      if (!default_val || compiler_has_error(c)) {
+        return;
+      }
+      if (!emit_constant_index(c, default_val)) {
+        return;
+      }
     }
     if (compiler_has_error(c)) {
       return;

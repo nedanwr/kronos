@@ -83,6 +83,13 @@ void free_symbols(Symbol *sym) {
     Symbol *next = sym->next;
     free(sym->name);
     free(sym->type_name);
+    // Free parameter names array for functions
+    if (sym->param_names) {
+      for (size_t i = 0; i < sym->param_count; i++) {
+        free(sym->param_names[i]);
+      }
+      free(sym->param_names);
+    }
     free(sym);
     sym = next;
   }
@@ -255,6 +262,20 @@ Symbol *load_module_exports(const char *file_path) {
         sym->type_name = NULL;
         sym->is_mutable = false;
         sym->param_count = node->as.function.param_count;
+        sym->required_param_count = node->as.function.required_param_count;
+        sym->has_variadic = node->as.function.has_variadic;
+        // Copy parameter names for signature display
+        sym->param_names = NULL;
+        if (node->as.function.param_count > 0 && node->as.function.params) {
+          sym->param_names = malloc(sizeof(char *) * node->as.function.param_count);
+          if (sym->param_names) {
+            for (size_t pi = 0; pi < node->as.function.param_count; pi++) {
+              sym->param_names[pi] = node->as.function.params[pi]
+                  ? strdup(node->as.function.params[pi])
+                  : NULL;
+            }
+          }
+        }
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -298,6 +319,9 @@ Symbol *load_module_exports(const char *file_path) {
                              : NULL;
         sym->is_mutable = node->as.assign.is_mutable;
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -579,6 +603,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
         }
 
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = true; // Initial assignment counts as a write
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -615,6 +642,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
           sym->is_mutable = node->as.unpack_assign.is_mutable;
           sym->type_name = NULL;  // No type annotation for unpacking
           sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
           sym->written = true;
           sym->read = false;
           get_node_position(node, &line, &col);
@@ -636,6 +666,20 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       sym->is_mutable = false;
       sym->type_name = NULL;
       sym->param_count = node->as.function.param_count;
+      sym->required_param_count = node->as.function.required_param_count;
+      sym->has_variadic = node->as.function.has_variadic;
+      // Copy parameter names for signature display
+      sym->param_names = NULL;
+      if (node->as.function.param_count > 0 && node->as.function.params) {
+        sym->param_names = malloc(sizeof(char *) * node->as.function.param_count);
+        if (sym->param_names) {
+          for (size_t pi = 0; pi < node->as.function.param_count; pi++) {
+            sym->param_names[pi] = node->as.function.params[pi]
+                ? strdup(node->as.function.params[pi])
+                : NULL;
+          }
+        }
+      }
       sym->written = false;
       sym->read = false;
       get_node_position(node, &line, &col);
@@ -655,6 +699,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
         param->is_mutable = false;
         param->type_name = NULL;
         param->param_count = 0;
+        param->required_param_count = 0;
+        param->has_variadic = false;
+        param->param_names = NULL;
         param->written = false; // Parameters are passed in, not written
         param->read = false;
         param->line = line;
@@ -683,6 +730,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
             false; // Loop variables are immutable (assigned by loop)
         sym->type_name = NULL; // Type depends on what's being iterated
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = false; // Loop variables are assigned by the loop
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -706,6 +756,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
           sym->is_mutable = false;           // Catch variables are immutable
           sym->type_name = strdup("string"); // Error messages are strings
           sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
           sym->written =
               false; // Catch variables are assigned by exception handler
           sym->read = false;

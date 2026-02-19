@@ -1,0 +1,53 @@
+# Test: Variadic parameters in functions
+
+# Basic variadic function
+function sum with ...numbers:
+    let total to 0
+    for n in numbers:
+        let total to total plus n
+    return total
+
+# Multiple arguments
+set s1 to call sum with 1, 2, 3
+print s1
+
+set s2 to call sum with 10, 20, 30, 40, 50
+print s2
+
+# Empty variadic list
+set s3 to call sum
+print s3
+
+# Function with required param and variadic
+function greet_all with greeting, ...names:
+    for name in names:
+        print f"{greeting}, {name}!"
+
+call greet_all with "Hello", "Alice", "Bob", "Charlie"
+
+# Function with required, default, and variadic
+function log_msg with level, prefix = "LOG", ...messages:
+    for msg in messages:
+        print f"[{prefix}:{level}] {msg}"
+
+call log_msg with "INFO", "APP", "Starting", "Loading"
+call log_msg with "ERROR", "SYS", "Failed"
+call log_msg with "DEBUG"
+
+# Lambda with variadic - basic form
+set multiply_all to function with ...nums:
+    let product to 1
+    for n in nums:
+        let product to product times n
+    return product
+
+set p1 to call multiply_all with 2, 3, 4
+print p1
+
+set p2 to call multiply_all with 5
+print p2
+
+set p3 to call multiply_all
+print p3
+
+print "All variadic parameter tests passed!"

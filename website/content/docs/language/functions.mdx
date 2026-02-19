@@ -32,6 +32,117 @@ set greeting to call greet with "Alice"
 print greeting  # Prints: Hello, Alice!
 ```
 
+## Default Parameter Values
+
+Functions can have parameters with default values. Parameters with defaults are optional when calling the function:
+
+**Syntax:**
+```kronos
+function <name> with <required_param>, <optional_param> = <default_value>:
+    <function_body>
+```
+
+**Example:**
+```kronos
+function greet with name, greeting = "Hello":
+    return f"{greeting}, {name}!"
+
+print call greet with "Alice"           # Prints: Hello, Alice!
+print call greet with "Bob", "Hi"       # Prints: Hi, Bob!
+```
+
+### Multiple Default Parameters
+
+You can have multiple parameters with defaults:
+
+```kronos
+function create_user with username, role = "user", active = true:
+    return f"{username} ({role}) - Active: {active}"
+
+print call create_user with "alice"                    # alice (user) - Active: true
+print call create_user with "bob", "admin"             # bob (admin) - Active: true
+print call create_user with "charlie", "mod", false    # charlie (mod) - Active: false
+```
+
+**Note:** Required parameters must come before parameters with default values.
+
+## Variadic Parameters
+
+Functions can accept a variable number of arguments using variadic parameters. A variadic parameter is denoted with `...` before the parameter name:
+
+**Syntax:**
+```kronos
+function <name> with ...<param_name>:
+    # param_name is a list of all provided arguments
+```
+
+**Example:**
+```kronos
+function sum with ...numbers:
+    let total to 0
+    for n in numbers:
+        let total to total plus n
+    return total
+
+print call sum with 1, 2, 3        # Prints: 6
+print call sum with 10, 20, 30, 40 # Prints: 100
+print call sum                      # Prints: 0 (empty list)
+```
+
+### Variadic with Regular Parameters
+
+You can combine regular parameters with a variadic parameter:
+
+```kronos
+function log_message with level, ...messages:
+    for msg in messages:
+        print f"[{level}] {msg}"
+
+call log_message with "INFO", "Starting", "Loading", "Ready"
+# Prints:
+# [INFO] Starting
+# [INFO] Loading
+# [INFO] Ready
+```
+
+**Note:** The variadic parameter must be the last parameter.
+
+## Named Arguments
+
+When calling functions, you can specify arguments by name to make the code more readable and to pass arguments in any order:
+
+**Syntax:**
+```kronos
+call <function> with <param_name>: <value>, <param_name>: <value>
+```
+
+**Example:**
+```kronos
+function create_point with x, y, z:
+    return f"Point({x}, {y}, {z})"
+
+# Using named arguments in any order
+print call create_point with z: 3, x: 1, y: 2
+# Prints: Point(1, 2, 3)
+```
+
+### Mixing Positional and Named Arguments
+
+You can mix positional arguments with named arguments, but positional arguments must come first:
+
+```kronos
+function greet with name, greeting = "Hello", punctuation = "!":
+    return f"{greeting}, {name}{punctuation}"
+
+# Positional for first arg, named for specific optional arg
+print call greet with "Alice", punctuation: "?"
+# Prints: Hello, Alice?
+
+# Skip middle parameter using named argument
+print call greet with "Bob", punctuation: "..."
+# Prints: Hello, Bob...
+```
+
 ## Return Values
 
 Functions can return values using the `return` statement:

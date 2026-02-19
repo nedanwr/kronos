@@ -311,7 +311,9 @@ KronosValue *value_new_nil(void) {
  * @return New function value, or NULL on allocation failure
  */
 KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
-                                char **param_names) {
+                                int required_arity, bool has_variadic,
+                                char **param_names,
+                                KronosValue **param_defaults) {
   if (!bytecode || length == 0)
     return NULL;
 
@@ -350,12 +352,40 @@ KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
     }
   }
 
+  // Copy default values if provided
+  KronosValue **defaults_copy = NULL;
+  if (param_defaults && arity > 0) {
+    defaults_copy = malloc(sizeof(KronosValue *) * arity);
+    if (!defaults_copy) {
+      if (names_copy) {
+        for (int i = 0; i < arity; i++) {
+          free(names_copy[i]);
+        }
+        free(names_copy);
+      }
+      free(buffer);
+      free(val);
+      return NULL;
+    }
+    for (int i = 0; i < arity; i++) {
+      if (param_defaults[i]) {
+        value_retain(param_defaults[i]);
+        defaults_copy[i] = param_defaults[i];
+      } else {
+        defaults_copy[i] = NULL;
+      }
+    }
+  }
+
   val->type = VAL_FUNCTION;
   val->refcount = 1;
   val->as.function.bytecode = buffer;
   val->as.function.length = length;
   val->as.function.arity = arity;
+  val->as.function.required_arity = required_arity;
+  val->as.function.has_variadic = has_variadic;
   val->as.function.param_names = names_copy;
+  val->as.function.param_defaults = defaults_copy;
 
   gc_track(val);
   return val;
@@ -747,6 +777,10 @@ void value_finalize(KronosValue *val) {
       }
       free(val->as.function.param_names);
     }
+    // Free param_defaults array (don't release values - gc_cleanup handles them)
+    if (val->as.function.param_defaults) {
+      free(val->as.function.param_defaults);
+    }
     break;
   case VAL_LIST:
     // Free the items array, but don't release the child values
@@ -832,6 +866,18 @@ void value_release(KronosValue *val) {
           free(current->as.function.param_names[i]);
         }
         free(current->as.function.param_names);
+      }
+      // Release default values and free array
+      if (current->as.function.param_defaults) {
+        for (int i = 0; i < current->as.function.arity; i++) {
+          if (current->as.function.param_defaults[i]) {
+            if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                    current->as.function.param_defaults[i])) {
+              value_release(current->as.function.param_defaults[i]);
+            }
+          }
+        }
+        free(current->as.function.param_defaults);
       }
       break;
     case VAL_LIST:

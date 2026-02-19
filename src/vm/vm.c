@@ -280,12 +280,23 @@ static int call_function_value(KronosVM *vm, KronosValue *func_val,
  */
 static int call_function_value(KronosVM *vm, KronosValue *func_val,
                                const char *func_name, uint8_t arg_count) {
-  // Validate argument count
-  if (arg_count != func_val->as.function.arity) {
+  int total_arity = func_val->as.function.arity;
+  int required_arity = func_val->as.function.required_arity;
+  bool has_variadic = func_val->as.function.has_variadic;
+  size_t regular_param_count = total_arity - (has_variadic ? 1 : 0);
+
+  // Validate argument count with default/variadic support
+  if (arg_count < required_arity) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                     "Function '%s' expects %d argument%s, but got %d",
-                     func_name, func_val->as.function.arity,
-                     func_val->as.function.arity == 1 ? "" : "s", arg_count);
+                     "Function '%s' requires at least %d argument%s, but got %d",
+                     func_name, required_arity,
+                     required_arity == 1 ? "" : "s", arg_count);
+  }
+  if (!has_variadic && arg_count > total_arity) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' accepts at most %d argument%s, but got %d",
+                     func_name, total_arity,
+                     total_arity == 1 ? "" : "s", arg_count);
   }
 
   // Check call stack size
@@ -364,33 +375,127 @@ static int call_function_value(KronosVM *vm, KronosValue *func_val,
   // Set current frame before setting locals
   vm->current_frame = frame;
 
-  // Set parameters as local variables
-  for (int i = 0; i < arg_count; i++) {
-    const char *param_name = func_val->as.function.param_names[i];
-    int arg_status = vm_set_local(vm, frame, param_name, args[i], true, NULL);
-    value_release(args[i]);
+  // Helper macro for cleanup on error
+  #define CLEANUP_LAMBDA_FRAME() do { \
+    for (size_t j = 0; j < frame->local_count; j++) { \
+      free(frame->locals[j].name); \
+      value_release(frame->locals[j].value); \
+      free(frame->locals[j].type_name); \
+    } \
+    frame->local_count = 0; \
+    vm->call_stack_size--; \
+    if (vm->call_stack_size > 0) { \
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1]; \
+    } else { \
+      vm->current_frame = NULL; \
+    } \
+  } while(0)
+
+  // Calculate how many regular arguments were provided
+  size_t regular_args_provided = has_variadic ?
+      ((size_t)arg_count > regular_param_count ? regular_param_count : arg_count) :
+      arg_count;
+
+  // Bind regular parameters (provided arguments + defaults)
+  for (size_t i = 0; i < regular_param_count; i++) {
+    KronosValue *arg_val;
+    if (i < regular_args_provided) {
+      arg_val = args[i];
+      value_retain(arg_val);
+    } else {
+      // Use default value
+      if (func_val->as.function.param_defaults &&
+          func_val->as.function.param_defaults[i]) {
+        arg_val = func_val->as.function.param_defaults[i];
+        value_retain(arg_val);
+      } else {
+        for (size_t j = 0; j < arg_count; j++) {
+          value_release(args[j]);
+        }
+        free(args);
+        CLEANUP_LAMBDA_FRAME();
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Missing required argument for parameter '%s'",
+                         func_val->as.function.param_names[i]);
+      }
+    }
+
+    int arg_status = vm_set_local(vm, frame,
+                                   func_val->as.function.param_names[i],
+                                   arg_val, true, NULL);
+    value_release(arg_val);
     if (arg_status != 0) {
-      for (size_t j = i + 1; j < arg_count; j++) {
+      for (size_t j = 0; j < arg_count; j++) {
         value_release(args[j]);
       }
       free(args);
-      // Clean up locals
-      for (size_t j = 0; j < frame->local_count; j++) {
-        free(frame->locals[j].name);
-        value_release(frame->locals[j].value);
-        free(frame->locals[j].type_name);
-      }
-      frame->local_count = 0;
-      vm->call_stack_size--;
-      if (vm->call_stack_size > 0) {
-        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
-      } else {
-        vm->current_frame = NULL;
-      }
+      CLEANUP_LAMBDA_FRAME();
       return arg_status;
     }
   }
+
+  // Handle variadic parameter - collect remaining arguments into a list
+  if (has_variadic) {
+    size_t variadic_idx = total_arity - 1;
+    size_t variadic_count = (size_t)arg_count > regular_param_count ?
+        arg_count - regular_param_count : 0;
+
+    KronosValue *variadic_list = value_new_list(variadic_count > 0 ? variadic_count : 4);
+    if (!variadic_list) {
+      for (size_t j = 0; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      CLEANUP_LAMBDA_FRAME();
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to create variadic argument list");
+    }
+
+    for (size_t i = 0; i < variadic_count; i++) {
+      size_t arg_idx = regular_param_count + i;
+      if (variadic_list->as.list.count >= variadic_list->as.list.capacity) {
+        size_t new_capacity = variadic_list->as.list.capacity == 0 ? 4 :
+                              variadic_list->as.list.capacity * 2;
+        KronosValue **new_items = realloc(variadic_list->as.list.items,
+                                          sizeof(KronosValue *) * new_capacity);
+        if (!new_items) {
+          value_release(variadic_list);
+          for (size_t j = 0; j < arg_count; j++) {
+            value_release(args[j]);
+          }
+          free(args);
+          CLEANUP_LAMBDA_FRAME();
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to grow variadic argument list");
+        }
+        variadic_list->as.list.items = new_items;
+        variadic_list->as.list.capacity = new_capacity;
+      }
+      value_retain(args[arg_idx]);
+      variadic_list->as.list.items[variadic_list->as.list.count++] = args[arg_idx];
+    }
+
+    int arg_status = vm_set_local(vm, frame,
+                                   func_val->as.function.param_names[variadic_idx],
+                                   variadic_list, true, NULL);
+    value_release(variadic_list);
+    if (arg_status != 0) {
+      for (size_t j = 0; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      CLEANUP_LAMBDA_FRAME();
+      return arg_status;
+    }
+  }
+
+  // Release original argument references
+  for (size_t i = 0; i < arg_count; i++) {
+    value_release(args[i]);
+  }
   free(args);
+
+  #undef CLEANUP_LAMBDA_FRAME
 
   // Validate function bytecode
   if (!func_val->as.function.bytecode || func_val->as.function.length == 0) {
@@ -954,6 +1059,16 @@ void function_free(Function *func) {
     free(func->params[i]);
   }
   free(func->params);
+
+  // Free default values
+  if (func->param_defaults) {
+    for (size_t i = 0; i < func->param_count; i++) {
+      if (func->param_defaults[i]) {
+        value_release(func->param_defaults[i]);
+      }
+    }
+    free(func->param_defaults);
+  }
 
   // Free bytecode structure
   free(func->bytecode.code);
@@ -5000,6 +5115,49 @@ static int handle_op_call_func(KronosVM *vm) {
                     "Function name constant is not a string");
   }
   uint8_t arg_count = read_byte(vm);
+  uint8_t named_count = read_byte(vm);
+
+  // Read named argument info if present
+  // named_args: array of (arg_index, param_name) pairs
+  struct { uint8_t arg_idx; char *param_name; } *named_args = NULL;
+  if (named_count > 0) {
+    named_args = malloc(sizeof(*named_args) * named_count);
+    if (!named_args) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate named argument info");
+    }
+    for (uint8_t i = 0; i < named_count; i++) {
+      named_args[i].arg_idx = read_byte(vm);
+      KronosValue *pname = read_constant(vm);
+      if (!pname || pname->type != VAL_STRING) {
+        for (uint8_t j = 0; j < i; j++) {
+          free(named_args[j].param_name);
+        }
+        free(named_args);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Invalid named argument info in bytecode");
+      }
+      named_args[i].param_name = strdup(pname->as.string.data);
+      if (!named_args[i].param_name) {
+        for (uint8_t j = 0; j < i; j++) {
+          free(named_args[j].param_name);
+        }
+        free(named_args);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to allocate named argument parameter name");
+      }
+    }
+  }
+
+  // Helper macro to free named_args
+  #define FREE_NAMED_ARGS() do { \
+    if (named_args) { \
+      for (uint8_t _i = 0; _i < named_count; _i++) { \
+        free(named_args[_i].param_name); \
+      } \
+      free(named_args); \
+    } \
+  } while(0)
 
   // Check for built-in functions first
   const char *func_name = name_val->as.string.data;
@@ -5011,6 +5169,7 @@ static int handle_op_call_func(KronosVM *vm) {
     size_t module_len = (size_t)(dot - func_name);
     char *module_name = malloc(module_len + 1);
     if (!module_name) {
+      FREE_NAMED_ARGS();
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
     }
     strncpy(module_name, func_name, module_len);
@@ -5042,10 +5201,19 @@ static int handle_op_call_func(KronosVM *vm) {
                               "Function '%s' not found in module '%s'",
                               actual_func_name, module_name);
           free(module_name);
+          FREE_NAMED_ARGS();
           return err;
         }
 
-        // Check parameter count
+        // Check parameter count (named args not supported for module functions)
+        if (named_count > 0) {
+          int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Named arguments not supported for module function '%s.%s'",
+                        module_name, actual_func_name);
+          free(module_name);
+          FREE_NAMED_ARGS();
+          return err;
+        }
         if (arg_count != (uint8_t)mod_func->param_count) {
           int err =
               vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -5053,6 +5221,7 @@ static int handle_op_call_func(KronosVM *vm) {
                         module_name, actual_func_name, mod_func->param_count,
                         mod_func->param_count == 1 ? "" : "s", arg_count);
           free(module_name);
+          FREE_NAMED_ARGS();
           return err;
         }
 
@@ -5062,6 +5231,7 @@ static int handle_op_call_func(KronosVM *vm) {
           args = malloc(sizeof(KronosValue *) * arg_count);
           if (!args) {
             free(module_name);
+            FREE_NAMED_ARGS();
             return vm_error(vm, KRONOS_ERR_INTERNAL,
                             "Failed to allocate argument buffer");
           }
@@ -5074,6 +5244,7 @@ static int handle_op_call_func(KronosVM *vm) {
               }
               free(args);
               free(module_name);
+              FREE_NAMED_ARGS();
               return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
             }
           }
@@ -5083,6 +5254,7 @@ static int handle_op_call_func(KronosVM *vm) {
         int result = call_module_function(vm, mod, mod_func, args, arg_count);
         free(args);
         free(module_name);
+        FREE_NAMED_ARGS();
 
         if (result < 0) {
           return result;
@@ -5093,6 +5265,7 @@ static int handle_op_call_func(KronosVM *vm) {
         int err = vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Unknown module '%s'",
                             module_name);
         free(module_name);
+        FREE_NAMED_ARGS();
         return err;
       }
     }
@@ -5101,12 +5274,27 @@ static int handle_op_call_func(KronosVM *vm) {
   // Try to find built-in function using dispatch table
   BuiltinHandler builtin = find_builtin(func_name);
   if (builtin) {
+    // Named arguments not supported for built-in functions
+    if (named_count > 0) {
+      FREE_NAMED_ARGS();
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Named arguments not supported for built-in function '%s'",
+                       func_name);
+    }
+    FREE_NAMED_ARGS();
     return builtin(vm, arg_count);
   }
 
   // Try variable containing a function value (lambda)
   KronosValue *var_val = vm_get_variable(vm, func_name);
   if (var_val && var_val->type == VAL_FUNCTION) {
+    // Named arguments not yet supported for lambda calls
+    if (named_count > 0) {
+      FREE_NAMED_ARGS();
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Named arguments not yet supported for lambda calls");
+    }
+    FREE_NAMED_ARGS();
     // Call the function value
     return call_function_value(vm, var_val, func_name, arg_count);
   }
@@ -5119,19 +5307,108 @@ static int handle_op_call_func(KronosVM *vm) {
   // Try user-defined function
   Function *func = vm_get_function(vm, func_name);
   if (!func) {
+    FREE_NAMED_ARGS();
     return vm_errorf(vm, KRONOS_ERR_NOT_FOUND, "Undefined function '%s'",
                      func_name);
   }
 
-  if (arg_count != func->param_count) {
+  // Calculate the number of non-variadic parameters
+  size_t regular_param_count = func->param_count - (func->has_variadic ? 1 : 0);
+
+  // Build parameter name to index mapping for named argument resolution
+  // This maps from arg array position to parameter index
+  int *arg_to_param_map = NULL;
+  if (named_count > 0) {
+    arg_to_param_map = malloc(sizeof(int) * arg_count);
+    if (!arg_to_param_map) {
+      FREE_NAMED_ARGS();
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate argument mapping");
+    }
+    // Initialize: positional args map directly
+    for (uint8_t i = 0; i < arg_count; i++) {
+      arg_to_param_map[i] = i; // Default: positional mapping
+    }
+    // Override with named argument mappings
+    for (uint8_t i = 0; i < named_count; i++) {
+      uint8_t arg_idx = named_args[i].arg_idx;
+      const char *pname = named_args[i].param_name;
+      // Find parameter index by name
+      int param_idx = -1;
+      for (size_t j = 0; j < regular_param_count; j++) {
+        if (strcmp(func->params[j], pname) == 0) {
+          param_idx = (int)j;
+          break;
+        }
+      }
+      if (param_idx < 0) {
+        free(arg_to_param_map);
+        FREE_NAMED_ARGS();
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Function '%s' has no parameter named '%s'",
+                         func->name, pname);
+      }
+      arg_to_param_map[arg_idx] = param_idx;
+    }
+  }
+
+  // Helper macro to cleanup the arg_to_param_map
+  #define FREE_ARG_MAP() do { free(arg_to_param_map); } while(0)
+
+  // Track which parameters are covered by arguments
+  // (for validating required params are satisfied)
+  bool *param_covered = NULL;
+  if (named_count > 0) {
+    param_covered = calloc(regular_param_count, sizeof(bool));
+    if (!param_covered) {
+      FREE_ARG_MAP();
+      FREE_NAMED_ARGS();
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate parameter tracking");
+    }
+    for (uint8_t i = 0; i < arg_count && i < regular_param_count; i++) {
+      int param_idx = arg_to_param_map[i];
+      if (param_idx >= 0 && (size_t)param_idx < regular_param_count) {
+        param_covered[param_idx] = true;
+      }
+    }
+    // Check that all required parameters are covered
+    for (size_t i = 0; i < func->required_param_count; i++) {
+      if (!param_covered[i]) {
+        free(param_covered);
+        FREE_ARG_MAP();
+        FREE_NAMED_ARGS();
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Function '%s' missing required argument '%s'",
+                         func->name, func->params[i]);
+      }
+    }
+    free(param_covered);
+  } else {
+    // No named args - use simple count validation
+    if (arg_count < func->required_param_count) {
+      FREE_NAMED_ARGS();
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Function '%s' requires at least %zu argument%s, but got %d",
+                       func->name, func->required_param_count,
+                       func->required_param_count == 1 ? "" : "s", arg_count);
+    }
+  }
+
+  // Validate max argument count (for non-variadic functions)
+  if (!func->has_variadic && arg_count > func->param_count) {
+    FREE_ARG_MAP();
+    FREE_NAMED_ARGS();
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
-                     "Function '%s' expects %zu argument%s, but got %d",
+                     "Function '%s' accepts at most %zu argument%s, but got %d",
                      func->name, func->param_count,
                      func->param_count == 1 ? "" : "s", arg_count);
   }
 
   // Check call stack size
   if (vm->call_stack_size >= CALL_STACK_MAX) {
+    FREE_ARG_MAP();
+    FREE_NAMED_ARGS();
     return vm_error(vm, KRONOS_ERR_RUNTIME, "Maximum call depth exceeded");
   }
 
@@ -5157,6 +5434,8 @@ static int handle_op_call_func(KronosVM *vm) {
     } else {
       vm->current_frame = NULL;
     }
+    FREE_ARG_MAP();
+    FREE_NAMED_ARGS();
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Stack pointer corruption: stack_top (%p) < stack (%p)",
                      (void *)vm->stack_top, (void *)vm->stack);
@@ -5171,6 +5450,8 @@ static int handle_op_call_func(KronosVM *vm) {
     } else {
       vm->current_frame = NULL;
     }
+    FREE_ARG_MAP();
+    FREE_NAMED_ARGS();
     return vm_errorf(
         vm, KRONOS_ERR_RUNTIME,
         "Stack underflow: function '%s' expects %d argument%s, but "
@@ -5191,6 +5472,8 @@ static int handle_op_call_func(KronosVM *vm) {
     } else {
       vm->current_frame = NULL;
     }
+    FREE_ARG_MAP();
+    FREE_NAMED_ARGS();
     return vm_error(vm, KRONOS_ERR_INTERNAL,
                     "Failed to allocate argument buffer");
   }
@@ -5208,6 +5491,8 @@ static int handle_op_call_func(KronosVM *vm) {
       } else {
         vm->current_frame = NULL;
       }
+      FREE_ARG_MAP();
+      FREE_NAMED_ARGS();
       return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                        "Stack underflow during pop: function '%s', "
                        "expected %d args, popped %d, stack_size=%zu",
@@ -5227,6 +5512,8 @@ static int handle_op_call_func(KronosVM *vm) {
       } else {
         vm->current_frame = NULL;
       }
+      FREE_ARG_MAP();
+      FREE_NAMED_ARGS();
       return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
     }
   }
@@ -5234,35 +5521,188 @@ static int handle_op_call_func(KronosVM *vm) {
   // Set current frame before setting locals
   vm->current_frame = frame;
 
-  // Set parameters as local variables in the new frame
-  // Parameters are mutable by default
-  for (size_t i = 0; i < arg_count; i++) {
-    int arg_status =
-        vm_set_local(vm, frame, func->params[i], args[i], true, NULL);
-    value_release(args[i]);
-    if (arg_status != 0) {
-      for (size_t j = i + 1; j < arg_count; j++) {
+  // Helper macro for cleanup on error (includes named args cleanup)
+  #define CLEANUP_CALL_FRAME() do { \
+    for (size_t j = 0; j < frame->local_count; j++) { \
+      free(frame->locals[j].name); \
+      value_release(frame->locals[j].value); \
+      free(frame->locals[j].type_name); \
+    } \
+    frame->local_count = 0; \
+    vm->call_stack_size--; \
+    if (vm->call_stack_size > 0) { \
+      vm->current_frame = &vm->call_stack[vm->call_stack_size - 1]; \
+    } else { \
+      vm->current_frame = NULL; \
+    } \
+    FREE_ARG_MAP(); \
+    FREE_NAMED_ARGS(); \
+  } while(0)
+
+  // Track which parameters have been bound (for named argument support)
+  bool *param_bound = calloc(regular_param_count > 0 ? regular_param_count : 1, sizeof(bool));
+  if (!param_bound) {
+    for (size_t j = 0; j < arg_count; j++) {
+      value_release(args[j]);
+    }
+    free(args);
+    CLEANUP_CALL_FRAME();
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate param tracking");
+  }
+
+  // Calculate how many regular arguments were provided vs how many go to variadic
+  size_t regular_args_provided = func->has_variadic ?
+      (arg_count > regular_param_count ? regular_param_count : arg_count) :
+      arg_count;
+
+  // Bind arguments to parameters (respecting named argument mapping)
+  for (size_t i = 0; i < regular_args_provided; i++) {
+    // Determine target parameter index
+    size_t param_idx = (arg_to_param_map && i < arg_count) ?
+                       (size_t)arg_to_param_map[i] : i;
+
+    // Check for duplicate binding (same parameter bound twice)
+    if (param_idx < regular_param_count && param_bound[param_idx]) {
+      for (size_t j = 0; j < arg_count; j++) {
         value_release(args[j]);
       }
       free(args);
+      free(param_bound);
+      CLEANUP_CALL_FRAME();
+      return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                       "Duplicate argument for parameter '%s'",
+                       func->params[param_idx]);
+    }
 
-      for (size_t j = 0; j < frame->local_count; j++) {
-        free(frame->locals[j].name);
-        value_release(frame->locals[j].value);
-        free(frame->locals[j].type_name);
+    if (param_idx < regular_param_count) {
+      param_bound[param_idx] = true;
+      KronosValue *arg_val = args[i];
+      value_retain(arg_val);
+
+      int arg_status = vm_set_local(vm, frame, func->params[param_idx], arg_val, true, NULL);
+      value_release(arg_val);
+      if (arg_status != 0) {
+        for (size_t j = 0; j < arg_count; j++) {
+          value_release(args[j]);
+        }
+        free(args);
+        free(param_bound);
+        CLEANUP_CALL_FRAME();
+        return arg_status;
       }
-      frame->local_count = 0;
+    }
+  }
 
-      vm->call_stack_size--;
-      if (vm->call_stack_size > 0) {
-        vm->current_frame = &vm->call_stack[vm->call_stack_size - 1];
+  // Fill in unbound parameters with default values
+  for (size_t i = 0; i < regular_param_count; i++) {
+    if (!param_bound[i]) {
+      KronosValue *arg_val;
+      if (func->param_defaults && func->param_defaults[i]) {
+        arg_val = func->param_defaults[i];
+        value_retain(arg_val);
       } else {
-        vm->current_frame = NULL;
+        // No default - this shouldn't happen if validation is correct
+        for (size_t j = 0; j < arg_count; j++) {
+          value_release(args[j]);
+        }
+        free(args);
+        free(param_bound);
+        CLEANUP_CALL_FRAME();
+        return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                         "Missing required argument for parameter '%s'",
+                         func->params[i]);
       }
+
+      int arg_status = vm_set_local(vm, frame, func->params[i], arg_val, true, NULL);
+      value_release(arg_val);
+      if (arg_status != 0) {
+        for (size_t j = 0; j < arg_count; j++) {
+          value_release(args[j]);
+        }
+        free(args);
+        free(param_bound);
+        CLEANUP_CALL_FRAME();
+        return arg_status;
+      }
+    }
+  }
+
+  free(param_bound);
+
+  // Handle variadic parameter - collect remaining arguments into a list
+  if (func->has_variadic) {
+    size_t variadic_idx = func->param_count - 1;
+    size_t variadic_count = arg_count > regular_param_count ?
+        arg_count - regular_param_count : 0;
+
+    // Create list for variadic arguments
+    KronosValue *variadic_list = value_new_list(variadic_count > 0 ? variadic_count : 4);
+    if (!variadic_list) {
+      for (size_t j = 0; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      CLEANUP_CALL_FRAME();
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to create variadic argument list");
+    }
+
+    // Add variadic arguments to the list
+    for (size_t i = 0; i < variadic_count; i++) {
+      size_t arg_idx = regular_param_count + i;
+
+      // Grow list if needed
+      if (variadic_list->as.list.count >= variadic_list->as.list.capacity) {
+        size_t new_capacity = variadic_list->as.list.capacity == 0 ? 4 :
+                              variadic_list->as.list.capacity * 2;
+        KronosValue **new_items = realloc(variadic_list->as.list.items,
+                                          sizeof(KronosValue *) * new_capacity);
+        if (!new_items) {
+          value_release(variadic_list);
+          for (size_t j = 0; j < arg_count; j++) {
+            value_release(args[j]);
+          }
+          free(args);
+          CLEANUP_CALL_FRAME();
+          return vm_error(vm, KRONOS_ERR_INTERNAL,
+                          "Failed to grow variadic argument list");
+        }
+        variadic_list->as.list.items = new_items;
+        variadic_list->as.list.capacity = new_capacity;
+      }
+
+      // Append value to list
+      value_retain(args[arg_idx]);
+      variadic_list->as.list.items[variadic_list->as.list.count++] = args[arg_idx];
+    }
+
+    // Bind variadic list to parameter
+    int arg_status = vm_set_local(vm, frame, func->params[variadic_idx],
+                                  variadic_list, true, NULL);
+    value_release(variadic_list);
+    if (arg_status != 0) {
+      for (size_t j = 0; j < arg_count; j++) {
+        value_release(args[j]);
+      }
+      free(args);
+      CLEANUP_CALL_FRAME();
       return arg_status;
     }
   }
+
+  // Release original argument references
+  for (size_t i = 0; i < arg_count; i++) {
+    value_release(args[i]);
+  }
   free(args);
+
+  // Clean up named argument resources (no longer needed after binding)
+  FREE_ARG_MAP();
+  FREE_NAMED_ARGS();
+
+  #undef CLEANUP_CALL_FRAME
+  #undef FREE_ARG_MAP
+  #undef FREE_NAMED_ARGS
 
   // Validate function bytecode before switching to it
   if (!func->bytecode.code) {
@@ -6405,6 +6845,12 @@ static int handle_op_define_func(KronosVM *vm) {
   }
   uint8_t param_count = read_byte(vm);
 
+  // Read required_param_count (params without defaults)
+  uint8_t required_param_count = read_byte(vm);
+
+  // Read has_variadic flag
+  uint8_t has_variadic = read_byte(vm);
+
   // Create function
   Function *func = malloc(sizeof(Function));
   if (!func) {
@@ -6421,6 +6867,9 @@ static int handle_op_define_func(KronosVM *vm) {
   }
 
   func->param_count = param_count;
+  func->required_param_count = required_param_count;
+  func->has_variadic = (has_variadic != 0);
+  func->param_defaults = NULL;
   func->params = param_count > 0 ? malloc(sizeof(char *) * param_count) : NULL;
   if (param_count > 0 && !func->params) {
     // Allocation failure: free func->name and func, then return error
@@ -6480,10 +6929,38 @@ static int handle_op_define_func(KronosVM *vm) {
     return param_error;
   }
 
+  // Read default value constants
+  // Number of defaults = param_count - required_param_count - (has_variadic ? 1 : 0)
+  size_t num_defaults = param_count - required_param_count -
+                        (func->has_variadic ? 1 : 0);
+  if (num_defaults > 0) {
+    func->param_defaults = malloc(sizeof(KronosValue *) * param_count);
+    if (!func->param_defaults) {
+      function_free(func);
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate default values array");
+    }
+    // Initialize all to NULL
+    for (size_t i = 0; i < param_count; i++) {
+      func->param_defaults[i] = NULL;
+    }
+    // Read default values for optional parameters
+    for (size_t i = 0; i < num_defaults; i++) {
+      size_t param_idx = required_param_count + i;
+      KronosValue *default_val = read_constant(vm);
+      if (!default_val) {
+        function_free(func);
+        return vm_propagate_error(vm, KRONOS_ERR_INTERNAL);
+      }
+      value_retain(default_val);
+      func->param_defaults[param_idx] = default_val;
+    }
+  }
+
   // Consume function body start position (2 bytes) - part of bytecode
   // format but not used at runtime; we just need to advance the instruction
   // pointer Format:
-  // [OP_DEFINE_FUNC][name_idx:2][param_count:1][params:2*N][body_start:2][OP_JUMP][skip_offset:2]
+  // [OP_DEFINE_FUNC][name_idx:2][param_count:1][required:1][variadic:1][params:2*N][defaults:2*M][body_start:2][OP_JUMP][skip_offset:2]
   read_byte(vm); // body_start high byte
   if (vm->last_error_message) {
     // Cleanup already done above
@@ -6661,7 +7138,8 @@ static int handle_op_define_func(KronosVM *vm) {
  * @brief Handle OP_MAKE_FUNCTION - create a function value (lambda)
  *
  * Bytecode format:
- *   OP_MAKE_FUNCTION [param_count:1] [param_name_idx:2*N] [body_len:2] [body:N]
+ *   OP_MAKE_FUNCTION [param_count:1] [required_param_count:1] [has_variadic:1]
+ *   [param_name_idx:2*N] [default_const:2*M] [body_len:2] [body:N]
  *
  * Creates a VAL_FUNCTION value containing the bytecode and parameter names,
  * pushes it onto the stack, and skips over the inline body bytecode.
@@ -6669,6 +7147,18 @@ static int handle_op_define_func(KronosVM *vm) {
 static int handle_op_make_function(KronosVM *vm) {
   // Read parameter count
   uint8_t param_count = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Read required_param_count
+  uint8_t required_param_count = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  // Read has_variadic flag
+  uint8_t has_variadic = read_byte(vm);
   if (vm->last_error_message) {
     return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
   }
@@ -6706,9 +7196,56 @@ static int handle_op_make_function(KronosVM *vm) {
     }
   }
 
+  // Calculate number of default values
+  size_t num_defaults = param_count - required_param_count -
+                        (has_variadic ? 1 : 0);
+
+  // Read default value constants
+  KronosValue **param_defaults = NULL;
+  if (num_defaults > 0) {
+    param_defaults = malloc(sizeof(KronosValue *) * param_count);
+    if (!param_defaults) {
+      for (int i = 0; i < param_count; i++) {
+        free(param_names[i]);
+      }
+      free(param_names);
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate default values array");
+    }
+    // Initialize all to NULL
+    for (size_t i = 0; i < (size_t)param_count; i++) {
+      param_defaults[i] = NULL;
+    }
+    // Read default values
+    for (size_t i = 0; i < num_defaults; i++) {
+      size_t param_idx = required_param_count + i;
+      KronosValue *default_val = read_constant(vm);
+      if (!default_val) {
+        // Cleanup
+        for (size_t j = 0; j < (size_t)param_count; j++) {
+          if (param_defaults[j]) value_release(param_defaults[j]);
+        }
+        free(param_defaults);
+        for (int j = 0; j < param_count; j++) {
+          free(param_names[j]);
+        }
+        free(param_names);
+        return vm_propagate_error(vm, KRONOS_ERR_INTERNAL);
+      }
+      value_retain(default_val);
+      param_defaults[param_idx] = default_val;
+    }
+  }
+
   // Read body length (2 bytes)
   uint8_t high = read_byte(vm);
   if (vm->last_error_message) {
+    if (param_defaults) {
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (param_defaults[i]) value_release(param_defaults[i]);
+      }
+      free(param_defaults);
+    }
     for (int i = 0; i < param_count; i++) {
       free(param_names[i]);
     }
@@ -6717,6 +7254,12 @@ static int handle_op_make_function(KronosVM *vm) {
   }
   uint8_t low = read_byte(vm);
   if (vm->last_error_message) {
+    if (param_defaults) {
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (param_defaults[i]) value_release(param_defaults[i]);
+      }
+      free(param_defaults);
+    }
     for (int i = 0; i < param_count; i++) {
       free(param_names[i]);
     }
@@ -6728,15 +7271,25 @@ static int handle_op_make_function(KronosVM *vm) {
   // The body bytecode starts at current IP
   uint8_t *body_bytecode = vm->ip;
 
-  // Create the function value
+  // Create the function value with default parameters and variadic info
   KronosValue *func_val = value_new_function(body_bytecode, body_len,
-                                              param_count, param_names);
+                                              param_count, required_param_count,
+                                              has_variadic != 0, param_names,
+                                              param_defaults);
 
   // Free the temporary param_names array (value_new_function made copies)
   for (int i = 0; i < param_count; i++) {
     free(param_names[i]);
   }
   free(param_names);
+
+  // Free temporary param_defaults (value_new_function retained copies)
+  if (param_defaults) {
+    for (size_t i = 0; i < (size_t)param_count; i++) {
+      if (param_defaults[i]) value_release(param_defaults[i]);
+    }
+    free(param_defaults);
+  }
 
   if (!func_val) {
     return vm_error(vm, KRONOS_ERR_INTERNAL,

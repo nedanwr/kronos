@@ -44,7 +44,10 @@ typedef struct Symbol {
   size_t column;   /**< 1-based column number where symbol is defined */
   char *type_name; /**< Optional type annotation (e.g., "number", "string") */
   bool is_mutable; /**< For variables: true for 'let', false for 'set' */
-  size_t param_count;  /**< For functions: number of parameters */
+  size_t param_count;           /**< For functions: total number of parameters */
+  size_t required_param_count;  /**< For functions: number of required parameters (no defaults) */
+  bool has_variadic;            /**< For functions: true if last param is variadic (...param) */
+  char **param_names;           /**< For functions: parameter names array (NULL if no params) */
   bool written;        /**< Track if variable has been assigned to */
   bool read;           /**< Track if variable has been read from */
   struct Symbol *next; /**< Next symbol in linked list */

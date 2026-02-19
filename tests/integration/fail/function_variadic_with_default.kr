@@ -1,0 +1,5 @@
+# Test: Variadic parameter with default value should fail
+# Expected: Error - Variadic parameter cannot have a default value
+
+function invalid with ...args = []:
+    return 0

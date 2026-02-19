@@ -254,11 +254,11 @@ This document outlines the planned features and release schedule for Kronos.
   set x, y to y, x  # Swap
   ```
 
-- **Function Enhancements** - Extended function capabilities
+- ✅ **Function Enhancements** - Extended function capabilities (completed)
 
-  - Default parameter values: `function greet with name, greeting="Hello":`
-  - Variadic functions: `function sum with ...numbers:`
-  - Named arguments: `call create_user with name: "Alice", age: 30`
+  - ✅ Default parameter values: `function greet with name, greeting="Hello":`
+  - ✅ Variadic functions: `function sum with ...numbers:`
+  - ✅ Named arguments: `call create_user with name: "Alice", age: 30`
 
 - **List Utilities (Higher-Order)** - `filter()` and `map()` functions (requires lambdas)
 

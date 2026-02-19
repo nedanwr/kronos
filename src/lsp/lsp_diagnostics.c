@@ -34,7 +34,16 @@ typedef struct {
   size_t first_statement_index;
 } SeenVar;
 
-ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
+// Maximum recursion depth for type inference to prevent stack overflow
+#define MAX_TYPE_INFER_DEPTH 32
+
+// Internal recursive version with depth tracking
+static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
+                                    int depth) {
+  // Prevent infinite recursion (e.g., x = x + 1 where x references itself)
+  if (depth > MAX_TYPE_INFER_DEPTH)
+    return TYPE_UNKNOWN;
+
   if (!node)
     return TYPE_UNKNOWN;
 
@@ -71,7 +80,8 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
       ASTNode *assign_node = find_variable_assignment(ast, node->as.var_name);
       if (assign_node && assign_node->as.assign.value) {
         // Recursively infer type from the assigned value
-        return infer_type_with_ast(assign_node->as.assign.value, symbols, ast);
+        return infer_type_internal(assign_node->as.assign.value, symbols, ast,
+                                   depth + 1);
       }
     }
     return TYPE_UNKNOWN;
@@ -80,9 +90,9 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
     // Plus can return number (addition) or string (concatenation)
     if (node->as.binop.op == BINOP_ADD) {
       ExprType left_type =
-          infer_type_with_ast(node->as.binop.left, symbols, ast);
+          infer_type_internal(node->as.binop.left, symbols, ast, depth + 1);
       ExprType right_type =
-          infer_type_with_ast(node->as.binop.right, symbols, ast);
+          infer_type_internal(node->as.binop.right, symbols, ast, depth + 1);
       // If either operand is a string, result is string (concatenation)
       // This handles: string + string, string + number, number + string
       if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
@@ -116,7 +126,7 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
     // List/string/map indexing - for maps, return TYPE_UNKNOWN (value type)
     // For lists/strings, return the element type
     ExprType container_type =
-        infer_type_with_ast(node->as.index.list_expr, symbols, ast);
+        infer_type_internal(node->as.index.list_expr, symbols, ast, depth + 1);
     if (container_type == TYPE_MAP) {
       // Map indexing returns the value type, which we can't infer statically
       return TYPE_UNKNOWN;
@@ -128,12 +138,17 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
   case AST_SLICE: {
     // Slicing returns the same type as the container
     ExprType container_type =
-        infer_type_with_ast(node->as.slice.list_expr, symbols, ast);
+        infer_type_internal(node->as.slice.list_expr, symbols, ast, depth + 1);
     return container_type;
   }
   default:
     return TYPE_UNKNOWN;
   }
+}
+
+// Public API wrapper - starts recursion with depth 0
+ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
+  return infer_type_internal(node, symbols, ast, 0);
 }
 
 void check_function_calls(AST *ast, const char *text, Symbol *symbols,
@@ -180,18 +195,32 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                   if (func_sym->type == SYMBOL_FUNCTION &&
                       strcmp(func_sym->name, actual_func_name) == 0) {
                     found = true;
-                    // Validate argument count
-                    if (func_sym->param_count != arg_count) {
+                    // Validate argument count with default/variadic support
+                    size_t required = func_sym->required_param_count;
+                    size_t max_args = func_sym->has_variadic ? SIZE_MAX : func_sym->param_count;
+                    bool arg_error = false;
+                    char escaped_msg[LSP_ERROR_MSG_SIZE];
+
+                    if (arg_count < required) {
+                      arg_error = true;
+                      snprintf(escaped_msg, sizeof(escaped_msg),
+                          "Function '%s.%s' requires at least %zu argument%s, "
+                          "but got %zu",
+                          module_name, actual_func_name, required,
+                          required == 1 ? "" : "s", arg_count);
+                    } else if (arg_count > max_args) {
+                      arg_error = true;
+                      snprintf(escaped_msg, sizeof(escaped_msg),
+                          "Function '%s.%s' accepts at most %zu argument%s, "
+                          "but got %zu",
+                          module_name, actual_func_name, func_sym->param_count,
+                          func_sym->param_count == 1 ? "" : "s", arg_count);
+                    }
+
+                    if (arg_error) {
                       size_t line = 1, col = 0;
                       find_call_position(text, func_name, &line, &col);
 
-                      char escaped_msg[LSP_ERROR_MSG_SIZE];
-                      snprintf(
-                          escaped_msg, sizeof(escaped_msg),
-                          "Function '%s.%s' expects %zu argument%s, but got "
-                          "%zu",
-                          module_name, actual_func_name, func_sym->param_count,
-                          func_sym->param_count == 1 ? "" : "s", arg_count);
                       char escaped_msg_final[LSP_ERROR_MSG_SIZE];
                       json_escape(escaped_msg, escaped_msg_final,
                                   sizeof(escaped_msg_final));
@@ -309,15 +338,30 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         // Check user-defined functions
         Symbol *sym = find_symbol(func_name);
         if (sym && sym->type == SYMBOL_FUNCTION) {
-          if (sym->param_count != arg_count) {
+          // Validate argument count with default/variadic support
+          size_t required = sym->required_param_count;
+          size_t max_args = sym->has_variadic ? SIZE_MAX : sym->param_count;
+          bool arg_error = false;
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+
+          if (arg_count < required) {
+            arg_error = true;
+            snprintf(escaped_msg, sizeof(escaped_msg),
+                     "Function '%s' requires at least %zu argument%s, but got %zu",
+                     func_name, required,
+                     required == 1 ? "" : "s", arg_count);
+          } else if (arg_count > max_args) {
+            arg_error = true;
+            snprintf(escaped_msg, sizeof(escaped_msg),
+                     "Function '%s' accepts at most %zu argument%s, but got %zu",
+                     func_name, sym->param_count,
+                     sym->param_count == 1 ? "" : "s", arg_count);
+          }
+
+          if (arg_error) {
             size_t line = 1, col = 0;
             find_call_position(text, func_name, &line, &col);
 
-            char escaped_msg[LSP_ERROR_MSG_SIZE];
-            snprintf(escaped_msg, sizeof(escaped_msg),
-                     "Function '%s' expects %zu argument%s, but got %zu",
-                     func_name, sym->param_count,
-                     sym->param_count == 1 ? "" : "s", arg_count);
             char escaped_msg_final[LSP_ERROR_MSG_SIZE];
             json_escape(escaped_msg, escaped_msg_final,
                         sizeof(escaped_msg_final));
