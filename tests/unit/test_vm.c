@@ -457,14 +457,15 @@ TEST(vm_define_function_direct) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
 
-  // Create a simple function manually
-  Function *func = malloc(sizeof(Function));
+  // Create a simple function manually (zero-initialized for sanitizer safety)
+  Function *func = create_empty_test_function("test_func");
   ASSERT_PTR_NOT_NULL(func);
 
-  func->name = strdup("test_func");
   func->param_count = 1;
-  func->params = malloc(sizeof(char *));
+  func->params = calloc(func->param_count, sizeof(char *));
+  ASSERT_PTR_NOT_NULL(func->params);
   func->params[0] = strdup("x");
+  ASSERT_PTR_NOT_NULL(func->params[0]);
 
   // Create minimal bytecode (properly initialized)
   func->bytecode.code = NULL;
