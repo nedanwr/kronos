@@ -118,6 +118,10 @@ bool map_delete(KronosValue *map, KronosValue *key);
 // String interning
 KronosValue *string_intern(const char *str, size_t len);
 
+// Internal runtime/GC coordination hook. Releases intern table references
+// before external GC shutdown/reset paths.
+void runtime_release_interned_strings(void);
+
 // Cleanup
 void runtime_init(void);
 void runtime_cleanup(void);
