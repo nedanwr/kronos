@@ -748,6 +748,100 @@ static bool release_stack_push(KronosValue ***stack, size_t *count,
 }
 
 /**
+ * @brief Recursive fallback for value release when stack growth fails
+ *
+ * Uses recursion instead of the iterative release stack. This is only used
+ * when release_stack_push() fails due to memory pressure.
+ *
+ * @param val Value to release (safe to pass NULL)
+ */
+static void value_release_recursive_fallback(KronosValue *val) {
+  if (!val) {
+    return;
+  }
+
+  if (val->refcount == 0) {
+    fprintf(stderr, "KronosValue refcount underflow\n");
+    return;
+  }
+
+  val->refcount--;
+  if (val->refcount > 0) {
+    return;
+  }
+
+  gc_untrack(val);
+
+  switch (val->type) {
+  case VAL_STRING:
+    free(val->as.string.data);
+    break;
+  case VAL_FUNCTION:
+    free(val->as.function.bytecode);
+    if (val->as.function.param_names) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        free(val->as.function.param_names[i]);
+      }
+      free(val->as.function.param_names);
+    }
+    if (val->as.function.param_defaults) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        if (val->as.function.param_defaults[i]) {
+          value_release_recursive_fallback(val->as.function.param_defaults[i]);
+        }
+      }
+      free(val->as.function.param_defaults);
+    }
+    break;
+  case VAL_LIST:
+    if (val->as.list.items) {
+      for (size_t i = 0; i < val->as.list.count; i++) {
+        if (val->as.list.items[i]) {
+          value_release_recursive_fallback(val->as.list.items[i]);
+        }
+      }
+    }
+    free(val->as.list.items);
+    break;
+  case VAL_MAP: {
+    MapEntry *entries = (MapEntry *)val->as.map.entries;
+    if (entries) {
+      for (size_t i = 0; i < val->as.map.capacity; i++) {
+        if (entries[i].key && !entries[i].is_tombstone) {
+          value_release_recursive_fallback(entries[i].key);
+          if (entries[i].value) {
+            value_release_recursive_fallback(entries[i].value);
+          }
+        }
+      }
+    }
+    free(entries);
+    break;
+  }
+  case VAL_TUPLE:
+    if (val->as.tuple.items) {
+      for (size_t i = 0; i < val->as.tuple.count; i++) {
+        if (val->as.tuple.items[i]) {
+          value_release_recursive_fallback(val->as.tuple.items[i]);
+        }
+      }
+    }
+    free(val->as.tuple.items);
+    break;
+  case VAL_CHANNEL:
+    // Channels are currently managed externally.
+    break;
+  case VAL_RANGE:
+    // Ranges don't own other values, just store numbers.
+    break;
+  default:
+    break;
+  }
+
+  free(val);
+}
+
+/**
  * @brief Finalize an object without releasing children
  *
  * Used during gc_cleanup to avoid use-after-free issues. This function
@@ -835,7 +929,12 @@ void value_release(KronosValue *val) {
   KronosValue **stack = NULL;
   size_t stack_count = 0;
   size_t stack_capacity = 0;
-  release_stack_push(&stack, &stack_count, &stack_capacity, val);
+  if (!release_stack_push(&stack, &stack_count, &stack_capacity, val)) {
+    // Initial stack push failed; use recursive fallback so release still
+    // happens under memory pressure.
+    value_release_recursive_fallback(val);
+    return;
+  }
 
   while (stack_count > 0) {
     KronosValue *current = stack[--stack_count];
@@ -873,7 +972,8 @@ void value_release(KronosValue *val) {
           if (current->as.function.param_defaults[i]) {
             if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                     current->as.function.param_defaults[i])) {
-              value_release(current->as.function.param_defaults[i]);
+              value_release_recursive_fallback(
+                  current->as.function.param_defaults[i]);
             }
           }
         }
@@ -887,7 +987,7 @@ void value_release(KronosValue *val) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                   child)) {
             // Stack push failed - release directly (recursive fallback)
-            value_release(child);
+            value_release_recursive_fallback(child);
           }
         }
       }
@@ -900,13 +1000,13 @@ void value_release(KronosValue *val) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                   entries[i].key)) {
             // Stack push failed - release directly (recursive fallback)
-            value_release(entries[i].key);
+            value_release_recursive_fallback(entries[i].key);
           }
           if (entries[i].value) {
             if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                     entries[i].value)) {
               // Stack push failed - release directly (recursive fallback)
-              value_release(entries[i].value);
+              value_release_recursive_fallback(entries[i].value);
             }
           }
         }
@@ -921,7 +1021,7 @@ void value_release(KronosValue *val) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                   child)) {
             // Stack push failed - release directly (recursive fallback)
-            value_release(child);
+            value_release_recursive_fallback(child);
           }
         }
       }
@@ -1171,16 +1271,33 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
 
   // Add to visited set
   if (*visited_count >= *visited_capacity) {
-    size_t new_capacity =
-        (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
-    KronosValue **new_visited_a =
-        realloc(*visited_a, new_capacity * sizeof(KronosValue *));
-    KronosValue **new_visited_b =
-        realloc(*visited_b, new_capacity * sizeof(KronosValue *));
+    size_t new_capacity = (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
+    KronosValue **new_visited_a = NULL;
+    KronosValue **new_visited_b = NULL;
+
+    if (new_capacity > SIZE_MAX / sizeof(KronosValue *)) {
+      new_capacity = 0;
+    }
+    if (new_capacity > 0) {
+      new_visited_a = malloc(new_capacity * sizeof(KronosValue *));
+      new_visited_b = malloc(new_capacity * sizeof(KronosValue *));
+    }
+
     if (new_visited_a && new_visited_b) {
+      if (*visited_count > 0) {
+        memcpy(new_visited_a, *visited_a,
+               *visited_count * sizeof(KronosValue *));
+        memcpy(new_visited_b, *visited_b,
+               *visited_count * sizeof(KronosValue *));
+      }
+      free(*visited_a);
+      free(*visited_b);
       *visited_a = new_visited_a;
       *visited_b = new_visited_b;
       *visited_capacity = new_capacity;
+    } else {
+      free(new_visited_a);
+      free(new_visited_b);
     }
   }
   if (*visited_count < *visited_capacity) {
