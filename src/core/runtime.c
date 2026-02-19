@@ -147,6 +147,38 @@ void runtime_init(void) {
 }
 
 /**
+ * @brief Release intern table references while holding intern_mutex
+ *
+ * @param count_external_refs Whether to count entries with refcount > 1
+ * @return Number of entries that had references beyond the intern table
+ */
+static size_t runtime_release_interned_strings_locked(bool count_external_refs) {
+  size_t active_refs = 0;
+  for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
+    KronosValue *entry = intern_table[i];
+    if (!entry) {
+      continue;
+    }
+
+    if (count_external_refs && entry->refcount > 1) {
+      active_refs++;
+    }
+
+    // Release the intern table's owning reference.
+    value_release(entry);
+    intern_table[i] = NULL;
+  }
+
+  return active_refs;
+}
+
+void runtime_release_interned_strings(void) {
+  pthread_mutex_lock(&intern_mutex);
+  (void)runtime_release_interned_strings_locked(false);
+  pthread_mutex_unlock(&intern_mutex);
+}
+
+/**
  * @brief Cleanup the runtime system
  *
  * Releases all interned strings and shuts down the garbage collector.
@@ -172,19 +204,7 @@ void runtime_cleanup(void) {
   }
 
   // Last reference - perform actual cleanup
-  // Free interned strings
-  size_t active_refs = 0;
-  for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
-    if (intern_table[i] != NULL) {
-      // Check if there are active references beyond the intern table's
-      // reference
-      if (intern_table[i]->refcount > 1) {
-        active_refs++;
-      }
-      value_release(intern_table[i]); // Release intern table's reference
-      intern_table[i] = NULL;
-    }
-  }
+  size_t active_refs = runtime_release_interned_strings_locked(true);
   pthread_mutex_unlock(&intern_mutex);
 
   if (active_refs > 0) {
@@ -1657,9 +1677,9 @@ KronosValue *string_intern(const char *str, size_t len) {
       KronosValue *val = value_new_string(str, len);
       if (val) {
         intern_table[probe] = val;
-        value_retain(val); // Extra ref for intern table (refcount now 2)
-        // Release one ref before returning so caller gets refcount 1
-        value_release(val);
+        // Keep one strong reference owned by intern table.
+        // The initial ref from value_new_string() is returned to caller.
+        value_retain(val);
       }
       pthread_mutex_unlock(&intern_mutex);
       return val;
