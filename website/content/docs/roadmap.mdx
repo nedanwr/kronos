@@ -54,11 +54,41 @@ Lambdas, list comprehensions, pattern matching, and enhanced type system.
 </Step>
 <Step>
 
+### v0.6.0 — Core Runtime Beta
+
+<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q2 2026</span>
+
+Core standard library completion, method chaining hardening, and baseline runtime optimizations.
+
+</Step>
+<Step>
+
+### v0.7.0 — Tooling & LSP Beta
+
+<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q3 2026</span>
+
+Formatter, linter, test runner, docs generator, and full LSP hardening.
+
+</Step>
+<Step>
+
+### v0.8.0 — Concurrency & Ecosystem Beta
+
+<span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q4 2026</span>
+
+Concurrency, package manager, networking/data modules, and advanced runtime optimization validation.
+
+</Step>
+<Step>
+
 ### v1.0.0 — Production Release
 
 <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
 
-Concurrency, complete standard library, package manager, and tooling.
+Stabilization release after beta graduation; no major net-new features.
 
 </Step>
 </Steps>
@@ -84,7 +114,7 @@ Everything in v0.4.5 is stable and ready for use:
 
 ## Version Details
 
-<Tabs items={['v0.4.0', 'v0.4.5', 'v0.5.0', 'v1.0.0']}>
+<Tabs items={['v0.4.0', 'v0.4.5', 'v0.5.0', 'v0.6.0', 'v0.7.0', 'v0.8.0', 'v1.0.0']}>
 
 <Tab value="v0.4.0">
 
@@ -305,12 +335,95 @@ set doubled to map numbers with function with x:
 
 </Tab>
 
-<Tab value="v1.0.0">
+<Tab value="v0.6.0">
 
-### Production Release
+### Core Runtime Beta
 
 <Accordions>
-<Accordion title="Concurrency">
+<Accordion title="Core Standard Library Completion (Beta)">
+Stabilize the modules required for 1.0 language adoption.
+
+| Area | Functions |
+|------|-----------|
+| `math` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `log`, `log10`, `exp`, `cbrt` |
+| `string` | `find`, `rfind`, `count`, `capitalize`, `title` |
+| `time` | `now`, `format_date`, `parse_date`, `sleep` |
+| `collections` | `zip`, `enumerate`, `any`, `all`, `sum` |
+| `os` | `exit`, `args`, `env` |
+| `json` | `parse_json`, `to_json` |
+| Stable module set | `math`, `string`, `os`, `json`, `time`, `collections`, `regex` |
+</Accordion>
+
+<Accordion title="Method Chaining (Beta)">
+Parser/runtime hardening for fluent APIs.
+
+```kronos
+set result to text.uppercase().trim().split(" ")
+
+set processed to numbers
+    .filter(function with x: return x is greater than 2)
+    .map(function with x: return x times 2)
+```
+</Accordion>
+
+<Accordion title="Baseline Optimizations (Beta)">
+- Bytecode optimization passes
+- Constant folding
+- Dead code elimination
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v0.7.0">
+
+### Tooling & LSP Beta
+
+<Accordions>
+<Accordion title="Formatter & Linter (Beta)">
+```bash
+kronos format <file>
+kronos format --check <file>
+kronos lint <file>
+kronos lint --fix <file>
+```
+</Accordion>
+
+<Accordion title="Test Runner & Test Module (Beta)">
+```bash
+kronos test
+kronos test --verbose
+```
+</Accordion>
+
+<Accordion title="Documentation Generator (Beta)">
+```bash
+kronos doc
+kronos doc --output docs/
+```
+</Accordion>
+
+<Accordion title="LSP Complete (Beta)">
+- All previous LSP features
+- Workspace symbols
+- Call hierarchy
+- Multi-root workspace support
+- Production-ready performance targets
+</Accordion>
+
+<Accordion title="CLI Utilities (Beta)">
+`parse_args()` and argument parsing utilities used by tooling.
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v0.8.0">
+
+### Concurrency & Ecosystem Beta
+
+<Accordions>
+<Accordion title="Concurrency (Beta)">
 Go-inspired goroutines and channels.
 
 ```kronos
@@ -325,32 +438,15 @@ set msg to receive ch
 ```
 </Accordion>
 
-<Accordion title="Complete Standard Library">
-50+ functions across modules:
+<Accordion title="Networking & Data Modules (Beta)">
+`http`, `csv`, and `crypto` module hardening:
 
-| Module | Functions |
-|--------|-----------|
-| `math` | `sin`, `cos`, `tan`, `log`, `exp`, `cbrt` |
-| `string` | `find`, `rfind`, `count`, `capitalize` |
-| `time` | `now`, `format_date`, `parse_date`, `sleep` |
-| `collections` | `zip`, `enumerate`, `any`, `all`, `sum` |
-| `json` | `parse_json`, `to_json` |
-| `csv` | `read_csv`, `write_csv` |
-| `crypto` | `md5`, `sha256`, `random_bytes` |
-| `http` | `http_get`, `http_post`, server |
+- **HTTP:** `http_get()`, `http_post()`, HTTP server (requires concurrency)
+- **CSV:** `read_csv()`, `write_csv()`, `parse_csv()`, `to_csv()`
+- **Crypto:** `md5()`, `sha1()`, `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
 </Accordion>
 
-<Accordion title="Method Chaining">
-```kronos
-set result to text.uppercase().trim().split(" ")
-
-set processed to numbers
-    .filter(function with x: return x is greater than 2)
-    .map(function with x: return x times 2)
-```
-</Accordion>
-
-<Accordion title="Package Manager">
+<Accordion title="Package Manager (Beta)">
 ```bash
 kronos install <package>
 kronos list
@@ -358,21 +454,43 @@ kronos remove <package>
 ```
 </Accordion>
 
-<Accordion title="Developer Tools">
-```bash
-kronos format <file>     # Code formatter
-kronos lint <file>       # Linter
-kronos test              # Test runner
-kronos doc               # Doc generator
-```
+<Accordion title="Advanced Runtime Optimizations (Beta)">
+- Inline caching for method calls
+- Profile-guided optimization
+- F-string expression parsing optimization (inline parse, no re-tokenization)
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v1.0.0">
+
+### Production Release
+
+<Accordions>
+<Accordion title="Release Criteria: Language Stability">
+- Core language features from v0.4.x through v0.8.x are specification-locked
+- No known parser/runtime crashers in common usage paths
 </Accordion>
 
-<Accordion title="Performance Optimizations">
-- Bytecode optimization passes
-- Constant folding
-- Dead code elimination
-- Inline caching
-- Profile-guided optimization
+<Accordion title="Release Criteria: Core Library Stability">
+- `math`, `string`, `os`, `json`, `time`, `collections`, and `regex` are stable and documented
+- Backward compatibility policy for standard library APIs is published
+</Accordion>
+
+<Accordion title="Release Criteria: Tooling & DX">
+- Formatter, linter, test runner, and docs generator exit beta with stable CLI behavior
+- LSP features meet performance/correctness targets in medium-sized workspaces
+</Accordion>
+
+<Accordion title="Release Criteria: Beta Graduation Rules">
+- Concurrency, package manager, and `http`/`csv`/`crypto` modules graduate only if v0.8.0 feedback is positive
+- Features failing quality gates remain beta and move to post-1.0 releases
+</Accordion>
+
+<Accordion title="Release Criteria: Operational Readiness">
+- Cross-platform CI coverage and release automation are in place
+- Migration guide and 1.0 compatibility guarantees are published
 </Accordion>
 </Accordions>
 
@@ -411,5 +529,5 @@ Beyond v1.0.0, we're considering:
 </Cards>
 
 <Callout type="info">
-  **Last Updated:** January 2026
+  **Last Updated:** March 2026
 </Callout>
