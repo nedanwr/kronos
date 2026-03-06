@@ -1070,6 +1070,7 @@ int get_builtin_arg_count(const char *func_name) {
   if (strcmp(func_name, "add") == 0 || strcmp(func_name, "subtract") == 0 ||
       strcmp(func_name, "multiply") == 0 || strcmp(func_name, "divide") == 0 ||
       strcmp(func_name, "power") == 0 || strcmp(func_name, "split") == 0 ||
+      strcmp(func_name, "filter") == 0 || strcmp(func_name, "map") == 0 ||
       strcmp(func_name, "contains") == 0 ||
       strcmp(func_name, "starts_with") == 0 ||
       strcmp(func_name, "ends_with") == 0 ||
