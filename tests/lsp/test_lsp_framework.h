@@ -62,6 +62,9 @@ char *lsp_workspace_symbol(LSPTestContext *ctx, const char *query);
 // Send codeLens request
 char *lsp_code_lens(LSPTestContext *ctx);
 
+// Send completion request
+char *lsp_completion(LSPTestContext *ctx, int line, int character);
+
 // Helper to extract JSON value from response
 char *lsp_extract_json_value(const char *json, const char *key);
 
@@ -72,4 +75,3 @@ bool lsp_response_contains(const char *response, const char *substring);
 bool lsp_is_valid_json(const char *response);
 
 #endif // TEST_LSP_FRAMEWORK_H
-

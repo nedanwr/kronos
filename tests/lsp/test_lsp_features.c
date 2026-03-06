@@ -4,6 +4,25 @@
 
 LSPTestContext *g_ctx = NULL; // Global for test setup/teardown
 
+static char *lsp_read_diagnostics_with_message(const char *message_substring,
+                                               int max_attempts) {
+  for (int i = 0; i < max_attempts; i++) {
+    char *msg = lsp_read_response(g_ctx, 500);
+    if (!msg) {
+      continue;
+    }
+    bool is_diagnostics =
+        lsp_response_contains(msg, "textDocument/publishDiagnostics");
+    bool has_message =
+        !message_substring || lsp_response_contains(msg, message_substring);
+    if (is_diagnostics && has_message) {
+      return msg;
+    }
+    free(msg);
+  }
+  return NULL;
+}
+
 // Test hover for file-based modules
 TEST(lsp_hover_file_module) {
   const char *code = "import math\n"
@@ -257,6 +276,49 @@ TEST(lsp_diagnostics_variadic_valid) {
   ASSERT_TRUE(true);
 }
 
+TEST(lsp_diagnostics_map_requires_list_argument) {
+  const char *code = "call map with \"hello\", function with x: return x\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'map' requires a list argument", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Function 'map' requires a list argument"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_filter_requires_list_argument) {
+  const char *code = "call filter with \"hello\", function with x: return x\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'filter' requires a list argument", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Function 'filter' requires a list argument"));
+  free(diag);
+}
+
+TEST(lsp_completion_includes_filter_and_map_utilities) {
+  const char *code = "set numbers to list 1, 2, 3\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  // Consume diagnostics notification triggered by didOpen first.
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 4);
+  free(diag);
+
+  char *response = lsp_completion(g_ctx, 0, 5);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "Filter a list with a callback function"));
+  ASSERT_TRUE(lsp_response_contains(response, "Transform a list with a callback function"));
+  free(response);
+}
+
 // Setup and teardown
 void lsp_test_setup(void) {
   if (!g_ctx) {
@@ -273,4 +335,3 @@ void lsp_test_teardown(void) {
     g_ctx = NULL;
   }
 }
-
