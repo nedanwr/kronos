@@ -259,6 +259,7 @@ static void cleanup_call_frame_locals(CallFrame *frame) {
 int vm_execute(KronosVM *vm, Bytecode *bytecode);
 
 // Forward declarations for functions used in call_function_value
+static int push(KronosVM *vm, KronosValue *value);
 static KronosValue *pop(KronosVM *vm);
 static int vm_propagate_error(KronosVM *vm, KronosErrorCode fallback);
 
@@ -686,6 +687,136 @@ static int call_module_function(KronosVM *caller_vm, Module *mod,
   value_retain(return_val);
   value_release(return_val);
 
+  return 0;
+}
+
+/**
+ * @brief Execute a function value callback synchronously and return its result
+ *
+ * This helper is used by higher-order builtins like map/filter. It reuses
+ * call_function_value() to bind parameters/defaults, then executes the callback
+ * body in a nested vm_execute() call and restores the caller VM state.
+ *
+ * @param vm VM instance
+ * @param callback_name Name used in callback error messages
+ * @param callback Function value to invoke (must be VAL_FUNCTION)
+ * @param args Positional callback arguments
+ * @param arg_count Number of callback arguments
+ * @param out_result Receives callback return value on success
+ * @return 0 on success, negative error code on failure
+ */
+static int run_function_callback(KronosVM *vm, const char *callback_name,
+                                 KronosValue *callback, KronosValue **args,
+                                 uint8_t arg_count, KronosValue **out_result) {
+  if (!vm) {
+    return -(int)KRONOS_ERR_INVALID_ARGUMENT;
+  }
+  if (!callback || !out_result) {
+    return vm_error(vm, KRONOS_ERR_INVALID_ARGUMENT,
+                    "Invalid callback invocation state");
+  }
+
+  Bytecode *saved_bytecode = vm->bytecode;
+  uint8_t *saved_ip = vm->ip;
+  size_t saved_call_stack_size = vm->call_stack_size;
+  KronosValue **saved_stack_top = vm->stack_top;
+
+  for (uint8_t i = 0; i < arg_count; i++) {
+    int push_status = push(vm, args[i]);
+    if (push_status != 0) {
+      while (vm->stack_top > saved_stack_top) {
+        KronosValue *cleanup_val = pop(vm);
+        if (!cleanup_val) {
+          break;
+        }
+        value_release(cleanup_val);
+      }
+      return push_status;
+    }
+  }
+
+  int call_status =
+      call_function_value(vm, callback, callback_name ? callback_name : "callback",
+                          arg_count);
+  if (call_status != 0) {
+    while (vm->stack_top > saved_stack_top) {
+      KronosValue *cleanup_val = pop(vm);
+      if (!cleanup_val) {
+        break;
+      }
+      value_release(cleanup_val);
+    }
+    vm->bytecode = saved_bytecode;
+    vm->ip = saved_ip;
+    return call_status;
+  }
+
+  if (vm->call_stack_size <= saved_call_stack_size) {
+    vm->bytecode = saved_bytecode;
+    vm->ip = saved_ip;
+    return vm_error(vm, KRONOS_ERR_INTERNAL,
+                    "Callback call frame was not created");
+  }
+
+  // Tell OP_RETURN_VAL to return from nested vm_execute immediately.
+  CallFrame *callback_frame = &vm->call_stack[vm->call_stack_size - 1];
+  callback_frame->return_ip = NULL;
+  callback_frame->return_bytecode = NULL;
+
+  int exec_status = vm_execute(vm, vm->bytecode);
+  if (exec_status != 0) {
+    if (vm->call_stack_size > saved_call_stack_size) {
+      callback_frame = &vm->call_stack[vm->call_stack_size - 1];
+      cleanup_call_frame_locals(callback_frame);
+      if (callback_frame->owned_bytecode) {
+        free(callback_frame->owned_bytecode);
+        callback_frame->owned_bytecode = NULL;
+      }
+      vm->call_stack_size--;
+    }
+    vm->current_frame = saved_call_stack_size > 0
+                            ? &vm->call_stack[saved_call_stack_size - 1]
+                            : NULL;
+    vm->bytecode = saved_bytecode;
+    vm->ip = saved_ip;
+    return exec_status;
+  }
+
+  KronosValue *result = pop(vm);
+  if (!result) {
+    if (vm->call_stack_size > saved_call_stack_size) {
+      callback_frame = &vm->call_stack[vm->call_stack_size - 1];
+      cleanup_call_frame_locals(callback_frame);
+      if (callback_frame->owned_bytecode) {
+        free(callback_frame->owned_bytecode);
+        callback_frame->owned_bytecode = NULL;
+      }
+      vm->call_stack_size--;
+    }
+    vm->current_frame = saved_call_stack_size > 0
+                            ? &vm->call_stack[saved_call_stack_size - 1]
+                            : NULL;
+    vm->bytecode = saved_bytecode;
+    vm->ip = saved_ip;
+    return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+  }
+
+  if (vm->call_stack_size > saved_call_stack_size) {
+    callback_frame = &vm->call_stack[vm->call_stack_size - 1];
+    cleanup_call_frame_locals(callback_frame);
+    if (callback_frame->owned_bytecode) {
+      free(callback_frame->owned_bytecode);
+      callback_frame->owned_bytecode = NULL;
+    }
+    vm->call_stack_size--;
+  }
+
+  vm->current_frame =
+      saved_call_stack_size > 0 ? &vm->call_stack[saved_call_stack_size - 1]
+                                : NULL;
+  vm->bytecode = saved_bytecode;
+  vm->ip = saved_ip;
+  *out_result = result;
   return 0;
 }
 
@@ -2147,6 +2278,8 @@ static int builtin_to_number(KronosVM *vm, uint8_t arg_count);
 static int builtin_to_bool(KronosVM *vm, uint8_t arg_count);
 static int builtin_reverse(KronosVM *vm, uint8_t arg_count);
 static int builtin_sort(KronosVM *vm, uint8_t arg_count);
+static int builtin_filter(KronosVM *vm, uint8_t arg_count);
+static int builtin_map(KronosVM *vm, uint8_t arg_count);
 static int builtin_write_file(KronosVM *vm, uint8_t arg_count);
 static int builtin_read_lines(KronosVM *vm, uint8_t arg_count);
 static int builtin_file_exists(KronosVM *vm, uint8_t arg_count);
@@ -4428,6 +4561,156 @@ static int builtin_sort(KronosVM *vm, uint8_t arg_count) {
   return 0;
 }
 
+static int builtin_filter(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 2) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'filter' expects 2 arguments, got %d",
+                     arg_count);
+  }
+  KronosValue *callback_arg;
+  POP_OR_RETURN(vm, callback_arg);
+  KronosValue *list_arg;
+  POP_OR_RETURN_WITH_CLEANUP(vm, list_arg, value_release(callback_arg));
+
+  if (list_arg->type != VAL_LIST) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'filter' requires a list argument");
+    value_release(callback_arg);
+    value_release(list_arg);
+    return err;
+  }
+  if (callback_arg->type != VAL_FUNCTION) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'filter' requires a function argument");
+    value_release(callback_arg);
+    value_release(list_arg);
+    return err;
+  }
+
+  KronosValue *result = value_new_list(list_arg->as.list.count);
+  if (!result) {
+    value_release(callback_arg);
+    value_release(list_arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+  }
+
+  for (size_t i = 0; i < list_arg->as.list.count; i++) {
+    KronosValue *callback_args[1] = {list_arg->as.list.items[i]};
+    KronosValue *callback_result = NULL;
+    int status = run_function_callback(vm, "filter callback", callback_arg,
+                                       callback_args, 1, &callback_result);
+    if (status != 0) {
+      value_release(result);
+      value_release(callback_arg);
+      value_release(list_arg);
+      return status;
+    }
+
+    bool keep_item = value_is_truthy(callback_result);
+    value_release(callback_result);
+    if (!keep_item) {
+      continue;
+    }
+
+    if (result->as.list.count >= result->as.list.capacity) {
+      size_t new_cap = result->as.list.capacity * 2;
+      KronosValue **new_items =
+          realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+      if (!new_items) {
+        value_release(result);
+        value_release(callback_arg);
+        value_release(list_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+      }
+      result->as.list.items = new_items;
+      result->as.list.capacity = new_cap;
+    }
+
+    value_retain(list_arg->as.list.items[i]);
+    result->as.list.items[result->as.list.count++] = list_arg->as.list.items[i];
+  }
+
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(callback_arg);
+                              value_release(list_arg););
+  value_release(result);
+  value_release(callback_arg);
+  value_release(list_arg);
+  return 0;
+}
+
+static int builtin_map(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 2) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'map' expects 2 arguments, got %d", arg_count);
+  }
+  KronosValue *callback_arg;
+  POP_OR_RETURN(vm, callback_arg);
+  KronosValue *list_arg;
+  POP_OR_RETURN_WITH_CLEANUP(vm, list_arg, value_release(callback_arg));
+
+  if (list_arg->type != VAL_LIST) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'map' requires a list argument");
+    value_release(callback_arg);
+    value_release(list_arg);
+    return err;
+  }
+  if (callback_arg->type != VAL_FUNCTION) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Function 'map' requires a function argument");
+    value_release(callback_arg);
+    value_release(list_arg);
+    return err;
+  }
+
+  KronosValue *result = value_new_list(list_arg->as.list.count);
+  if (!result) {
+    value_release(callback_arg);
+    value_release(list_arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+  }
+
+  for (size_t i = 0; i < list_arg->as.list.count; i++) {
+    KronosValue *callback_args[1] = {list_arg->as.list.items[i]};
+    KronosValue *mapped_value = NULL;
+    int status = run_function_callback(vm, "map callback", callback_arg,
+                                       callback_args, 1, &mapped_value);
+    if (status != 0) {
+      value_release(result);
+      value_release(callback_arg);
+      value_release(list_arg);
+      return status;
+    }
+
+    if (result->as.list.count >= result->as.list.capacity) {
+      size_t new_cap = result->as.list.capacity * 2;
+      KronosValue **new_items =
+          realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+      if (!new_items) {
+        value_release(mapped_value);
+        value_release(result);
+        value_release(callback_arg);
+        value_release(list_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+      }
+      result->as.list.items = new_items;
+      result->as.list.capacity = new_cap;
+    }
+
+    // mapped_value comes from stack pop(), transfer ownership to result list.
+    result->as.list.items[result->as.list.count++] = mapped_value;
+  }
+
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(callback_arg);
+                              value_release(list_arg););
+  value_release(result);
+  value_release(callback_arg);
+  value_release(list_arg);
+  return 0;
+}
+
 static int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
   if (arg_count != 2) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -5091,6 +5374,7 @@ static const BuiltinEntry builtin_table[] = {
     {"divide", builtin_divide},
     {"ends_with", builtin_ends_with},
     {"file_exists", builtin_file_exists},
+    {"filter", builtin_filter},
     {"findall", builtin_regex_findall},
     {"floor", builtin_floor},
     {"join", builtin_join},
@@ -5098,6 +5382,7 @@ static const BuiltinEntry builtin_table[] = {
     {"len", builtin_len},
     {"list_files", builtin_list_files},
     {"lowercase", builtin_lowercase},
+    {"map", builtin_map},
     {"match", builtin_regex_match},
     {"max", builtin_max},
     {"min", builtin_min},
