@@ -209,6 +209,90 @@ TEST(vm_execute_function) {
   vm_free(vm);
 }
 
+TEST(vm_builtin_filter_basic) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3, 4, 5\n"
+      "set evens to call filter with nums, function with x: return x mod 2 is equal 0");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *evens = vm_get_global(vm, "evens");
+  ASSERT_PTR_NOT_NULL(evens);
+  ASSERT_INT_EQ(evens->type, VAL_LIST);
+  ASSERT_EQ(evens->as.list.count, 2);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[1]->as.number, 4.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_map_basic) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3\n"
+      "set doubled to call map with nums, function with x: return x times 2");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *doubled = vm_get_global(vm, "doubled");
+  ASSERT_PTR_NOT_NULL(doubled);
+  ASSERT_INT_EQ(doubled->type, VAL_LIST);
+  ASSERT_EQ(doubled->as.list.count, 3);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[1]->as.number, 4.0);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[2]->as.number, 6.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_map_requires_list_argument) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set bad to call map with \"hello\", function with x: return x");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Function 'map' requires a list argument") != NULL);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_filter_callback_arity_error) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3\n"
+      "set bad to call filter with nums, function with a, b: return a plus b");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Function 'filter callback' requires at least 2 argument") != NULL);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_get_undefined_variable) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
