@@ -260,7 +260,7 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Variadic functions: `function sum with ...numbers:`
   - ✅ Named arguments: `call create_user with name: "Alice", age: 30`
 
-- **List Utilities (Higher-Order)** - `filter()` and `map()` functions (requires lambdas)
+- ✅ **List Utilities (Higher-Order)** - `filter()` and `map()` functions (requires lambdas) (completed)
 
   ```kronos
   set evens to filter numbers with function with x: return x mod 2 is equal 0
