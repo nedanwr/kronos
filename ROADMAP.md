@@ -267,7 +267,7 @@ This document outlines the planned features and release schedule for Kronos.
   set doubled to map numbers with function with x: return x times 2
   ```
 
-- **List Comprehensions** - Concise list creation (syntax sugar for filter/map)
+- ✅ **List Comprehensions** - Concise list creation (syntax sugar for filter/map) (completed)
 
   ```kronos
   set squares to [x times x for x in range 1 to 10]
