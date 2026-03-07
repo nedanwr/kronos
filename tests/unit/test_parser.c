@@ -201,6 +201,70 @@ TEST(parse_list_literal) {
   token_array_free(tokens);
 }
 
+TEST(parse_bracket_list_literal) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("set mylist to [1, 2, 3]", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_ASSIGN);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->type, AST_LIST);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->as.list.element_count, 3);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_list_literal_starting_with_call_expression) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens =
+      tokenize("set values to list call to_string with 1", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_ASSIGN);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->type, AST_LIST);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->as.list.element_count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->as.list.elements[0]->type,
+                AST_CALL);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_list_comprehension) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize(
+      "set squares to [item times item for item in range 1 to 6 if item mod 2 "
+      "is equal 0]",
+      &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_ASSIGN);
+  ASSERT_INT_EQ(ast->statements[0]->as.assign.value->type,
+                AST_LIST_COMPREHENSION);
+
+  ASTNode *comp = ast->statements[0]->as.assign.value;
+  ASSERT_STR_EQ(comp->as.list_comprehension.var, "item");
+  ASSERT_PTR_NOT_NULL(comp->as.list_comprehension.element_expr);
+  ASSERT_PTR_NOT_NULL(comp->as.list_comprehension.iterable);
+  ASSERT_PTR_NOT_NULL(comp->as.list_comprehension.condition);
+  ASSERT_INT_EQ(comp->as.list_comprehension.iterable->type, AST_RANGE);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
 TEST(parse_all_arithmetic_operators) {
   TokenizeError *tok_err = NULL;
 
