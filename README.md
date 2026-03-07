@@ -11,7 +11,7 @@ A high-performance programming language built in C with human-readable syntax, f
 - **Optional Type Annotations**: Enforce types with the `as` keyword
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
-- **Lists & Arrays**: List literals, indexing, slicing, and iteration
+- **Lists & Arrays**: Keyword and bracket list literals, list comprehensions, indexing, slicing, and iteration
 - **Maps/Dictionaries**: Key-value storage with hash table implementation, map literals, and indexing
 - **Range Objects**: First-class range support with indexing, slicing, and iteration
 - **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort, filter, map)
@@ -31,7 +31,7 @@ A high-performance programming language built in C with human-readable syntax, f
 
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
 - **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
-- **Comprehensive Testing**: 129 tests (83 passing, 46 expected fail cases) ensuring reliability
+- **Comprehensive Testing**: Unit, integration, and LSP coverage across implemented language features
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ Run the comprehensive test suite:
 ./scripts/run_tests.sh
 ```
 
-This runs 129 tests (83 passing, 46 expected fail cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs the project test suites covering implemented language features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
@@ -131,6 +131,7 @@ while counter is less than 10:
 
 # Lists and ranges
 set my_list to list 1, 2, 3, 4, 5
+set squares to [x times x for x in range 1 to 6]
 print my_list at 0           # First element
 print my_list at -1          # Last element
 print my_list from 1 to 3    # Slice
