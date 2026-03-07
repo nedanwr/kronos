@@ -40,6 +40,9 @@ bool lsp_did_change(LSPTestContext *ctx, const char *uri, const char *text);
 // Send hover request
 char *lsp_hover(LSPTestContext *ctx, int line, int character);
 
+// Send definition request
+char *lsp_definition(LSPTestContext *ctx, int line, int character);
+
 // Send references request
 char *lsp_references(LSPTestContext *ctx, int line, int character);
 
