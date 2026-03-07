@@ -259,6 +259,14 @@ static const char *token_type_name(TokenType type) {
     return "COLON";
   case TOK_COMMA:
     return "COMMA";
+  case TOK_LPAREN:
+    return "LPAREN";
+  case TOK_RPAREN:
+    return "RPAREN";
+  case TOK_LBRACKET:
+    return "LBRACKET";
+  case TOK_RBRACKET:
+    return "RBRACKET";
   case TOK_NEWLINE:
     return "NEWLINE";
   case TOK_INDENT:
@@ -480,6 +488,7 @@ static void for_cleanup_resources(ASTNode *iterable, ASTNode *end,
                                   ASTNode *step, ASTNode **block,
                                   size_t block_size);
 static ASTNode *parse_list_literal(Parser *p);
+static ASTNode *parse_bracket_list_or_comprehension(Parser *p);
 static ASTNode *parse_range_literal(Parser *p);
 static ASTNode *parse_map_literal(Parser *p);
 
@@ -493,6 +502,7 @@ static void map_cleanup_entries(ASTNode **keys, ASTNode **values,
 // Helper functions for parse_list_literal
 static bool list_grow_elements(ASTNode ***elements, size_t *capacity);
 static void list_cleanup_elements(ASTNode **elements, size_t element_count);
+static bool token_starts_expression(const Token *tok);
 
 // Helper functions for parse_assignment
 static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name);
@@ -943,6 +953,10 @@ static ASTNode *parse_value(Parser *p) {
     return parse_list_literal(p);
   }
 
+  if (tok->type == TOK_LBRACKET) {
+    return parse_bracket_list_or_comprehension(p);
+  }
+
   if (tok->type == TOK_RANGE) {
     return parse_range_literal(p);
   }
@@ -1103,6 +1117,35 @@ static bool list_grow_elements(ASTNode ***elements, size_t *capacity) {
   return grow_array((void **)elements, *capacity, capacity, sizeof(ASTNode *));
 }
 
+static bool token_starts_expression(const Token *tok) {
+  if (!tok) {
+    return false;
+  }
+
+  switch (tok->type) {
+  case TOK_NUMBER:
+  case TOK_STRING:
+  case TOK_FSTRING:
+  case TOK_TRUE:
+  case TOK_FALSE:
+  case TOK_NULL:
+  case TOK_UNDEFINED:
+  case TOK_NAME:
+  case TOK_LIST:
+  case TOK_RANGE:
+  case TOK_MAP:
+  case TOK_CALL:
+  case TOK_FUNCTION:
+  case TOK_NOT:
+  case TOK_MINUS:
+  case TOK_LPAREN:
+  case TOK_LBRACKET:
+    return true;
+  default:
+    return false;
+  }
+}
+
 /**
  * @brief Cleanup list elements array
  *
@@ -1160,10 +1203,7 @@ static ASTNode *parse_list_literal(Parser *p) {
   // Check if list is empty (next token is not a comma or expression-starting
   // token)
   Token *next = peek(p, 0);
-  if (!next || (next->type != TOK_NUMBER && next->type != TOK_STRING &&
-                next->type != TOK_TRUE && next->type != TOK_FALSE &&
-                next->type != TOK_NULL && next->type != TOK_NAME &&
-                next->type != TOK_LIST && next->type != TOK_NOT)) {
+  if (!token_starts_expression(next)) {
     // Empty list
     ASTNode *node = ast_node_new_checked(AST_LIST);
     if (!node) {
@@ -1209,6 +1249,141 @@ static ASTNode *parse_list_literal(Parser *p) {
     return NULL;
   }
   ast_node_set_position(node, list_tok);
+  node->as.list.elements = elements;
+  node->as.list.element_count = element_count;
+  return node;
+}
+
+static ASTNode *parse_bracket_list_or_comprehension(Parser *p) {
+  Token *start_tok = consume(p, TOK_LBRACKET);
+  if (!start_tok) {
+    return NULL;
+  }
+
+  if (peek(p, 0) && peek(p, 0)->type == TOK_RBRACKET) {
+    consume_any(p);
+
+    ASTNode *node = ast_node_new_checked(AST_LIST);
+    if (!node) {
+      return NULL;
+    }
+    ast_node_set_position(node, start_tok);
+    node->as.list.elements = NULL;
+    node->as.list.element_count = 0;
+    return node;
+  }
+
+  ASTNode *first = parse_expression(p);
+  if (!first) {
+    return NULL;
+  }
+
+  if (peek(p, 0) && peek(p, 0)->type == TOK_FOR) {
+    consume_any(p); // consume 'for'
+
+    Token *var_tok = consume(p, TOK_NAME);
+    if (!var_tok) {
+      ast_node_free(first);
+      return NULL;
+    }
+
+    if (!consume(p, TOK_IN)) {
+      ast_node_free(first);
+      return NULL;
+    }
+
+    ASTNode *iterable = parse_expression(p);
+    if (!iterable) {
+      ast_node_free(first);
+      return NULL;
+    }
+
+    ASTNode *condition = NULL;
+    if (peek(p, 0) && peek(p, 0)->type == TOK_IF) {
+      consume_any(p); // consume 'if'
+      condition = parse_expression(p);
+      if (!condition) {
+        ast_node_free(first);
+        ast_node_free(iterable);
+        return NULL;
+      }
+    }
+
+    if (!consume(p, TOK_RBRACKET)) {
+      ast_node_free(first);
+      ast_node_free(iterable);
+      ast_node_free(condition);
+      return NULL;
+    }
+
+    ASTNode *node = ast_node_new_checked(AST_LIST_COMPREHENSION);
+    if (!node) {
+      ast_node_free(first);
+      ast_node_free(iterable);
+      ast_node_free(condition);
+      return NULL;
+    }
+
+    ast_node_set_position(node, start_tok);
+    node->as.list_comprehension.element_expr = first;
+    node->as.list_comprehension.var = strdup(var_tok->text);
+    node->as.list_comprehension.iterable = iterable;
+    node->as.list_comprehension.condition = condition;
+
+    if (!node->as.list_comprehension.var) {
+      ast_node_free(first);
+      ast_node_free(iterable);
+      ast_node_free(condition);
+      free(node);
+      return NULL;
+    }
+
+    return node;
+  }
+
+  size_t element_capacity = INITIAL_ARRAY_CAPACITY;
+  ASTNode **elements = malloc(sizeof(ASTNode *) * element_capacity);
+  if (!elements) {
+    ast_node_free(first);
+    return NULL;
+  }
+
+  size_t element_count = 0;
+  elements[element_count++] = first;
+
+  while (peek(p, 0) && peek(p, 0)->type == TOK_COMMA) {
+    consume_any(p); // consume comma
+
+    if (peek(p, 0) && peek(p, 0)->type == TOK_RBRACKET) {
+      break;
+    }
+
+    if (element_count == element_capacity) {
+      if (!list_grow_elements(&elements, &element_capacity)) {
+        list_cleanup_elements(elements, element_count);
+        return NULL;
+      }
+    }
+
+    ASTNode *elem = parse_expression(p);
+    if (!elem) {
+      list_cleanup_elements(elements, element_count);
+      return NULL;
+    }
+    elements[element_count++] = elem;
+  }
+
+  if (!consume(p, TOK_RBRACKET)) {
+    list_cleanup_elements(elements, element_count);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_LIST);
+  if (!node) {
+    list_cleanup_elements(elements, element_count);
+    return NULL;
+  }
+  ast_node_set_position(node, start_tok);
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
   return node;
@@ -1391,10 +1566,7 @@ static ASTNode *parse_map_literal(Parser *p) {
 
   // Check if map is empty
   Token *next = peek(p, 0);
-  if (!next || (next->type != TOK_NUMBER && next->type != TOK_STRING &&
-                next->type != TOK_TRUE && next->type != TOK_FALSE &&
-                next->type != TOK_NULL && next->type != TOK_NAME &&
-                next->type != TOK_LIST && next->type != TOK_NOT)) {
+  if (!token_starts_expression(next)) {
     // Empty map
     ASTNode *node = ast_node_new_checked(AST_MAP);
     if (!node) {
@@ -1798,7 +1970,8 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     // Peek ahead to see if there's a value after the minus
     Token *next = peek(p, 1);
     if (next && (next->type == TOK_NUMBER || next->type == TOK_NAME ||
-                 next->type == TOK_LIST || next->type == TOK_RANGE ||
+                 next->type == TOK_LIST || next->type == TOK_LBRACKET ||
+                 next->type == TOK_RANGE ||
                  next->type == TOK_MAP || next->type == TOK_CALL ||
                  next->type == TOK_MINUS || next->type == TOK_NOT ||
                  next->type == TOK_TRUE || next->type == TOK_FALSE ||
@@ -1855,7 +2028,7 @@ static ASTNode *parse_expression_prec(Parser *p, int min_prec) {
     }
 
     // Stop if we encounter a closing parenthesis (handled by caller)
-    if (tok->type == TOK_RPAREN) {
+    if (tok->type == TOK_RPAREN || tok->type == TOK_RBRACKET) {
       break;
     }
 
@@ -4684,6 +4857,12 @@ void ast_node_free(ASTNode *node) {
     }
     free(node->as.list.elements);
     break;
+  case AST_LIST_COMPREHENSION:
+    ast_node_free(node->as.list_comprehension.element_expr);
+    free(node->as.list_comprehension.var);
+    ast_node_free(node->as.list_comprehension.iterable);
+    ast_node_free(node->as.list_comprehension.condition);
+    break;
   case AST_RANGE:
     ast_node_free(node->as.range.start);
     ast_node_free(node->as.range.end);
@@ -4864,6 +5043,8 @@ static const char *ast_node_type_name(ASTNodeType type) {
     return "BINOP";
   case AST_LIST:
     return "LIST";
+  case AST_LIST_COMPREHENSION:
+    return "LIST_COMPREHENSION";
   case AST_RANGE:
     return "RANGE";
   case AST_MAP:
@@ -5138,6 +5319,27 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
       // Print element inline for lists
       ast_node_print_recursive(node->as.list.elements[i], 0);
     }
+    printf("]\n");
+    break;
+  case AST_LIST_COMPREHENSION:
+    printf(": [\n");
+    print_indent(indent + 1);
+    printf("element:\n");
+    ast_node_print_recursive(node->as.list_comprehension.element_expr,
+                             indent + 2);
+    print_indent(indent + 1);
+    printf("for %s in\n",
+           node->as.list_comprehension.var
+               ? node->as.list_comprehension.var
+               : "(null)");
+    ast_node_print_recursive(node->as.list_comprehension.iterable, indent + 2);
+    if (node->as.list_comprehension.condition) {
+      print_indent(indent + 1);
+      printf("if:\n");
+      ast_node_print_recursive(node->as.list_comprehension.condition,
+                               indent + 2);
+    }
+    print_indent(indent);
     printf("]\n");
     break;
   case AST_RANGE:

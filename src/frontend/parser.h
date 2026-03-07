@@ -25,6 +25,7 @@ typedef enum {
   AST_VAR,
   AST_BINOP,
   AST_LIST,
+  AST_LIST_COMPREHENSION,
   AST_RANGE,
   AST_MAP,
   AST_INDEX,
@@ -218,6 +219,14 @@ struct ASTNode {
       ASTNode **elements;
       size_t element_count;
     } list;
+
+    // List comprehension: [expr for var in iterable if condition]
+    struct {
+      ASTNode *element_expr;
+      char *var;
+      ASTNode *iterable;
+      ASTNode *condition; // Optional filter clause
+    } list_comprehension;
 
     // Range literal: range 1 to 10 [by 2]
     struct {
