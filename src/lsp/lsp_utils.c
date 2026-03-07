@@ -23,6 +23,371 @@ typedef struct {
   size_t count;
 } ReferenceCountContext;
 
+static void process_comprehension_symbols_recursive(ASTNode *node,
+                                                    Symbol ***tail) {
+  if (!node || !tail) {
+    return;
+  }
+
+  switch (node->type) {
+  case AST_LIST_COMPREHENSION: {
+    if (node->as.list_comprehension.var) {
+      Symbol *sym = malloc(sizeof(Symbol));
+      if (sym) {
+        sym->name = strdup(node->as.list_comprehension.var);
+        if (sym->name) {
+          sym->type = SYMBOL_VARIABLE;
+          sym->is_mutable = false;
+          sym->type_name = NULL;
+          sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
+          sym->written = true;
+          sym->read = false;
+          get_node_position(node, &sym->line, &sym->column);
+          sym->next = NULL;
+          **tail = sym;
+          *tail = &sym->next;
+        } else {
+          free(sym);
+        }
+      }
+    }
+    process_comprehension_symbols_recursive(
+        node->as.list_comprehension.element_expr, tail);
+    process_comprehension_symbols_recursive(node->as.list_comprehension.iterable,
+                                            tail);
+    process_comprehension_symbols_recursive(
+        node->as.list_comprehension.condition, tail);
+    break;
+  }
+  case AST_ASSIGN:
+    process_comprehension_symbols_recursive(node->as.assign.value, tail);
+    break;
+  case AST_PRINT:
+    process_comprehension_symbols_recursive(node->as.print.value, tail);
+    break;
+  case AST_BINOP:
+    process_comprehension_symbols_recursive(node->as.binop.left, tail);
+    process_comprehension_symbols_recursive(node->as.binop.right, tail);
+    break;
+  case AST_IF:
+    process_comprehension_symbols_recursive(node->as.if_stmt.condition, tail);
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.if_stmt.block[i], tail);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.if_stmt.else_if_conditions[i], tail);
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        process_comprehension_symbols_recursive(
+            node->as.if_stmt.else_if_blocks[i][j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.if_stmt.else_block[i],
+                                              tail);
+    }
+    break;
+  case AST_FOR:
+    process_comprehension_symbols_recursive(node->as.for_stmt.iterable, tail);
+    process_comprehension_symbols_recursive(node->as.for_stmt.end, tail);
+    process_comprehension_symbols_recursive(node->as.for_stmt.step, tail);
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.for_stmt.block[i], tail);
+    }
+    break;
+  case AST_WHILE:
+    process_comprehension_symbols_recursive(node->as.while_stmt.condition, tail);
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.while_stmt.block[i],
+                                              tail);
+    }
+    break;
+  case AST_FUNCTION:
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.function.block[i], tail);
+    }
+    break;
+  case AST_CALL:
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      process_comprehension_symbols_recursive(node->as.call.args[i], tail);
+    }
+    break;
+  case AST_RETURN:
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      process_comprehension_symbols_recursive(node->as.return_stmt.values[i],
+                                              tail);
+    }
+    break;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      process_comprehension_symbols_recursive(node->as.list.elements[i], tail);
+    }
+    break;
+  case AST_RANGE:
+    process_comprehension_symbols_recursive(node->as.range.start, tail);
+    process_comprehension_symbols_recursive(node->as.range.end, tail);
+    process_comprehension_symbols_recursive(node->as.range.step, tail);
+    break;
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      process_comprehension_symbols_recursive(node->as.map.keys[i], tail);
+      process_comprehension_symbols_recursive(node->as.map.values[i], tail);
+    }
+    break;
+  case AST_INDEX:
+    process_comprehension_symbols_recursive(node->as.index.list_expr, tail);
+    process_comprehension_symbols_recursive(node->as.index.index, tail);
+    break;
+  case AST_SLICE:
+    process_comprehension_symbols_recursive(node->as.slice.list_expr, tail);
+    process_comprehension_symbols_recursive(node->as.slice.start, tail);
+    process_comprehension_symbols_recursive(node->as.slice.end, tail);
+    break;
+  case AST_ASSIGN_INDEX:
+    process_comprehension_symbols_recursive(node->as.assign_index.target, tail);
+    process_comprehension_symbols_recursive(node->as.assign_index.index, tail);
+    process_comprehension_symbols_recursive(node->as.assign_index.value, tail);
+    break;
+  case AST_DELETE:
+    process_comprehension_symbols_recursive(node->as.delete_stmt.target, tail);
+    process_comprehension_symbols_recursive(node->as.delete_stmt.key, tail);
+    break;
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.try_stmt.try_block[i],
+                                              tail);
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        process_comprehension_symbols_recursive(
+            node->as.try_stmt.catch_blocks[i].catch_block[j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.try_stmt.finally_block[i],
+                                              tail);
+    }
+    break;
+  case AST_RAISE:
+    process_comprehension_symbols_recursive(node->as.raise_stmt.message, tail);
+    break;
+  case AST_LAMBDA:
+    if (node->as.lambda.is_single_line) {
+      process_comprehension_symbols_recursive(node->as.lambda.body_expr, tail);
+    } else {
+      for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+        process_comprehension_symbols_recursive(node->as.lambda.block[i], tail);
+      }
+    }
+    break;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      process_comprehension_symbols_recursive(node->as.fstring.parts[i], tail);
+    }
+    break;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      process_comprehension_symbols_recursive(node->as.tuple.elements[i], tail);
+    }
+    break;
+  case AST_UNPACK_ASSIGN:
+    process_comprehension_symbols_recursive(node->as.unpack_assign.value, tail);
+    break;
+  default:
+    break;
+  }
+}
+
+static bool node_declares_loop_variable(ASTNode *node, const char *name) {
+  if (!node || !name) {
+    return false;
+  }
+
+  switch (node->type) {
+  case AST_FOR:
+    if (node->as.for_stmt.var &&
+        strcmp(node->as.for_stmt.var, name) == 0) {
+      return true;
+    }
+    if (node_declares_loop_variable(node->as.for_stmt.iterable, name) ||
+        node_declares_loop_variable(node->as.for_stmt.end, name) ||
+        node_declares_loop_variable(node->as.for_stmt.step, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.for_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_LIST_COMPREHENSION:
+    if (node->as.list_comprehension.var &&
+        strcmp(node->as.list_comprehension.var, name) == 0) {
+      return true;
+    }
+    return node_declares_loop_variable(node->as.list_comprehension.element_expr,
+                                       name) ||
+           node_declares_loop_variable(node->as.list_comprehension.iterable,
+                                       name) ||
+           node_declares_loop_variable(node->as.list_comprehension.condition,
+                                       name);
+  case AST_ASSIGN:
+    return node_declares_loop_variable(node->as.assign.value, name);
+  case AST_PRINT:
+    return node_declares_loop_variable(node->as.print.value, name);
+  case AST_BINOP:
+    return node_declares_loop_variable(node->as.binop.left, name) ||
+           node_declares_loop_variable(node->as.binop.right, name);
+  case AST_IF:
+    if (node_declares_loop_variable(node->as.if_stmt.condition, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.else_if_conditions[i],
+                                      name)) {
+        return true;
+      }
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        if (node_declares_loop_variable(node->as.if_stmt.else_if_blocks[i][j],
+                                        name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.else_block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_WHILE:
+    if (node_declares_loop_variable(node->as.while_stmt.condition, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.while_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_FUNCTION:
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      if (node_declares_loop_variable(node->as.function.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_CALL:
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node_declares_loop_variable(node->as.call.args[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RETURN:
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      if (node_declares_loop_variable(node->as.return_stmt.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      if (node_declares_loop_variable(node->as.list.elements[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RANGE:
+    return node_declares_loop_variable(node->as.range.start, name) ||
+           node_declares_loop_variable(node->as.range.end, name) ||
+           node_declares_loop_variable(node->as.range.step, name);
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      if (node_declares_loop_variable(node->as.map.keys[i], name) ||
+          node_declares_loop_variable(node->as.map.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_INDEX:
+    return node_declares_loop_variable(node->as.index.list_expr, name) ||
+           node_declares_loop_variable(node->as.index.index, name);
+  case AST_SLICE:
+    return node_declares_loop_variable(node->as.slice.list_expr, name) ||
+           node_declares_loop_variable(node->as.slice.start, name) ||
+           node_declares_loop_variable(node->as.slice.end, name);
+  case AST_ASSIGN_INDEX:
+    return node_declares_loop_variable(node->as.assign_index.target, name) ||
+           node_declares_loop_variable(node->as.assign_index.index, name) ||
+           node_declares_loop_variable(node->as.assign_index.value, name);
+  case AST_DELETE:
+    return node_declares_loop_variable(node->as.delete_stmt.target, name) ||
+           node_declares_loop_variable(node->as.delete_stmt.key, name);
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      if (node_declares_loop_variable(node->as.try_stmt.try_block[i], name)) {
+        return true;
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        if (node_declares_loop_variable(
+                node->as.try_stmt.catch_blocks[i].catch_block[j], name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+      if (node_declares_loop_variable(node->as.try_stmt.finally_block[i],
+                                      name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RAISE:
+    return node_declares_loop_variable(node->as.raise_stmt.message, name);
+  case AST_LAMBDA:
+    if (node->as.lambda.is_single_line) {
+      return node_declares_loop_variable(node->as.lambda.body_expr, name);
+    }
+    for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+      if (node_declares_loop_variable(node->as.lambda.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      if (node_declares_loop_variable(node->as.fstring.parts[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      if (node_declares_loop_variable(node->as.tuple.elements[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_UNPACK_ASSIGN:
+    return node_declares_loop_variable(node->as.unpack_assign.value, name);
+  default:
+    return false;
+  }
+}
+
 /**
  * @brief Safely parse an unsigned long from a string
  *
@@ -869,6 +1234,10 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *text) {
   process_statements_for_symbols(ast->statements, ast->count, &tail,
                                  &doc->symbols);
 
+  for (size_t i = 0; i < ast->count; i++) {
+    process_comprehension_symbols_recursive(ast->statements[i], &tail);
+  }
+
   free(line_starts);
 }
 
@@ -1459,23 +1828,9 @@ bool is_loop_variable(Symbol *sym, AST *ast) {
   if (!sym || !ast || sym->type != SYMBOL_VARIABLE)
     return false;
 
-  // Check if this variable is declared in a FOR statement
   for (size_t i = 0; i < ast->count; i++) {
-    ASTNode *node = ast->statements[i];
-    if (!node || node->type != AST_FOR)
-      continue;
-
-    if (node->as.for_stmt.var &&
-        strcmp(node->as.for_stmt.var, sym->name) == 0) {
+    if (node_declares_loop_variable(ast->statements[i], sym->name)) {
       return true;
-    }
-
-    // Check nested FOR statements in the loop body
-    if (node->as.for_stmt.block) {
-      AST temp_ast = {node->as.for_stmt.block, node->as.for_stmt.block_size,
-                      node->as.for_stmt.block_size};
-      if (is_loop_variable(sym, &temp_ast))
-        return true;
     }
   }
 
@@ -1763,6 +2118,19 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
                                            depth + 1);
       }
     }
+    break;
+
+  case AST_LIST_COMPREHENSION:
+    if (node->as.list_comprehension.var &&
+        strcmp(node->as.list_comprehension.var, ctx->symbol_name) == 0) {
+      ctx->count++;
+    }
+    count_references_in_node_recursive(node->as.list_comprehension.element_expr,
+                                       ctx, depth + 1);
+    count_references_in_node_recursive(node->as.list_comprehension.iterable,
+                                       ctx, depth + 1);
+    count_references_in_node_recursive(node->as.list_comprehension.condition,
+                                       ctx, depth + 1);
     break;
 
   case AST_MAP:
