@@ -14,7 +14,30 @@ set numbers to list 1, 2, 3, 4, 5
 set fruits to list "apple", "banana", "cherry"
 set mixed to list "hello", 42, true, null
 set empty to list
+
+set bracketed to [1, 2, 3, 4, 5]
+set nested to [["a", "b"], ["c", "d"]]
+set empty_brackets to []
 ```
+
+Both the `list` keyword form and bracket form create the same list type. Use whichever is clearer for the code you are writing.
+
+## List Comprehensions
+
+List comprehensions build a new list by iterating an existing list or range.
+
+```kronos
+set squares to [value times value for value in range 1 to 6]
+set evens to [value for value in [1, 2, 3, 4, 5, 6] if value mod 2 is equal 0]
+```
+
+Comprehensions use this shape:
+
+```kronos
+[element_expression for item in iterable if condition]
+```
+
+The `if condition` part is optional.
 
 ## Accessing Elements
 
