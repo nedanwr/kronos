@@ -43,6 +43,32 @@ set sorted_words to call sort with words  # Returns ["apple", "banana", "zebra"]
 - Works with numbers or strings, but all elements must be the same type
 - Sorting is done in ascending order
 
+### filter
+
+Return a new list containing only elements where the callback returns a truthy value.
+
+**Syntax:** `call filter with list, callback`
+
+**Example:**
+```kronos
+set numbers to list 1, 2, 3, 4, 5
+set evens to call filter with numbers, function with x: return x mod 2 is equal 0
+# evens -> [2, 4]
+```
+
+### map
+
+Return a new list where each element is transformed by the callback.
+
+**Syntax:** `call map with list, callback`
+
+**Example:**
+```kronos
+set numbers to list 1, 2, 3
+set doubled to call map with numbers, function with x: return x times 2
+# doubled -> [2, 4, 6]
+```
+
 ## Length
 
 ### len
@@ -127,4 +153,3 @@ print sorted
 print "Descending:"
 print descending
 ```
-

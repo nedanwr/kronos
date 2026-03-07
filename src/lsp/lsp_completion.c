@@ -139,6 +139,8 @@ void handle_completion(const char *id, const char *body) {
       {"max", "Maximum of numbers"},
       {"reverse", "Reverse a list"},
       {"sort", "Sort a list"},
+      {"filter", "Filter a list with a callback function"},
+      {"map", "Transform a list with a callback function"},
       {"read_file", "Read entire file content as string"},
       {"write_file", "Write string content to file (path, content)"},
       {"read_lines", "Read file and return list of lines"},

@@ -1,6 +1,7 @@
 #include "test_lsp_framework.h"
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -161,6 +162,23 @@ bool lsp_send_request(LSPTestContext *ctx, const char *method, const char *param
 char *lsp_read_response(LSPTestContext *ctx, int timeout_ms) {
   if (!ctx || !ctx->lsp_stdout)
     return NULL;
+
+  int fd = fileno(ctx->lsp_stdout);
+  if (fd < 0)
+    return NULL;
+
+  fd_set read_fds;
+  FD_ZERO(&read_fds);
+  FD_SET(fd, &read_fds);
+
+  struct timeval timeout;
+  timeout.tv_sec = timeout_ms / 1000;
+  timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+  int ready = select(fd + 1, &read_fds, NULL, NULL, &timeout);
+  if (ready <= 0) {
+    return NULL;
+  }
 
   int length = read_content_length(ctx->lsp_stdout);
   if (length <= 0 || length > 100000) // Sanity check
@@ -366,6 +384,19 @@ char *lsp_code_lens(LSPTestContext *ctx) {
   return lsp_read_response(ctx, 1000);
 }
 
+char *lsp_completion(LSPTestContext *ctx, int line, int character) {
+  char params[512];
+  snprintf(params, sizeof(params),
+          "{\"textDocument\":{\"uri\":\"file:///test.kr\"},"
+          "\"position\":{\"line\":%d,\"character\":%d}}",
+          line, character);
+
+  if (!lsp_send_request(ctx, "textDocument/completion", params, 10))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
 char *lsp_extract_json_value(const char *json, const char *key) {
   // Simple JSON value extraction (for testing)
   char pattern[256];
@@ -427,4 +458,3 @@ bool lsp_is_valid_json(const char *response) {
   // Basic check: starts with { or [
   return response[0] == '{' || response[0] == '[' || response[0] == 'n'; // null
 }
-

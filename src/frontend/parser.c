@@ -3955,10 +3955,12 @@ static ASTNode *parse_call(Parser *p, int indent) {
     return NULL;
   }
 
-  Token *name = consume(p, TOK_NAME);
-  if (!name) {
+  Token *name = peek(p, 0);
+  if (!name || (name->type != TOK_NAME && name->type != TOK_MAP)) {
+    parser_set_error(p, "Expected function name after 'call'");
     return NULL;
   }
+  consume_any(p);
 
   // Parse arguments (including named arguments)
   size_t arg_capacity = 0;

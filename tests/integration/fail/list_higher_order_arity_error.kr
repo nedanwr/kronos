@@ -1,0 +1,5 @@
+# Test higher-order list utility callback arity validation
+
+set nums to list 1, 2, 3
+set bad_map to call map with nums, function with a, b: return a plus b
+# Expected: Runtime error - callback requires 2 arguments but map provides 1

@@ -1663,8 +1663,10 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         // node parameter not used in this branch - len accepts any type
         (void)node;
       } else if (strcmp(actual_func_name, "reverse") == 0 ||
-                 strcmp(actual_func_name, "sort") == 0) {
-        // These require list argument (not string)
+                 strcmp(actual_func_name, "sort") == 0 ||
+                 strcmp(actual_func_name, "filter") == 0 ||
+                 strcmp(actual_func_name, "map") == 0) {
+        // These require a list as the first argument (not string).
         if (node->as.call.arg_count > 0) {
           ASTNode *arg_node = node->as.call.args[0];
           (void)infer_type_with_ast(arg_node, symbols,

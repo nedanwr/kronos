@@ -1,0 +1,5 @@
+# Test higher-order list utility callback errors
+
+set nums to list 1, 2, 3
+set bad_filter to call filter with nums, 42
+# Expected: Runtime error - filter requires a function argument
