@@ -180,7 +180,8 @@ static const char *token_type_names[] = {
     "AND",     "OR",       "PRINT",    "PLUS",     "MINUS",    "TIMES",
     "DIVIDED", "BY",       "MOD",      "DELETE",   "TRY",      "CATCH",
     "FINALLY", "RAISE",    "NAME",     "COLON",    "COMMA",    "ELLIPSIS",
-    "LPAREN",  "RPAREN",   "NEWLINE",  "INDENT",   "EOF"};
+    "LPAREN",  "RPAREN",   "LBRACKET", "RBRACKET", "NEWLINE",  "INDENT",
+    "EOF"};
 
 // Compile-time check to ensure array matches enum count
 // This will cause a compilation error if they don't match
@@ -201,6 +202,8 @@ static const char TOKEN_TEXT_EQUALS[] = "=";
 static const char TOKEN_TEXT_MINUS[] = "minus";
 static const char TOKEN_TEXT_LPAREN[] = "(";
 static const char TOKEN_TEXT_RPAREN[] = ")";
+static const char TOKEN_TEXT_LBRACKET[] = "[";
+static const char TOKEN_TEXT_RBRACKET[] = "]";
 static const char TOKEN_TEXT_NEWLINE[] = "\n";
 
 // Token array initial capacity - starts small and grows as needed
@@ -216,7 +219,8 @@ static bool is_static_token_text(const char *text) {
   return text == TOKEN_TEXT_COLON || text == TOKEN_TEXT_COMMA ||
          text == TOKEN_TEXT_ELLIPSIS || text == TOKEN_TEXT_EQUALS ||
          text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE ||
-         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN;
+         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN ||
+         text == TOKEN_TEXT_LBRACKET || text == TOKEN_TEXT_RBRACKET;
 }
 
 /**
@@ -772,6 +776,28 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     if (line[col] == ')') {
       size_t token_col = indent + col + 1;
       Token tok = {TOK_RPAREN, TOKEN_TEXT_RPAREN, 1, 0, line_number, token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == '[') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_LBRACKET, TOKEN_TEXT_LBRACKET, 1, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == ']') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_RBRACKET, TOKEN_TEXT_RBRACKET, 1, 0, line_number,
+                   token_col};
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
         return false;
       }
