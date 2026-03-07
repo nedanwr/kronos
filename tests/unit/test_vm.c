@@ -256,6 +256,52 @@ TEST(vm_builtin_map_basic) {
   vm_free(vm);
 }
 
+TEST(vm_execute_list_comprehension_range) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set squares to [n times n for n in range 1 to 6]");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *squares = vm_get_global(vm, "squares");
+  ASSERT_PTR_NOT_NULL(squares);
+  ASSERT_INT_EQ(squares->type, VAL_LIST);
+  ASSERT_INT_EQ(squares->as.list.count, 5);
+  ASSERT_DOUBLE_EQ(squares->as.list.items[0]->as.number, 1.0);
+  ASSERT_DOUBLE_EQ(squares->as.list.items[4]->as.number, 25.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_list_comprehension_filter) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set evens to [value for value in [1, 2, 3, 4, 5, 6] if value mod 2 is "
+      "equal 0]");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *evens = vm_get_global(vm, "evens");
+  ASSERT_PTR_NOT_NULL(evens);
+  ASSERT_INT_EQ(evens->type, VAL_LIST);
+  ASSERT_INT_EQ(evens->as.list.count, 3);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[1]->as.number, 4.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[2]->as.number, 6.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_builtin_map_requires_list_argument) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
