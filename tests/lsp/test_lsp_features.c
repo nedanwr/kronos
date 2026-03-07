@@ -319,6 +319,70 @@ TEST(lsp_completion_includes_filter_and_map_utilities) {
   free(response);
 }
 
+TEST(lsp_diagnostics_list_comprehension_loop_var_is_defined) {
+  const char *code =
+      "set values to [comp_value times 2 for comp_value in range 1 to 6 if "
+      "comp_value is greater than 2]\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "Undefined variable 'comp_value'"));
+  free(diag);
+}
+
+TEST(lsp_hover_list_comprehension_loop_var) {
+  const char *code =
+      "set values to [item_value for item_value in [1, 2, 3]]\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_hover(g_ctx, 0, 16);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "variable"));
+  ASSERT_TRUE(lsp_response_contains(response, "item_value"));
+  free(response);
+}
+
+TEST(lsp_definition_list_comprehension_loop_var) {
+  const char *code =
+      "set values to [item_value for item_value in [1, 2, 3]]\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_definition(g_ctx, 0, 16);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "file:///test.kr"));
+  free(response);
+}
+
+TEST(lsp_references_list_comprehension_loop_var) {
+  const char *code =
+      "set values to [ref_item times ref_item for ref_item in [1, 2, 3]]\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_references(g_ctx, 0, 16);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "file:///test.kr"));
+  free(response);
+}
+
 // Setup and teardown
 void lsp_test_setup(void) {
   if (!g_ctx) {
