@@ -296,6 +296,19 @@ char *lsp_hover(LSPTestContext *ctx, int line, int character) {
   return lsp_read_response(ctx, 1000);
 }
 
+char *lsp_definition(LSPTestContext *ctx, int line, int character) {
+  char params[256];
+  snprintf(params, sizeof(params),
+          "{\"textDocument\":{\"uri\":\"file:///test.kr\"},"
+          "\"position\":{\"line\":%d,\"character\":%d}}",
+          line, character);
+
+  if (!lsp_send_request(ctx, "textDocument/definition", params, 11))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
 char *lsp_references(LSPTestContext *ctx, int line, int character) {
   char params[256];
   snprintf(params, sizeof(params),

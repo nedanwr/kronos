@@ -41,6 +41,7 @@
 #include "compiler.h"
 #include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -759,6 +760,218 @@ static void compile_list_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a list comprehension expression
+ */
+static void compile_list_comprehension_expression(Compiler *c,
+                                                  const ASTNode *node) {
+  KronosValue *var_name =
+      value_new_string(node->as.list_comprehension.var,
+                       strlen(node->as.list_comprehension.var));
+  size_t var_idx = add_constant(c, var_name);
+  if (var_idx == SIZE_MAX) {
+    return;
+  }
+  if (var_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  // Result list stays on the VM stack for the full comprehension.
+  emit_byte(c, OP_LIST_NEW);
+  emit_uint16(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  compile_expression(c, node->as.list_comprehension.iterable);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_LIST_ITER);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t temp_id = ++c->loop_counter;
+  char iter_name[64];
+  char state_name[64];
+  snprintf(iter_name, sizeof(iter_name), "__comp_iter_%zu_%zu", var_idx,
+           temp_id);
+  snprintf(state_name, sizeof(state_name), "__comp_state_%zu_%zu", var_idx,
+           temp_id);
+
+  KronosValue *state_name_val = value_new_string(state_name, strlen(state_name));
+  size_t state_idx = add_constant(c, state_name_val);
+  if (state_idx == SIZE_MAX) {
+    return;
+  }
+  if (state_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  KronosValue *iter_name_val = value_new_string(iter_name, strlen(iter_name));
+  size_t iter_idx = add_constant(c, iter_name_val);
+  if (iter_idx == SIZE_MAX) {
+    return;
+  }
+  if (iter_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  // OP_LIST_ITER leaves [result, iterable, state]. Persist iterable/state
+  // across the loop, while result remains on the stack.
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t loop_start = c->bytecode->count;
+
+  emit_byte(c, OP_LOAD_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, OP_LOAD_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_LIST_NEXT);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)var_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  if (node->as.list_comprehension.condition) {
+    compile_expression(c, node->as.list_comprehension.condition);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    size_t skip_append_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    compile_expression(c, node->as.list_comprehension.element_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_LIST_APPEND);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    size_t skip_target = c->bytecode->count;
+    ptrdiff_t skip_offset = (ptrdiff_t)skip_target -
+                            (ptrdiff_t)(skip_append_pos + 2);
+    if (skip_offset < 0 || skip_offset > UINT16_MAX) {
+      compiler_set_error(c, "Comprehension jump offset too large");
+      return;
+    }
+    patch_jump_offset_unsigned(c, skip_append_pos, (uint16_t)skip_offset);
+  } else {
+    compile_expression(c, node->as.list_comprehension.element_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_LIST_APPEND);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  size_t jump_back_pos = emit_jump_with_offset(c, OP_JUMP);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  ptrdiff_t back_offset =
+      (ptrdiff_t)loop_start - (ptrdiff_t)(jump_back_pos + 2);
+  if (back_offset < INT16_MIN || back_offset > INT16_MAX) {
+    compiler_set_error(c, "Comprehension loop jump offset too large");
+    return;
+  }
+  patch_jump_offset(c, jump_back_pos, (int16_t)back_offset);
+
+  size_t exit_target = c->bytecode->count;
+  ptrdiff_t exit_offset =
+      (ptrdiff_t)exit_target - (ptrdiff_t)(exit_jump_pos + 2);
+  if (exit_offset < 0 || exit_offset > UINT16_MAX) {
+    compiler_set_error(c, "Comprehension exit jump offset too large");
+    return;
+  }
+  patch_jump_offset_unsigned(c, exit_jump_pos, (uint16_t)exit_offset);
+
+  // False iteration path leaves [result, iterable, state] on the stack.
+  emit_byte(c, OP_POP);
+  emit_byte(c, OP_POP);
+
+  KronosValue *nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+}
+
+/**
  * @brief Compile a range literal expression
  */
 static void compile_range_expression(Compiler *c, const ASTNode *node) {
@@ -1423,6 +1636,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
 
   case AST_LIST:
     compile_list_expression(c, node);
+    break;
+
+  case AST_LIST_COMPREHENSION:
+    compile_list_comprehension_expression(c, node);
     break;
 
   case AST_RANGE:
@@ -3028,6 +3245,7 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_VAR:
   case AST_BINOP:
   case AST_LIST:
+  case AST_LIST_COMPREHENSION:
   case AST_RANGE:
   case AST_MAP:
   case AST_INDEX:

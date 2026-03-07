@@ -58,6 +58,7 @@ static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
   case AST_NULL:
     return TYPE_NULL;
   case AST_LIST:
+  case AST_LIST_COMPREHENSION:
     return TYPE_LIST;
   case AST_MAP:
     return TYPE_MAP;
@@ -858,6 +859,29 @@ static void check_expression_recursive(ASTNode *node, const char *text,
                                  diagnostics, pos, remaining, has_diagnostics,
                                  seen_vars, seen_count, capacity, depth + 1);
     }
+    return;
+  }
+
+  if (node->type == AST_LIST_COMPREHENSION) {
+    if (node->as.list_comprehension.var) {
+      Symbol *loop_sym = find_symbol(node->as.list_comprehension.var);
+      if (loop_sym && loop_sym->type == SYMBOL_VARIABLE) {
+        loop_sym->written = true;
+      }
+    }
+
+    check_expression_recursive(node->as.list_comprehension.iterable, text,
+                               symbols, ast, diagnostics, pos, remaining,
+                               has_diagnostics, seen_vars, seen_count, capacity,
+                               depth + 1);
+    check_expression_recursive(node->as.list_comprehension.element_expr, text,
+                               symbols, ast, diagnostics, pos, remaining,
+                               has_diagnostics, seen_vars, seen_count, capacity,
+                               depth + 1);
+    check_expression_recursive(node->as.list_comprehension.condition, text,
+                               symbols, ast, diagnostics, pos, remaining,
+                               has_diagnostics, seen_vars, seen_count, capacity,
+                               depth + 1);
     return;
   }
 

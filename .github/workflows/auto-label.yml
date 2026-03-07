@@ -6,16 +6,13 @@ on:
   pull_request:
     types: [opened, edited]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-
 jobs:
   label-issues:
     name: Label Issues
     if: github.event_name == 'issues'
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Auto-label issue based on title and body
         uses: actions/github-script@v8
@@ -109,6 +106,9 @@ jobs:
     name: Label Pull Requests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

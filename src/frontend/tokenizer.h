@@ -65,6 +65,8 @@ typedef enum {
   TOK_ELLIPSIS,  // ... for variadic parameters
   TOK_LPAREN,
   TOK_RPAREN,
+  TOK_LBRACKET,
+  TOK_RBRACKET,
   TOK_NEWLINE,
   TOK_INDENT,
   TOK_EOF,

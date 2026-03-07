@@ -376,6 +376,19 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     }
     break;
 
+  case AST_LIST_COMPREHENSION:
+    if (node->as.list_comprehension.var &&
+        strcmp(node->as.list_comprehension.var, ctx->symbol_name) == 0) {
+      add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
+    }
+    search_node_for_references_recursive(node->as.list_comprehension.element_expr,
+                                         line_num, ctx, depth + 1);
+    search_node_for_references_recursive(node->as.list_comprehension.iterable,
+                                         line_num, ctx, depth + 1);
+    search_node_for_references_recursive(node->as.list_comprehension.condition,
+                                         line_num, ctx, depth + 1);
+    break;
+
   case AST_MAP:
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
       if (node->as.map.keys[i]) {
@@ -824,4 +837,3 @@ void handle_rename(const char *id, const char *body) {
   free(new_name);
   send_response(id, result);
 }
-

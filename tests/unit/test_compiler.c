@@ -152,6 +152,33 @@ TEST(compile_list_literal) {
   ast_free(ast);
 }
 
+TEST(compile_list_comprehension) {
+  AST *ast = parse_string("set squares to [x times x for x in range 1 to 6]");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_iter = false;
+  bool has_append = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_LIST_ITER) {
+      has_iter = true;
+    }
+    if (bytecode->code[i] == OP_LIST_APPEND) {
+      has_append = true;
+    }
+  }
+
+  ASSERT_TRUE(has_iter);
+  ASSERT_TRUE(has_append);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
 TEST(compile_loop_large_offset_break) {
   // Regression test for UAF bug in patch_pending_jumps.
   // Create a loop with a large body that triggers offset >255,
