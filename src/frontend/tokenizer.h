@@ -70,6 +70,8 @@ typedef enum {
   TOK_RPAREN,
   TOK_LBRACKET,
   TOK_RBRACKET,
+  TOK_LANGLE,    // < for generic type annotations
+  TOK_RANGLE,    // > for generic type annotations
   TOK_NEWLINE,
   TOK_INDENT,
   TOK_EOF,
