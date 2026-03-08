@@ -753,6 +753,105 @@ TEST(vm_set_global_type_checking) {
   vm_free(vm);
 }
 
+TEST(vm_set_global_initial_type_checking) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *str = value_new_string("hello", 5);
+  ASSERT_PTR_NOT_NULL(str);
+
+  // Should fail immediately: initial value violates declared type.
+  int result = vm_set_global(vm, "x", str, false, "number");
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NULL(vm_get_global(vm, "x"));
+
+  value_release(str);
+  vm_free(vm);
+}
+
+TEST(vm_execute_local_initial_type_mismatch) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "function bad:\n"
+      "    set x to \"oops\" as number\n"
+      "call bad");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Type mismatch for local variable 'x': expected 'number'") !=
+              NULL);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_generic_list_type_annotation) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let values to list 1, 2, 3 as list<number>\n"
+      "let values to list 4, 5, 6");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *values = vm_get_global(vm, "values");
+  ASSERT_PTR_NOT_NULL(values);
+  ASSERT_INT_EQ(values->type, VAL_LIST);
+  ASSERT_EQ(values->as.list.count, 3);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_union_type_annotation) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let value to 42 as number or string\n"
+      "let value to \"forty-two\"");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *value = vm_get_global(vm, "value");
+  ASSERT_PTR_NOT_NULL(value);
+  ASSERT_INT_EQ(value->type, VAL_STRING);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_type_alias_map_shape) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "type Point to map x: number, y: number\n"
+      "set p to map x: 1, y: 2 as Point\n"
+      "print p");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *p = vm_get_global(vm, "p");
+  ASSERT_PTR_NOT_NULL(p);
+  ASSERT_INT_EQ(p->type, VAL_MAP);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 // Stack underflow regression tests
 // These tests ensure that stack operations are properly balanced and
 // that no stack underflow errors occur during or after execution
