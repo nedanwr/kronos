@@ -336,6 +336,63 @@ TEST(lsp_completion_includes_pattern_matching_keywords) {
   free(response);
 }
 
+TEST(lsp_completion_includes_type_keyword) {
+  const char *code = "set value to 1\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 4);
+  free(diag);
+
+  char *response = lsp_completion(g_ctx, 0, 0);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"type\""));
+  ASSERT_TRUE(
+      lsp_response_contains(response, "Declare type alias"));
+  free(response);
+}
+
+TEST(lsp_hover_and_definition_for_type_alias) {
+  const char *code =
+      "type Point to map x: number, y: number\n"
+      "set p to map x: 1, y: 2 as Point\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 6);
+  free(diag);
+
+  char *hover = lsp_hover(g_ctx, 0, 7);
+  ASSERT_PTR_NOT_NULL(hover);
+  ASSERT_TRUE(lsp_is_valid_json(hover));
+  ASSERT_TRUE(lsp_response_contains(hover, "type alias"));
+  ASSERT_TRUE(lsp_response_contains(hover, "map{x:number,y:number}"));
+  free(hover);
+
+  // Position over "Point" (not the preceding whitespace) for definition lookup.
+  char *definition = lsp_definition(g_ctx, 1, 27);
+  ASSERT_PTR_NOT_NULL(definition);
+  ASSERT_TRUE(lsp_is_valid_json(definition));
+  ASSERT_TRUE(lsp_response_contains(definition, "\"line\":0"));
+  free(definition);
+}
+
+TEST(lsp_diagnostics_generic_type_mismatch_reported) {
+  const char *code =
+      "let nums to list 1, 2 as list<number>\n"
+      "let nums to list 3, \"bad\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag =
+      lsp_read_diagnostics_with_message("Type mismatch for variable 'nums'", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "expected 'list<number>'"));
+  free(diag);
+}
+
 TEST(lsp_match_statement_diagnostics_and_definition) {
   const char *code =
       "let value to 2\n"
