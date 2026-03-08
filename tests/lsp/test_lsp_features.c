@@ -319,6 +319,130 @@ TEST(lsp_completion_includes_filter_and_map_utilities) {
   free(response);
 }
 
+TEST(lsp_completion_includes_pattern_matching_keywords) {
+  const char *code = "set value to 1\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 4);
+  free(diag);
+
+  char *response = lsp_completion(g_ctx, 0, 0);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"match\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"case\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"default\""));
+  free(response);
+}
+
+TEST(lsp_match_statement_diagnostics_and_definition) {
+  const char *code =
+      "let value to 2\n"
+      "match value:\n"
+      "    case 1:\n"
+      "        print value\n"
+      "    default:\n"
+      "        print value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_FALSE(lsp_response_contains(diag, "Undefined variable 'value'"));
+  free(diag);
+
+  char *hover = lsp_hover(g_ctx, 3, 14);
+  ASSERT_PTR_NOT_NULL(hover);
+  ASSERT_TRUE(lsp_is_valid_json(hover));
+  ASSERT_TRUE(lsp_response_contains(hover, "value"));
+  free(hover);
+
+  char *definition = lsp_definition(g_ctx, 3, 14);
+  ASSERT_PTR_NOT_NULL(definition);
+  ASSERT_TRUE(lsp_is_valid_json(definition));
+  ASSERT_TRUE(lsp_response_contains(definition, "\"line\":0"));
+  free(definition);
+}
+
+TEST(lsp_match_statement_references_include_match_branches) {
+  const char *code =
+      "let value to 2\n"
+      "match value:\n"
+      "    case 1:\n"
+      "        print value\n"
+      "    default:\n"
+      "        print value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *references = lsp_references(g_ctx, 0, 5);
+  ASSERT_PTR_NOT_NULL(references);
+  ASSERT_TRUE(lsp_is_valid_json(references));
+
+  size_t count = 0;
+  const char *needle = "\"uri\":\"file:///test.kr\"";
+  char *cursor = references;
+  while ((cursor = strstr(cursor, needle)) != NULL) {
+    count++;
+    cursor += strlen(needle);
+  }
+
+  ASSERT_INT_EQ((int)count, 5);
+  free(references);
+}
+
+TEST(lsp_match_statement_formatting_indents_case_and_default) {
+  const char *code =
+      "match value:\n"
+      "    case 1:\n"
+      "        print value\n"
+      "        default:\n"
+      "            print 0\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_formatting(g_ctx);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(
+      response,
+      "match value:\\n    case 1:\\n        print value\\n    default:\\n        print 0\\n"));
+  free(response);
+}
+
+TEST(lsp_match_statement_undefined_variable_reported_once) {
+  const char *code =
+      "match 1:\n"
+      "    case 1:\n"
+      "        print missing_value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag =
+      lsp_read_diagnostics_with_message("Undefined variable 'missing_value'", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  size_t count = 0;
+  const char *needle = "Undefined variable 'missing_value'";
+  char *cursor = diag;
+  while ((cursor = strstr(cursor, needle)) != NULL) {
+    count++;
+    cursor += strlen(needle);
+  }
+
+  ASSERT_INT_EQ((int)count, 1);
+  free(diag);
+}
+
 TEST(lsp_diagnostics_list_comprehension_loop_var_is_defined) {
   const char *code =
       "set values to [comp_value times 2 for comp_value in range 1 to 6 if "
