@@ -1,0 +1,5 @@
+# Test: Type alias with map shape mismatch
+# Expected: Error - required field type does not match alias
+
+type Point to map x: number, y: number
+let point to map x: 1, y: "wrong" as Point

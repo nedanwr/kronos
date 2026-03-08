@@ -1,0 +1,22 @@
+# Test: Type system enhancements (generics, unions, aliases)
+# Expected: Pass
+
+type Point to map x: number, y: number
+type Scores to list<number>
+
+let nums to list 1, 2, 3 as list<number>
+let nums to list 4, 5, 6
+
+set score_values to list 10, 20, 30 as Scores
+
+let value to 42 as number or string
+let value to "forty-two"
+
+set origin to map x: 0, y: 0 as Point
+set moved to map x: 10, y: 20, z: 30 as Point
+
+print call len with nums
+print call len with score_values
+print value
+print origin at "x"
+print moved at "y"
