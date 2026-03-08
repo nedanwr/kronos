@@ -31,6 +31,7 @@ void handle_completion(const char *id, const char *body) {
       // Variable declarations
       {"set", "Immutable variable"},
       {"let", "Mutable variable"},
+      {"type", "Declare type alias (type Name to TypeExpr)"},
       {"to", "Assignment operator (set x to 5)"},
       {"as", "Type annotation (as number)"},
       // Control flow
@@ -211,11 +212,17 @@ void handle_completion(const char *id, const char *body) {
       const char *kind_str = "6"; // Variable
       if (sym->type == SYMBOL_FUNCTION)
         kind_str = "12"; // Function
+      else if (sym->type == SYMBOL_TYPE_ALIAS)
+        kind_str = "13"; // Type parameter-ish bucket for aliases
 
       char escaped[LSP_PATTERN_BUFFER_SIZE];
       json_escape(sym->name, escaped, sizeof(escaped));
-      const char *detail =
-          sym->type == SYMBOL_FUNCTION ? "User-defined function" : "Variable";
+      const char *detail = "Variable";
+      if (sym->type == SYMBOL_FUNCTION) {
+        detail = "User-defined function";
+      } else if (sym->type == SYMBOL_TYPE_ALIAS) {
+        detail = "Type alias";
+      }
       char escaped_detail[LSP_PATTERN_BUFFER_SIZE];
       json_escape(detail, escaped_detail, sizeof(escaped_detail));
 

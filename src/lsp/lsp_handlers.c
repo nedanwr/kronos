@@ -323,6 +323,8 @@ void handle_document_symbols(const char *id) {
       kind_str = "12"; // Function
     else if (sym->type == SYMBOL_PARAMETER)
       kind_str = "5"; // Property
+    else if (sym->type == SYMBOL_TYPE_ALIAS)
+      kind_str = "13"; // Type parameter-like
 
     char *escaped_name = malloc(strlen(sym->name) * 2 + 1);
     if (escaped_name) {
@@ -401,6 +403,8 @@ void handle_workspace_symbol(const char *id, const char *body) {
         kind_str = "12"; // Function
       else if (sym->type == SYMBOL_PARAMETER)
         kind_str = "5"; // Property
+      else if (sym->type == SYMBOL_TYPE_ALIAS)
+        kind_str = "13"; // Type parameter-like
 
       char *escaped_name = malloc(strlen(sym->name) * 2 + 1);
       if (escaped_name) {

@@ -734,6 +734,40 @@ Symbol *load_module_exports(const char *file_path) {
         *tail = sym;
         tail = &sym->next;
       }
+    } else if (node->type == AST_TYPE_ALIAS && node->as.type_alias.name) {
+      Symbol *sym = malloc(sizeof(Symbol));
+      if (sym) {
+        sym->name = strdup(node->as.type_alias.name);
+        sym->type = SYMBOL_TYPE_ALIAS;
+        if (source_for_pos) {
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
+          int n = snprintf(pattern, sizeof(pattern), "type %s to", sym->name);
+          if (n >= 0 && (size_t)n < sizeof(pattern)) {
+            find_node_position(node, source_for_pos, pattern, &sym->line,
+                               &sym->column);
+            if (sym->line == 1 && sym->column == 0) {
+              get_node_position(node, &sym->line, &sym->column);
+            }
+          } else {
+            get_node_position(node, &sym->line, &sym->column);
+          }
+        } else {
+          get_node_position(node, &sym->line, &sym->column);
+        }
+        sym->type_name = node->as.type_alias.target_type
+                             ? strdup(node->as.type_alias.target_type)
+                             : NULL;
+        sym->is_mutable = false;
+        sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
+        sym->written = false;
+        sym->read = false;
+        sym->next = NULL;
+        *tail = sym;
+        tail = &sym->next;
+      }
     }
   }
 
@@ -818,6 +852,7 @@ char *get_module_hover_info(ImportedModule *mod) {
     Symbol *sym = mod->exports;
     int func_count = 0;
     int var_count = 0;
+    int alias_count = 0;
     while (sym) {
       if (sym->type == SYMBOL_FUNCTION) {
         func_count++;
@@ -909,10 +944,49 @@ char *get_module_hover_info(ImportedModule *mod) {
             pos += (size_t)ret;
           }
         }
+      } else if (sym->type == SYMBOL_TYPE_ALIAS) {
+        alias_count++;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, "• `%s` (type alias",
+                         sym->name);
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
+          }
+        }
+        if (sym->type_name) {
+          remaining = buffer_size - pos;
+          if (remaining > 0) {
+            ret = snprintf(hover_text + pos, remaining, " -> `%s`",
+                           sym->type_name);
+            if (ret < 0)
+              ret = 0;
+            if ((size_t)ret >= remaining) {
+              pos = buffer_size - 1;
+            } else {
+              pos += (size_t)ret;
+            }
+          }
+        }
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, ")\n");
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
+          }
+        }
       }
       sym = sym->next;
     }
-    if (func_count == 0 && var_count == 0) {
+    if (func_count == 0 && var_count == 0 && alias_count == 0) {
       remaining = buffer_size - pos;
       if (remaining > 0) {
         ret = snprintf(hover_text + pos, remaining, "No exports found\n");
@@ -1133,6 +1207,42 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       if (node->as.function.block && node->as.function.block_size > 0) {
         process_statements_for_symbols(
             node->as.function.block, node->as.function.block_size, tail, head);
+      }
+      break;
+    }
+    case AST_TYPE_ALIAS: {
+      Symbol *existing = head ? *head : NULL;
+      while (existing) {
+        if (existing->name &&
+            strcmp(existing->name, node->as.type_alias.name) == 0 &&
+            existing->type == SYMBOL_TYPE_ALIAS) {
+          break;
+        }
+        existing = existing->next;
+      }
+
+      if (!existing) {
+        sym = malloc(sizeof(Symbol));
+        if (!sym)
+          break;
+        sym->name = strdup(node->as.type_alias.name);
+        sym->type = SYMBOL_TYPE_ALIAS;
+        sym->is_mutable = false;
+        sym->type_name = node->as.type_alias.target_type
+                             ? strdup(node->as.type_alias.target_type)
+                             : NULL;
+        sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
+        sym->written = false;
+        sym->read = false;
+        get_node_position(node, &line, &col);
+        sym->line = line;
+        sym->column = col;
+        sym->next = NULL;
+        **tail = sym;
+        *tail = &sym->next;
       }
       break;
     }

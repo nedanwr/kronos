@@ -29,6 +29,7 @@ typedef enum {
   SYMBOL_VARIABLE,  /**< Variable declaration (set/let) */
   SYMBOL_FUNCTION,  /**< Function definition */
   SYMBOL_PARAMETER, /**< Function parameter */
+  SYMBOL_TYPE_ALIAS, /**< Type alias declaration */
 } SymbolType;
 
 /**
