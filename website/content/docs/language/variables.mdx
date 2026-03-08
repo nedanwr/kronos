@@ -186,6 +186,27 @@ let scores to list 95, 87, 92 as list
 set config to map host: "localhost", port: 8080 as map
 ```
 
+### Generic Type Annotations
+
+```kronos
+let scores to list 95, 87, 92 as list<number>
+let grades to map "alice": 95, "bob": 88 as map<string, number>
+```
+
+### Union Type Annotations
+
+```kronos
+let result to 42 as number or string
+let result to "forty-two"  # Also valid
+```
+
+### Type Aliases
+
+```kronos
+type Point to map x: number, y: number
+set origin to map x: 0, y: 0 as Point
+```
+
 ---
 
 ## Naming Rules
