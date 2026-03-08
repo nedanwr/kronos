@@ -253,6 +253,12 @@ static const char *token_type_name(TokenType type) {
     return "FINALLY";
   case TOK_RAISE:
     return "RAISE";
+  case TOK_MATCH:
+    return "MATCH";
+  case TOK_CASE:
+    return "CASE";
+  case TOK_DEFAULT:
+    return "DEFAULT";
   case TOK_NAME:
     return "NAME";
   case TOK_COLON:
@@ -470,6 +476,7 @@ static ASTNode *parse_continue(Parser *p, int indent);
 static ASTNode *parse_delete(Parser *p, int indent);
 static ASTNode *parse_try(Parser *p, int indent);
 static ASTNode *parse_raise(Parser *p, int indent);
+static ASTNode *parse_match(Parser *p, int indent);
 static ASTNode *parse_lambda(Parser *p);
 
 // Helper functions for parse_try
@@ -480,6 +487,10 @@ static bool try_parse_finally_block(Parser *p, int indent, ASTNode *try_node);
 // Helper functions for parse_if
 static bool if_parse_else_if(Parser *p, int indent, ASTNode *if_node);
 static bool if_parse_else(Parser *p, int indent, ASTNode *if_node);
+
+// Helper functions for parse_match
+static bool match_add_case(ASTNode *node, ASTNode *pattern, ASTNode **block,
+                           size_t block_size);
 
 // Helper functions for parse_for
 static bool for_parse_range_iteration(Parser *p, ASTNode **iterable,
@@ -3054,6 +3065,8 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       stmt = parse_try(p, next_indent);
     } else if (tok->type == TOK_RAISE) {
       stmt = parse_raise(p, next_indent);
+    } else if (tok->type == TOK_MATCH) {
+      stmt = parse_match(p, next_indent);
     }
 
     if (!stmt) {
@@ -3306,6 +3319,174 @@ static ASTNode *parse_if(Parser *p, int indent) {
     } else {
       break; // Not an else/else-if, we're done
     }
+  }
+
+  return node;
+}
+
+static bool match_add_case(ASTNode *node, ASTNode *pattern, ASTNode **block,
+                           size_t block_size) {
+  size_t new_count = node->as.match_stmt.case_count + 1;
+  ASTNode **new_patterns =
+      realloc(node->as.match_stmt.case_patterns, sizeof(ASTNode *) * new_count);
+  ASTNode ***new_blocks =
+      realloc(node->as.match_stmt.case_blocks, sizeof(ASTNode **) * new_count);
+  size_t *new_sizes =
+      realloc(node->as.match_stmt.case_block_sizes, sizeof(size_t) * new_count);
+
+  if (!new_patterns || !new_blocks || !new_sizes) {
+    if (new_patterns) {
+      node->as.match_stmt.case_patterns = new_patterns;
+    }
+    if (new_blocks) {
+      node->as.match_stmt.case_blocks = new_blocks;
+    }
+    if (new_sizes) {
+      node->as.match_stmt.case_block_sizes = new_sizes;
+    }
+    return false;
+  }
+
+  node->as.match_stmt.case_patterns = new_patterns;
+  node->as.match_stmt.case_blocks = new_blocks;
+  node->as.match_stmt.case_block_sizes = new_sizes;
+  node->as.match_stmt.case_patterns[new_count - 1] = pattern;
+  node->as.match_stmt.case_blocks[new_count - 1] = block;
+  node->as.match_stmt.case_block_sizes[new_count - 1] = block_size;
+  node->as.match_stmt.case_count = new_count;
+  return true;
+}
+
+static ASTNode *parse_match(Parser *p, int indent) {
+  Token *start_tok = consume(p, TOK_MATCH);
+  if (!start_tok) {
+    return NULL;
+  }
+
+  ASTNode *value = parse_expression(p);
+  if (!value) {
+    return NULL;
+  }
+
+  if (!consume(p, TOK_COLON) || !consume(p, TOK_NEWLINE)) {
+    ast_node_free(value);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_MATCH);
+  if (!node) {
+    ast_node_free(value);
+    return NULL;
+  }
+  ast_node_set_position(node, start_tok);
+  node->indent = indent;
+  node->as.match_stmt.value = value;
+  node->as.match_stmt.case_patterns = NULL;
+  node->as.match_stmt.case_blocks = NULL;
+  node->as.match_stmt.case_block_sizes = NULL;
+  node->as.match_stmt.case_count = 0;
+  node->as.match_stmt.default_block = NULL;
+  node->as.match_stmt.default_block_size = 0;
+  int branch_indent = -1;
+
+  while (p->pos < p->tokens->count) {
+    Token *tok = peek(p, 0);
+    if (!tok || tok->type != TOK_INDENT || tok->indent_level <= indent) {
+      break;
+    }
+
+    if (branch_indent == -1) {
+      branch_indent = tok->indent_level;
+    }
+    if (tok->indent_level != branch_indent) {
+      break;
+    }
+
+    Token *branch_tok = peek(p, 1);
+    if (!branch_tok) {
+      ast_node_free(node);
+      return NULL;
+    }
+
+    if (branch_tok->type != TOK_CASE && branch_tok->type != TOK_DEFAULT) {
+      break;
+    }
+
+    consume_any(p); // consume branch INDENT
+    branch_tok = peek(p, 0);
+
+    if (branch_tok->type == TOK_CASE) {
+      if (node->as.match_stmt.default_block) {
+        parser_set_error(p, "case blocks cannot appear after default");
+        ast_node_free(node);
+        return NULL;
+      }
+
+      consume_any(p); // consume CASE
+      ASTNode *pattern = parse_expression(p);
+      if (!pattern) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      if (!consume(p, TOK_COLON) || !consume(p, TOK_NEWLINE)) {
+        ast_node_free(pattern);
+        ast_node_free(node);
+        return NULL;
+      }
+
+      size_t block_size = 0;
+      ASTNode **block = parse_block(p, branch_indent, &block_size);
+      if (!block) {
+        ast_node_free(pattern);
+        ast_node_free(node);
+        return NULL;
+      }
+
+      if (!match_add_case(node, pattern, block, block_size)) {
+        parser_set_error(p, "Failed to allocate match case arrays");
+        ast_node_free(pattern);
+        for (size_t i = 0; i < block_size; i++) {
+          ast_node_free(block[i]);
+        }
+        free(block);
+        ast_node_free(node);
+        return NULL;
+      }
+    } else if (branch_tok->type == TOK_DEFAULT) {
+      if (node->as.match_stmt.default_block) {
+        parser_set_error(p, "match statement can only contain one default block");
+        ast_node_free(node);
+        return NULL;
+      }
+
+      consume_any(p); // consume DEFAULT
+      if (!consume(p, TOK_COLON) || !consume(p, TOK_NEWLINE)) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      size_t block_size = 0;
+      ASTNode **block = parse_block(p, branch_indent, &block_size);
+      if (!block) {
+        ast_node_free(node);
+        return NULL;
+      }
+
+      node->as.match_stmt.default_block = block;
+      node->as.match_stmt.default_block_size = block_size;
+    } else {
+      parser_set_error(p, "Expected case or default in match statement");
+      ast_node_free(node);
+      return NULL;
+    }
+  }
+
+  if (node->as.match_stmt.case_count == 0 &&
+      node->as.match_stmt.default_block == NULL) {
+    parser_set_error(p, "match statement requires at least one case or default");
+    ast_node_free(node);
+    return NULL;
   }
 
   return node;
@@ -4547,6 +4728,8 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_try(p, indent);
   case TOK_RAISE:
     return parse_raise(p, indent);
+  case TOK_MATCH:
+    return parse_match(p, indent);
   default:
     return NULL;
   }
@@ -4927,6 +5110,25 @@ void ast_node_free(ASTNode *node) {
     free(node->as.raise_stmt.error_type);
     ast_node_free(node->as.raise_stmt.message);
     break;
+  case AST_MATCH:
+    ast_node_free(node->as.match_stmt.value);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      ast_node_free(node->as.match_stmt.case_patterns[i]);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        ast_node_free(node->as.match_stmt.case_blocks[i][j]);
+      }
+      free(node->as.match_stmt.case_blocks[i]);
+    }
+    free(node->as.match_stmt.case_patterns);
+    free(node->as.match_stmt.case_blocks);
+    free(node->as.match_stmt.case_block_sizes);
+    if (node->as.match_stmt.default_block) {
+      for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+        ast_node_free(node->as.match_stmt.default_block[i]);
+      }
+      free(node->as.match_stmt.default_block);
+    }
+    break;
   case AST_LAMBDA:
     // Free parameters
     for (size_t i = 0; i < node->as.lambda.param_count; i++) {
@@ -5061,6 +5263,8 @@ static const char *ast_node_type_name(ASTNodeType type) {
     return "TRY";
   case AST_RAISE:
     return "RAISE";
+  case AST_MATCH:
+    return "MATCH";
   case AST_TUPLE:
     return "TUPLE";
   case AST_UNPACK_ASSIGN:
@@ -5446,6 +5650,30 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
     }
     printf("\n");
     ast_node_print_recursive(node->as.raise_stmt.message, indent + 1);
+    break;
+  case AST_MATCH:
+    printf("\n");
+    print_indent(indent + 1);
+    printf("value:\n");
+    ast_node_print_recursive(node->as.match_stmt.value, indent + 2);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      print_indent(indent + 1);
+      printf("case:\n");
+      ast_node_print_recursive(node->as.match_stmt.case_patterns[i],
+                               indent + 2);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        ast_node_print_recursive(node->as.match_stmt.case_blocks[i][j],
+                                 indent + 2);
+      }
+    }
+    if (node->as.match_stmt.default_block) {
+      print_indent(indent + 1);
+      printf("default:\n");
+      for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+        ast_node_print_recursive(node->as.match_stmt.default_block[i],
+                                 indent + 2);
+      }
+    }
     break;
   case AST_FSTRING:
     printf(": f\"");

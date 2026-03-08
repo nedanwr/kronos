@@ -90,6 +90,21 @@ static void process_comprehension_symbols_recursive(ASTNode *node,
                                               tail);
     }
     break;
+  case AST_MATCH:
+    process_comprehension_symbols_recursive(node->as.match_stmt.value, tail);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.match_stmt.case_patterns[i], tail);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        process_comprehension_symbols_recursive(
+            node->as.match_stmt.case_blocks[i][j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.match_stmt.default_block[i], tail);
+    }
+    break;
   case AST_FOR:
     process_comprehension_symbols_recursive(node->as.for_stmt.iterable, tail);
     process_comprehension_symbols_recursive(node->as.for_stmt.end, tail);
@@ -265,6 +280,29 @@ static bool node_declares_loop_variable(ASTNode *node, const char *name) {
     }
     for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
       if (node_declares_loop_variable(node->as.if_stmt.else_block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_MATCH:
+    if (node_declares_loop_variable(node->as.match_stmt.value, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      if (node_declares_loop_variable(node->as.match_stmt.case_patterns[i],
+                                      name)) {
+        return true;
+      }
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        if (node_declares_loop_variable(node->as.match_stmt.case_blocks[i][j],
+                                        name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      if (node_declares_loop_variable(node->as.match_stmt.default_block[i],
+                                      name)) {
         return true;
       }
     }
@@ -1152,6 +1190,23 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       }
       break;
     }
+    case AST_MATCH: {
+      for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
+        if (node->as.match_stmt.case_blocks[j] &&
+            node->as.match_stmt.case_block_sizes[j] > 0) {
+          process_statements_for_symbols(node->as.match_stmt.case_blocks[j],
+                                         node->as.match_stmt.case_block_sizes[j],
+                                         tail, head);
+        }
+      }
+      if (node->as.match_stmt.default_block &&
+          node->as.match_stmt.default_block_size > 0) {
+        process_statements_for_symbols(node->as.match_stmt.default_block,
+                                       node->as.match_stmt.default_block_size,
+                                       tail, head);
+      }
+      break;
+    }
     default:
       break;
     }
@@ -1955,6 +2010,12 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     return;
 
   switch (node->type) {
+  case AST_PRINT:
+    if (node->as.print.value) {
+      count_references_in_node_recursive(node->as.print.value, ctx, depth + 1);
+    }
+    break;
+
   case AST_ASSIGN:
     if (node->as.assign.name &&
         strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
@@ -2046,6 +2107,23 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
                                              ctx, depth + 1);
         }
       }
+    }
+    break;
+
+  case AST_MATCH:
+    count_references_in_node_recursive(node->as.match_stmt.value, ctx,
+                                       depth + 1);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      count_references_in_node_recursive(node->as.match_stmt.case_patterns[i],
+                                         ctx, depth + 1);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        count_references_in_node_recursive(node->as.match_stmt.case_blocks[i][j],
+                                           ctx, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      count_references_in_node_recursive(node->as.match_stmt.default_block[i],
+                                         ctx, depth + 1);
     }
     break;
 

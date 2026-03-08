@@ -12,6 +12,23 @@
 
 extern DocumentState *g_doc;
 
+typedef enum {
+  FORMAT_BLOCK_NONE = 0,
+  FORMAT_BLOCK_OTHER,
+  FORMAT_BLOCK_MATCH,
+  FORMAT_BLOCK_MATCH_BRANCH,
+} FormatBlockType;
+
+static bool starts_with_keyword(const char *text, const char *keyword) {
+  size_t len = strlen(keyword);
+  if (strncmp(text, keyword, len) != 0) {
+    return false;
+  }
+
+  char next = text[len];
+  return next == '\0' || isspace((unsigned char)next) || next == ':';
+}
+
 void handle_initialize(const char *id) {
   const char *capabilities =
       "{"
@@ -144,7 +161,8 @@ void handle_formatting(const char *id,
   // and proper spacing around operators
   const char *text = g_doc->text;
   size_t text_len = strlen(text);
-  char *formatted = malloc(text_len * 2 + 1); // Allocate extra space
+  size_t formatted_capacity = text_len * 2 + 1;
+  char *formatted = malloc(formatted_capacity); // Allocate extra space
   if (!formatted) {
     send_response(id, "null");
     return; // No memory allocated, nothing to free
@@ -164,14 +182,18 @@ void handle_formatting(const char *id,
   int indent_level = 0;
   bool at_line_start = true;
   bool last_was_space = false;
+  FormatBlockType current_line_block = FORMAT_BLOCK_NONE;
+  FormatBlockType block_stack[256];
+  size_t block_depth = 0;
 
-  for (size_t i = 0; i < text_len && out_pos < text_len * 2 - 100; i++) {
+  for (size_t i = 0; i < text_len && out_pos < formatted_capacity - 1; i++) {
     char c = text[i];
 
     if (c == '\n') {
       formatted[out_pos++] = '\n';
       at_line_start = true;
       last_was_space = false;
+      current_line_block = FORMAT_BLOCK_NONE;
       continue;
     }
 
@@ -181,9 +203,40 @@ void handle_formatting(const char *id,
         continue;
       }
 
+      bool is_case_or_default = starts_with_keyword(text + i, "case") ||
+                                starts_with_keyword(text + i, "default");
+      bool is_else_like = starts_with_keyword(text + i, "else") ||
+                          starts_with_keyword(text + i, "catch") ||
+                          starts_with_keyword(text + i, "finally");
+
+      if (is_case_or_default) {
+        while (block_depth > 0 &&
+               block_stack[block_depth - 1] != FORMAT_BLOCK_MATCH) {
+          block_depth--;
+          if (indent_level > 0) {
+            indent_level--;
+          }
+        }
+      } else if (is_else_like) {
+        if (indent_level > 0) {
+          indent_level--;
+        }
+        if (block_depth > 0) {
+          block_depth--;
+        }
+      }
+
+      if (starts_with_keyword(text + i, "match")) {
+        current_line_block = FORMAT_BLOCK_MATCH;
+      } else if (is_case_or_default) {
+        current_line_block = FORMAT_BLOCK_MATCH_BRANCH;
+      } else {
+        current_line_block = FORMAT_BLOCK_OTHER;
+      }
+
       // Apply indentation
       int spaces = indent_level * 4;
-      for (int j = 0; j < spaces && out_pos < text_len * 2 - 100; j++) {
+      for (int j = 0; j < spaces && out_pos < formatted_capacity - 1; j++) {
         formatted[out_pos++] = ' ';
       }
       at_line_start = false;
@@ -193,19 +246,13 @@ void handle_formatting(const char *id,
     if (c == ':' && i + 1 < text_len && text[i + 1] == '\n') {
       formatted[out_pos++] = c;
       indent_level++;
+      if (block_depth < sizeof(block_stack) / sizeof(block_stack[0])) {
+        block_stack[block_depth++] = current_line_block == FORMAT_BLOCK_NONE
+                                         ? FORMAT_BLOCK_OTHER
+                                         : current_line_block;
+      }
       last_was_space = false;
       continue;
-    }
-
-    // Decrease indent for certain keywords at start of line
-    if (at_line_start || (out_pos > 0 && formatted[out_pos - 1] == '\n')) {
-      if (strncmp(text + i, "else", 4) == 0 ||
-          strncmp(text + i, "catch", 5) == 0 ||
-          strncmp(text + i, "finally", 7) == 0) {
-        if (indent_level > 0) {
-          indent_level--;
-        }
-      }
     }
 
     // Normalize whitespace
@@ -593,4 +640,3 @@ void handle_semantic_tokens(const char *id) {
   }
   send_response(id, tokens);
 }
-

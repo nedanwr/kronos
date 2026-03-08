@@ -100,6 +100,7 @@ typedef struct {
   size_t to_string_const_idx; /**< Cache for "to_string" constant (SIZE_MAX if
                not created) */
   size_t loop_counter;        /**< Counter for unique iterator variable names */
+  size_t match_counter;       /**< Counter for unique hidden match variables */
 } Compiler;
 
 static inline bool compiler_has_error(const Compiler *c) {
@@ -673,6 +674,7 @@ static void compile_raise_statement(Compiler *c, const ASTNode *node);
 static void compile_call_statement(Compiler *c, const ASTNode *node);
 static void compile_import_statement(Compiler *c, const ASTNode *node);
 static void compile_if_statement(Compiler *c, const ASTNode *node);
+static void compile_match_statement(Compiler *c, const ASTNode *node);
 static void compile_while_statement(Compiler *c, const ASTNode *node);
 static void compile_for_statement(Compiler *c, const ASTNode *node);
 static void compile_function_statement(Compiler *c, const ASTNode *node);
@@ -2308,6 +2310,160 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
   free(skip_jumps);
 }
 
+static void compile_match_statement(Compiler *c, const ASTNode *node) {
+  char temp_name[64];
+  int name_len = snprintf(temp_name, sizeof(temp_name), "__match_tmp_%zu",
+                          c->match_counter++);
+  if (name_len < 0 || (size_t)name_len >= sizeof(temp_name)) {
+    compiler_set_error(c, "Failed to create hidden match variable name");
+    return;
+  }
+
+  compile_expression(c, node->as.match_stmt.value);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  KronosValue *hidden_name = value_new_string(temp_name, (size_t)name_len);
+  size_t hidden_name_idx = add_constant(c, hidden_name);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  if (hidden_name_idx == SIZE_MAX) {
+    compiler_set_error(c, "Failed to add hidden match variable name");
+    return;
+  }
+  if (hidden_name_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)hidden_name_idx);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, 1); // mutable hidden variable for repeated execution
+  emit_byte(c, 0); // no type annotation
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t *skip_jumps = NULL;
+  size_t skip_count = 0;
+  size_t skip_capacity = 0;
+  size_t pending_false_jump = SIZE_MAX;
+
+  for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+    size_t case_start = c->bytecode->count;
+    if (pending_false_jump != SIZE_MAX) {
+      int16_t offset = (int16_t)(case_start - (pending_false_jump + 2));
+      if (offset < INT16_MIN || offset > INT16_MAX) {
+        compiler_set_error(c, "Jump offset too large in match statement");
+        free(skip_jumps);
+        return;
+      }
+      patch_jump_offset(c, pending_false_jump, offset);
+    }
+
+    emit_byte(c, OP_LOAD_VAR);
+    emit_uint16(c, (uint16_t)hidden_name_idx);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+    compile_expression(c, node->as.match_stmt.case_patterns[i]);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+    emit_byte(c, OP_EQ);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    pending_false_jump = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+      compile_statement(c, node->as.match_stmt.case_blocks[i][j]);
+      if (compiler_has_error(c)) {
+        free(skip_jumps);
+        return;
+      }
+    }
+
+    size_t skip_jump = emit_jump_with_offset(c, OP_JUMP);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    if (skip_count >= skip_capacity) {
+      size_t new_capacity =
+          skip_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY : skip_capacity * 2;
+      size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
+      if (!new_skips) {
+        compiler_set_error(c, "Failed to allocate match skip jumps array");
+        free(skip_jumps);
+        return;
+      }
+      skip_jumps = new_skips;
+      skip_capacity = new_capacity;
+    }
+    skip_jumps[skip_count++] = skip_jump;
+  }
+
+  size_t default_start = c->bytecode->count;
+  if (pending_false_jump != SIZE_MAX) {
+    int16_t offset = (int16_t)(default_start - (pending_false_jump + 2));
+    if (offset < INT16_MIN || offset > INT16_MAX) {
+      compiler_set_error(c, "Jump offset too large in match statement");
+      free(skip_jumps);
+      return;
+    }
+    patch_jump_offset(c, pending_false_jump, offset);
+  }
+
+  if (node->as.match_stmt.default_block) {
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      compile_statement(c, node->as.match_stmt.default_block[i]);
+      if (compiler_has_error(c)) {
+        free(skip_jumps);
+        return;
+      }
+    }
+  }
+
+  size_t end_pos = c->bytecode->count;
+  for (size_t i = 0; i < skip_count; i++) {
+    int16_t offset = (int16_t)(end_pos - (skip_jumps[i] + 2));
+    if (offset < INT16_MIN || offset > INT16_MAX) {
+      compiler_set_error(c, "Jump offset too large in match statement");
+      free(skip_jumps);
+      return;
+    }
+    patch_jump_offset(c, skip_jumps[i], offset);
+  }
+
+  free(skip_jumps);
+
+  // Clear the hidden match variable to release any retained reference.
+  KronosValue *nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)hidden_name_idx);
+  emit_byte(c, 1); // mutable hidden variable
+  emit_byte(c, 0); // no type annotation
+}
+
 /**
  * @brief Compile a for loop statement (range or list iteration)
  */
@@ -3201,6 +3357,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
 
   case AST_IF:
     compile_if_statement(c, node);
+    break;
+
+  case AST_MATCH:
+    compile_match_statement(c, node);
     break;
 
   case AST_FOR:

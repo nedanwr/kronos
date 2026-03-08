@@ -209,6 +209,32 @@ TEST(vm_execute_function) {
   vm_free(vm);
 }
 
+TEST(vm_execute_match_statement_repeated_in_loop) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let counter to 0\n"
+      "while counter is less than 2:\n"
+      "    match counter:\n"
+      "        case 0:\n"
+      "            print \"zero\"\n"
+      "        default:\n"
+      "            print \"other\"\n"
+      "    let counter to counter plus 1");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+
+  KronosValue *counter = vm_get_global(vm, "counter");
+  ASSERT_PTR_NOT_NULL(counter);
+  ASSERT_INT_EQ(counter->type, VAL_NUMBER);
+  ASSERT_DOUBLE_EQ(counter->as.number, 2.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_builtin_filter_basic) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);

@@ -35,6 +35,9 @@ void handle_completion(const char *id, const char *body) {
       {"as", "Type annotation (as number)"},
       // Control flow
       {"if", "Conditional statement"},
+      {"match", "Pattern matching statement"},
+      {"case", "Pattern matching branch"},
+      {"default", "Fallback match branch"},
       {"else", "Else clause"},
       {"else if", "Else-if clause"},
       {"for", "For loop"},

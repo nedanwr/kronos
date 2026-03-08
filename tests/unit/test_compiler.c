@@ -106,6 +106,38 @@ TEST(compile_if_statement) {
   ast_free(ast);
 }
 
+TEST(compile_match_statement) {
+  AST *ast = parse_string(
+      "match value:\n"
+      "    case 1:\n"
+      "        print \"one\"\n"
+      "    default:\n"
+      "        print \"other\"");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_eq = false;
+  bool has_jump_if_false = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_EQ) {
+      has_eq = true;
+    }
+    if (bytecode->code[i] == OP_JUMP_IF_FALSE) {
+      has_jump_if_false = true;
+    }
+  }
+
+  ASSERT_TRUE(has_eq);
+  ASSERT_TRUE(has_jump_if_false);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
 TEST(compile_function_definition) {
   AST *ast = parse_string("function add with x, y:\n    return x plus y");
   ASSERT_PTR_NOT_NULL(ast);
