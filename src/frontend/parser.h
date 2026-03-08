@@ -34,6 +34,7 @@ typedef enum {
   AST_DELETE,       // Map key deletion: delete var at key
   AST_TRY,          // Try/catch/finally exception handling
   AST_RAISE,        // Raise exception: raise ErrorType "message"
+  AST_MATCH,        // Match statement: match expr: case pattern: ...
   AST_LAMBDA,       // Anonymous function expression
   AST_TUPLE,        // Tuple expression: a, b, c
   AST_UNPACK_ASSIGN, // Destructuring assignment: set x, y to expr
@@ -162,6 +163,17 @@ struct ASTNode {
           *error_type; // Error type name (e.g., "ValueError"), NULL for generic
       ASTNode *message; // Error message expression
     } raise_stmt;
+
+    // Match statement: match value: case pattern: ... default: ...
+    struct {
+      ASTNode *value;
+      ASTNode **case_patterns;
+      ASTNode ***case_blocks;
+      size_t *case_block_sizes;
+      size_t case_count;
+      ASTNode **default_block;
+      size_t default_block_size;
+    } match_stmt;
 
     // Functions
     struct {
