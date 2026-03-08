@@ -244,6 +244,90 @@ TEST(value_is_type) {
   value_release(nil);
 }
 
+TEST(value_is_type_union) {
+  KronosValue *num = value_new_number(10);
+  KronosValue *str = value_new_string("hello", 5);
+  KronosValue *bool_val = value_new_bool(true);
+
+  ASSERT_TRUE(value_is_type(num, "number or string"));
+  ASSERT_TRUE(value_is_type(str, "number or string"));
+  ASSERT_FALSE(value_is_type(bool_val, "number or string"));
+  ASSERT_TRUE(value_is_type(bool_val, "boolean or number"));
+
+  value_release(num);
+  value_release(str);
+  value_release(bool_val);
+}
+
+TEST(value_is_type_generic_list) {
+  KronosValue *list = value_new_list(2);
+  KronosValue *n1 = value_new_number(1);
+  KronosValue *n2 = value_new_number(2);
+  ASSERT_PTR_NOT_NULL(list);
+  ASSERT_PTR_NOT_NULL(n1);
+  ASSERT_PTR_NOT_NULL(n2);
+
+  value_retain(n1);
+  list->as.list.items[list->as.list.count++] = n1;
+  value_retain(n2);
+  list->as.list.items[list->as.list.count++] = n2;
+
+  ASSERT_TRUE(value_is_type(list, "list<number>"));
+  ASSERT_TRUE(value_is_type(list, "list<number or string>"));
+  ASSERT_FALSE(value_is_type(list, "list<string>"));
+
+  value_release(list);
+  value_release(n1);
+  value_release(n2);
+}
+
+TEST(value_is_type_generic_map) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *k1 = value_new_string("x", 1);
+  KronosValue *v1 = value_new_number(1);
+  KronosValue *k2 = value_new_string("y", 1);
+  KronosValue *v2 = value_new_number(2);
+  ASSERT_PTR_NOT_NULL(map);
+  ASSERT_INT_EQ(map_set(map, k1, v1), 0);
+  ASSERT_INT_EQ(map_set(map, k2, v2), 0);
+
+  ASSERT_TRUE(value_is_type(map, "map<string, number>"));
+  ASSERT_FALSE(value_is_type(map, "map<number, number>"));
+  ASSERT_TRUE(value_is_type(map, "map<string, number or string>"));
+
+  value_release(map);
+  value_release(k1);
+  value_release(v1);
+  value_release(k2);
+  value_release(v2);
+}
+
+TEST(value_is_type_map_shape) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *kx = value_new_string("x", 1);
+  KronosValue *ky = value_new_string("y", 1);
+  KronosValue *kextra = value_new_string("z", 1);
+  KronosValue *vx = value_new_number(1);
+  KronosValue *vy = value_new_number(2);
+  KronosValue *vextra = value_new_number(3);
+  ASSERT_PTR_NOT_NULL(map);
+  ASSERT_INT_EQ(map_set(map, kx, vx), 0);
+  ASSERT_INT_EQ(map_set(map, ky, vy), 0);
+  ASSERT_INT_EQ(map_set(map, kextra, vextra), 0);
+
+  ASSERT_TRUE(value_is_type(map, "map{x:number,y:number}"));
+  ASSERT_FALSE(value_is_type(map, "map{x:number,y:string}"));
+  ASSERT_FALSE(value_is_type(map, "map{x:number,missing:number}"));
+
+  value_release(map);
+  value_release(kx);
+  value_release(ky);
+  value_release(kextra);
+  value_release(vx);
+  value_release(vy);
+  value_release(vextra);
+}
+
 TEST(value_new_list) {
   KronosValue *list = value_new_list(0);
   ASSERT_PTR_NOT_NULL(list);

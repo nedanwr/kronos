@@ -8,7 +8,7 @@ A high-performance programming language built in C with human-readable syntax, f
 
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
-- **Optional Type Annotations**: Enforce types with the `as` keyword
+- **Optional Type Annotations**: Enforce primitive, generic, union, and alias types with `as`
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
 - **Lists & Arrays**: Keyword and bracket list literals, list comprehensions, indexing, slicing, and iteration
@@ -88,6 +88,11 @@ let counter to counter plus 1  # Can reassign
 # Type annotations
 let age to 25 as number
 set name to "Alice" as string
+let scores to list 95, 87, 92 as list<number>
+let value to 42 as number or string
+
+type Point to map x: number, y: number
+set origin to map x: 0, y: 0 as Point
 
 # Data types
 set isActive to true

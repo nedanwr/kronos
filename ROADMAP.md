@@ -290,11 +290,11 @@ This document outlines the planned features and release schedule for Kronos.
   - `case` branches are checked top to bottom
   - `default` is optional, but must appear last when present
 
-- **Type System Enhancements**
+- ✅ **Type System Enhancements** - Generic/union/alias support (completed)
 
-  - Generic types: `list<number>`, `map<string, number>`
-  - Type aliases: `type Point to map x: number, y: number`
-  - Multi-type support: `as number or string`
+  - ✅ Generic types: `list<number>`, `map<string, number>`
+  - ✅ Type aliases: `type Point to map x: number, y: number`
+  - ✅ Multi-type support: `as number or string`
 
 - **Debugging Support**
 

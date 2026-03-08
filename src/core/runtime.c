@@ -15,6 +15,7 @@
 
 #include "runtime.h"
 #include "gc.h"
+#include <ctype.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -1706,69 +1707,413 @@ KronosValue *string_intern(const char *str, size_t len) {
   return value_new_string(str, len);
 }
 
-/**
- * @brief Check if a value matches a type name
- *
- * Used for type annotations and type checking. Supports:
- * - "number" for VAL_NUMBER
- * - "string" for VAL_STRING
- * - "boolean" for VAL_BOOL
- * - "null" for VAL_NIL
- *
- * @param val Value to check
- * @param type_name Type name string (e.g., "number", "string")
- * @return true if value matches the type, false otherwise
- */
-bool value_is_type(KronosValue *val, const char *type_name) {
-  if (!val || !type_name)
-    return false;
+#define TYPE_MATCH_MAX_DEPTH 64
 
-  // Optimize by checking first character and length before strcmp
-  // This eliminates most comparisons quickly without needing full string
-  // comparison
-  char first = type_name[0];
-  size_t len = strlen(type_name);
-
-  switch (first) {
-  case 'b':
-    if (len == 7 && strcmp(type_name, "boolean") == 0)
-      return val->type == VAL_BOOL;
-    break;
-  case 'c':
-    if (len == 7 && strcmp(type_name, "channel") == 0)
-      return val->type == VAL_CHANNEL;
-    break;
-  case 'f':
-    if (len == 8 && strcmp(type_name, "function") == 0)
-      return val->type == VAL_FUNCTION;
-    break;
-  case 'l':
-    if (len == 4 && strcmp(type_name, "list") == 0)
-      return val->type == VAL_LIST;
-    break;
-  case 'm':
-    if (len == 3 && strcmp(type_name, "map") == 0)
-      return val->type == VAL_MAP;
-    break;
-  case 'n':
-    if (len == 6 && strcmp(type_name, "number") == 0)
-      return val->type == VAL_NUMBER;
-    else if (len == 4 && strcmp(type_name, "null") == 0)
-      return val->type == VAL_NIL;
-    break;
-  case 'r':
-    if (len == 5 && strcmp(type_name, "range") == 0)
-      return val->type == VAL_RANGE;
-    break;
-  case 's':
-    if (len == 6 && strcmp(type_name, "string") == 0)
-      return val->type == VAL_STRING;
-    break;
-  case 't':
-    if (len == 5 && strcmp(type_name, "tuple") == 0)
-      return val->type == VAL_TUPLE;
-    break;
+static char *type_trim_dup(const char *s, size_t len) {
+  if (!s) {
+    return NULL;
   }
 
+  size_t start = 0;
+  while (start < len && isspace((unsigned char)s[start])) {
+    start++;
+  }
+
+  size_t end = len;
+  while (end > start && isspace((unsigned char)s[end - 1])) {
+    end--;
+  }
+
+  size_t out_len = end - start;
+  char *out = malloc(out_len + 1);
+  if (!out) {
+    return NULL;
+  }
+  memcpy(out, s + start, out_len);
+  out[out_len] = '\0';
+  return out;
+}
+
+static bool parse_generic_inner(const char *type_name, const char *base,
+                                char **inner_out) {
+  if (!type_name || !base || !inner_out) {
+    return false;
+  }
+  *inner_out = NULL;
+
+  size_t base_len = strlen(base);
+  size_t type_len = strlen(type_name);
+  if (type_len <= base_len + 2) {
+    return false;
+  }
+  if (strncmp(type_name, base, base_len) != 0 || type_name[base_len] != '<') {
+    return false;
+  }
+
+  int depth = 1;
+  size_t close_idx = SIZE_MAX;
+  for (size_t i = base_len + 1; i < type_len; i++) {
+    char c = type_name[i];
+    if (c == '<') {
+      depth++;
+    } else if (c == '>') {
+      depth--;
+      if (depth == 0) {
+        close_idx = i;
+        break;
+      }
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+
+  if (close_idx == SIZE_MAX || close_idx != type_len - 1) {
+    return false;
+  }
+
+  *inner_out =
+      type_trim_dup(type_name + base_len + 1, close_idx - (base_len + 1));
+  return *inner_out != NULL;
+}
+
+static bool find_top_level_char(const char *s, char target, size_t *idx_out) {
+  if (!s) {
+    return false;
+  }
+
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t len = strlen(s);
+  for (size_t i = 0; i < len; i++) {
+    char c = s[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (c == target && angle_depth == 0 && brace_depth == 0) {
+      if (idx_out) {
+        *idx_out = i;
+      }
+      return true;
+    }
+  }
   return false;
+}
+
+static bool value_is_base_type(KronosValue *val, const char *type_name) {
+  if (!val || !type_name) {
+    return false;
+  }
+
+  if (strcmp(type_name, "number") == 0) {
+    return val->type == VAL_NUMBER;
+  }
+  if (strcmp(type_name, "string") == 0) {
+    return val->type == VAL_STRING;
+  }
+  if (strcmp(type_name, "boolean") == 0 || strcmp(type_name, "bool") == 0) {
+    return val->type == VAL_BOOL;
+  }
+  if (strcmp(type_name, "null") == 0) {
+    return val->type == VAL_NIL;
+  }
+  if (strcmp(type_name, "list") == 0) {
+    return val->type == VAL_LIST;
+  }
+  if (strcmp(type_name, "map") == 0) {
+    return val->type == VAL_MAP;
+  }
+  if (strcmp(type_name, "range") == 0) {
+    return val->type == VAL_RANGE;
+  }
+  if (strcmp(type_name, "tuple") == 0) {
+    return val->type == VAL_TUPLE;
+  }
+  if (strcmp(type_name, "function") == 0) {
+    return val->type == VAL_FUNCTION;
+  }
+  if (strcmp(type_name, "channel") == 0) {
+    return val->type == VAL_CHANNEL;
+  }
+  return false;
+}
+
+static bool value_is_type_expr(KronosValue *val, const char *type_name,
+                               int depth) {
+  if (!val || !type_name || depth > TYPE_MATCH_MAX_DEPTH) {
+    return false;
+  }
+
+  char *trimmed = type_trim_dup(type_name, strlen(type_name));
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed[0] == '\0') {
+    free(trimmed);
+    return false;
+  }
+
+  // Top-level union support: "number or string".
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t segment_start = 0;
+  bool saw_union = false;
+  size_t len = strlen(trimmed);
+  for (size_t i = 0; i < len; i++) {
+    char c = trimmed[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+
+    if (angle_depth == 0 && brace_depth == 0 && c == 'o' && i + 1 < len &&
+        trimmed[i + 1] == 'r' &&
+        (i == 0 || isspace((unsigned char)trimmed[i - 1])) &&
+        (i + 2 >= len || isspace((unsigned char)trimmed[i + 2]))) {
+      saw_union = true;
+      char *segment = type_trim_dup(trimmed + segment_start, i - segment_start);
+      if (!segment) {
+        free(trimmed);
+        return false;
+      }
+      bool matches = value_is_type_expr(val, segment, depth + 1);
+      free(segment);
+      if (matches) {
+        free(trimmed);
+        return true;
+      }
+
+      // Skip to next non-whitespace after "or"
+      i += 2;
+      while (i < len && isspace((unsigned char)trimmed[i])) {
+        i++;
+      }
+      if (i > 0) {
+        segment_start = i;
+        i--;
+      } else {
+        segment_start = i;
+      }
+    }
+  }
+
+  if (saw_union) {
+    char *segment =
+        type_trim_dup(trimmed + segment_start, len - segment_start);
+    if (!segment) {
+      free(trimmed);
+      return false;
+    }
+    bool matches = value_is_type_expr(val, segment, depth + 1);
+    free(segment);
+    free(trimmed);
+    return matches;
+  }
+
+  // Generic list<T>.
+  char *inner = NULL;
+  if (parse_generic_inner(trimmed, "list", &inner)) {
+    bool ok = true;
+    if (val->type != VAL_LIST) {
+      ok = false;
+    } else if (find_top_level_char(inner, ',', NULL)) {
+      ok = false;
+    } else {
+      for (size_t i = 0; i < val->as.list.count; i++) {
+        if (!value_is_type_expr(val->as.list.items[i], inner, depth + 1)) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    free(inner);
+    free(trimmed);
+    return ok;
+  }
+
+  // Generic map<K, V>.
+  if (parse_generic_inner(trimmed, "map", &inner)) {
+    bool ok = true;
+    if (val->type != VAL_MAP) {
+      ok = false;
+    } else {
+      size_t comma_idx = 0;
+      if (!find_top_level_char(inner, ',', &comma_idx)) {
+        ok = false;
+      } else {
+        char *key_type = type_trim_dup(inner, comma_idx);
+        char *value_type = type_trim_dup(inner + comma_idx + 1,
+                                         strlen(inner) - comma_idx - 1);
+        if (!key_type || !value_type || key_type[0] == '\0' ||
+            value_type[0] == '\0') {
+          ok = false;
+        } else if (find_top_level_char(value_type, ',', NULL)) {
+          // map<K,V> only supports two top-level arguments.
+          ok = false;
+        } else {
+          MapEntry *entries = (MapEntry *)val->as.map.entries;
+          for (size_t i = 0; i < val->as.map.capacity; i++) {
+            if (!entries[i].key || entries[i].is_tombstone) {
+              continue;
+            }
+            if (!value_is_type_expr(entries[i].key, key_type, depth + 1) ||
+                !value_is_type_expr(entries[i].value, value_type, depth + 1)) {
+              ok = false;
+              break;
+            }
+          }
+        }
+        free(key_type);
+        free(value_type);
+      }
+    }
+    free(inner);
+    free(trimmed);
+    return ok;
+  }
+
+  // Structural map shape: map{x:number,y:number}.
+  size_t trimmed_len = strlen(trimmed);
+  if (trimmed_len >= 5 && strncmp(trimmed, "map{", 4) == 0 &&
+      trimmed[trimmed_len - 1] == '}') {
+    if (val->type != VAL_MAP) {
+      free(trimmed);
+      return false;
+    }
+
+    char *fields = type_trim_dup(trimmed + 4, trimmed_len - 5);
+    if (!fields) {
+      free(trimmed);
+      return false;
+    }
+    if (fields[0] == '\0') {
+      free(fields);
+      free(trimmed);
+      return true;
+    }
+
+    bool ok = true;
+    size_t fields_len = strlen(fields);
+    size_t field_start = 0;
+    int inner_angle_depth = 0;
+    int inner_brace_depth = 0;
+
+    for (size_t i = 0; i <= fields_len; i++) {
+      char c = (i < fields_len) ? fields[i] : ',';
+      if (i < fields_len) {
+        if (c == '<') {
+          inner_angle_depth++;
+          continue;
+        }
+        if (c == '>') {
+          inner_angle_depth--;
+          continue;
+        }
+        if (c == '{') {
+          inner_brace_depth++;
+          continue;
+        }
+        if (c == '}') {
+          inner_brace_depth--;
+          continue;
+        }
+      }
+
+      if (c == ',' && inner_angle_depth == 0 && inner_brace_depth == 0) {
+        char *field =
+            type_trim_dup(fields + field_start, i - field_start);
+        if (!field || field[0] == '\0') {
+          free(field);
+          ok = false;
+          break;
+        }
+
+        size_t colon_idx = 0;
+        if (!find_top_level_char(field, ':', &colon_idx)) {
+          free(field);
+          ok = false;
+          break;
+        }
+
+        char *field_name = type_trim_dup(field, colon_idx);
+        char *field_type = type_trim_dup(field + colon_idx + 1,
+                                         strlen(field) - colon_idx - 1);
+        free(field);
+
+        if (!field_name || !field_type || field_name[0] == '\0' ||
+            field_type[0] == '\0') {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+
+        KronosValue *key = value_new_string(field_name, strlen(field_name));
+        if (!key) {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+        KronosValue *field_value = map_get(val, key);
+        value_release(key);
+
+        if (!field_value ||
+            !value_is_type_expr(field_value, field_type, depth + 1)) {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+
+        free(field_name);
+        free(field_type);
+        field_start = i + 1;
+      }
+    }
+
+    free(fields);
+    free(trimmed);
+    return ok;
+  }
+
+  bool result = value_is_base_type(val, trimmed);
+  free(trimmed);
+  return result;
+}
+
+/**
+ * @brief Check if a value matches a type expression.
+ *
+ * Supports primitive names (`number`, `string`, ...), unions
+ * (`number or string`), generics (`list<number>`, `map<string, number>`), and
+ * structural map shapes (`map{x:number,y:number}`).
+ */
+bool value_is_type(KronosValue *val, const char *type_name) {
+  return value_is_type_expr(val, type_name, 0);
 }

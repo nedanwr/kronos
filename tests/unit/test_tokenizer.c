@@ -564,6 +564,28 @@ TEST(tokenize_assignment_statement) {
   token_array_free(tokens);
 }
 
+TEST(tokenize_generic_type_delimiters) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set xs to list 1 as list<number>", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  bool found_langle = false;
+  bool found_rangle = false;
+  for (size_t i = 0; i < tokens->count; i++) {
+    if (tokens->tokens[i].type == TOK_LANGLE) {
+      found_langle = true;
+    } else if (tokens->tokens[i].type == TOK_RANGLE) {
+      found_rangle = true;
+    }
+  }
+
+  ASSERT_TRUE(found_langle);
+  ASSERT_TRUE(found_rangle);
+  token_array_free(tokens);
+}
+
 /**
  * @brief Test tokenization of newlines
  *

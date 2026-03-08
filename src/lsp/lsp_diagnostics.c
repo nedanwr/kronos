@@ -37,6 +37,34 @@ typedef struct {
 // Maximum recursion depth for type inference to prevent stack overflow
 #define MAX_TYPE_INFER_DEPTH 32
 
+static ExprType expr_type_from_annotation(const char *type_name) {
+  if (!type_name) {
+    return TYPE_UNKNOWN;
+  }
+  if (strcmp(type_name, "number") == 0) {
+    return TYPE_NUMBER;
+  }
+  if (strcmp(type_name, "string") == 0) {
+    return TYPE_STRING;
+  }
+  if (strcmp(type_name, "boolean") == 0 || strcmp(type_name, "bool") == 0) {
+    return TYPE_BOOL;
+  }
+  if (strcmp(type_name, "null") == 0) {
+    return TYPE_NULL;
+  }
+  if (strcmp(type_name, "range") == 0) {
+    return TYPE_RANGE;
+  }
+  if (strncmp(type_name, "list", 4) == 0) {
+    return TYPE_LIST;
+  }
+  if (strncmp(type_name, "map", 3) == 0) {
+    return TYPE_MAP;
+  }
+  return TYPE_UNKNOWN;
+}
+
 // Internal recursive version with depth tracking
 static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
                                     int depth) {
@@ -65,16 +93,10 @@ static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
   case AST_VAR: {
     Symbol *sym = find_symbol(node->as.var_name);
     if (sym && sym->type_name) {
-      if (strcmp(sym->type_name, "number") == 0)
-        return TYPE_NUMBER;
-      if (strcmp(sym->type_name, "string") == 0)
-        return TYPE_STRING;
-      if (strcmp(sym->type_name, "list") == 0)
-        return TYPE_LIST;
-      if (strcmp(sym->type_name, "map") == 0)
-        return TYPE_MAP;
-      if (strcmp(sym->type_name, "bool") == 0)
-        return TYPE_BOOL;
+      ExprType annotated = expr_type_from_annotation(sym->type_name);
+      if (annotated != TYPE_UNKNOWN) {
+        return annotated;
+      }
     }
     // If no explicit type annotation, try to infer from assigned value
     if (ast) {
@@ -150,6 +172,642 @@ static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
 // Public API wrapper - starts recursion with depth 0
 ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
   return infer_type_internal(node, symbols, ast, 0);
+}
+
+#define LSP_TYPE_MATCH_MAX_DEPTH 32
+
+static char *lsp_trim_dup(const char *s, size_t len) {
+  if (!s) {
+    return NULL;
+  }
+  size_t start = 0;
+  while (start < len && isspace((unsigned char)s[start])) {
+    start++;
+  }
+  size_t end = len;
+  while (end > start && isspace((unsigned char)s[end - 1])) {
+    end--;
+  }
+  size_t out_len = end - start;
+  char *out = malloc(out_len + 1);
+  if (!out) {
+    return NULL;
+  }
+  memcpy(out, s + start, out_len);
+  out[out_len] = '\0';
+  return out;
+}
+
+static bool lsp_find_top_level_char(const char *s, char target,
+                                    size_t *idx_out) {
+  if (!s) {
+    return false;
+  }
+
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t len = strlen(s);
+  for (size_t i = 0; i < len; i++) {
+    char c = s[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (c == target && angle_depth == 0 && brace_depth == 0) {
+      if (idx_out) {
+        *idx_out = i;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool lsp_parse_generic_inner(const char *type_name, const char *base,
+                                    char **inner_out) {
+  if (!type_name || !base || !inner_out) {
+    return false;
+  }
+  *inner_out = NULL;
+
+  size_t base_len = strlen(base);
+  size_t type_len = strlen(type_name);
+  if (type_len <= base_len + 2) {
+    return false;
+  }
+  if (strncmp(type_name, base, base_len) != 0 || type_name[base_len] != '<') {
+    return false;
+  }
+
+  int depth = 1;
+  size_t close_idx = SIZE_MAX;
+  for (size_t i = base_len + 1; i < type_len; i++) {
+    char c = type_name[i];
+    if (c == '<') {
+      depth++;
+    } else if (c == '>') {
+      depth--;
+      if (depth == 0) {
+        close_idx = i;
+        break;
+      }
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+
+  if (close_idx == SIZE_MAX || close_idx != type_len - 1) {
+    return false;
+  }
+
+  *inner_out =
+      lsp_trim_dup(type_name + base_len + 1, close_idx - (base_len + 1));
+  return *inner_out != NULL;
+}
+
+static bool lsp_type_annotations_compatible(const char *expected,
+                                            const char *actual, int depth);
+
+static bool lsp_try_union_compat(const char *container, const char *other,
+                                 bool container_is_expected, int depth) {
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t start = 0;
+  size_t len = strlen(container);
+  bool saw_union = false;
+
+  for (size_t i = 0; i < len; i++) {
+    char c = container[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (angle_depth == 0 && brace_depth == 0 && c == 'o' && i + 1 < len &&
+        container[i + 1] == 'r' &&
+        (i == 0 || isspace((unsigned char)container[i - 1])) &&
+        (i + 2 >= len || isspace((unsigned char)container[i + 2]))) {
+      saw_union = true;
+      char *segment = lsp_trim_dup(container + start, i - start);
+      if (!segment) {
+        return false;
+      }
+      bool ok = container_is_expected
+                    ? lsp_type_annotations_compatible(segment, other, depth + 1)
+                    : lsp_type_annotations_compatible(other, segment, depth + 1);
+      free(segment);
+
+      if (container_is_expected) {
+        if (ok) {
+          return true;
+        }
+      } else if (!ok) {
+        return false;
+      }
+
+      i += 2;
+      while (i < len && isspace((unsigned char)container[i])) {
+        i++;
+      }
+      if (i > 0) {
+        start = i;
+        i--;
+      } else {
+        start = i;
+      }
+    }
+  }
+
+  if (!saw_union) {
+    return false;
+  }
+
+  char *segment = lsp_trim_dup(container + start, len - start);
+  if (!segment) {
+    return false;
+  }
+  bool final_ok = container_is_expected
+                      ? lsp_type_annotations_compatible(segment, other, depth + 1)
+                      : lsp_type_annotations_compatible(other, segment, depth + 1);
+  free(segment);
+  return container_is_expected ? final_ok : final_ok;
+}
+
+static bool lsp_type_annotations_compatible(const char *expected,
+                                            const char *actual, int depth) {
+  if (!expected || !actual || depth > LSP_TYPE_MATCH_MAX_DEPTH) {
+    return false;
+  }
+
+  char *exp = lsp_trim_dup(expected, strlen(expected));
+  char *act = lsp_trim_dup(actual, strlen(actual));
+  if (!exp || !act) {
+    free(exp);
+    free(act);
+    return false;
+  }
+
+  if (strcmp(exp, act) == 0) {
+    free(exp);
+    free(act);
+    return true;
+  }
+
+  if ((strcmp(exp, "bool") == 0 && strcmp(act, "boolean") == 0) ||
+      (strcmp(exp, "boolean") == 0 && strcmp(act, "bool") == 0)) {
+    free(exp);
+    free(act);
+    return true;
+  }
+
+  if (lsp_try_union_compat(exp, act, true, depth)) {
+    free(exp);
+    free(act);
+    return true;
+  }
+
+  bool actual_union = false;
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t start = 0;
+  size_t len = strlen(act);
+  for (size_t i = 0; i < len; i++) {
+    char c = act[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (angle_depth == 0 && brace_depth == 0 && c == 'o' && i + 1 < len &&
+        act[i + 1] == 'r' &&
+        (i == 0 || isspace((unsigned char)act[i - 1])) &&
+        (i + 2 >= len || isspace((unsigned char)act[i + 2]))) {
+      actual_union = true;
+      char *segment = lsp_trim_dup(act + start, i - start);
+      if (!segment) {
+        free(exp);
+        free(act);
+        return false;
+      }
+      bool ok = lsp_type_annotations_compatible(exp, segment, depth + 1);
+      free(segment);
+      if (!ok) {
+        free(exp);
+        free(act);
+        return false;
+      }
+      i += 2;
+      while (i < len && isspace((unsigned char)act[i])) {
+        i++;
+      }
+      if (i > 0) {
+        start = i;
+        i--;
+      } else {
+        start = i;
+      }
+    }
+  }
+  if (actual_union) {
+    char *segment = lsp_trim_dup(act + start, len - start);
+    if (!segment) {
+      free(exp);
+      free(act);
+      return false;
+    }
+    bool ok = lsp_type_annotations_compatible(exp, segment, depth + 1);
+    free(segment);
+    free(exp);
+    free(act);
+    return ok;
+  }
+
+  // Generic list compatibility.
+  char *exp_inner = NULL;
+  char *act_inner = NULL;
+  if (lsp_parse_generic_inner(exp, "list", &exp_inner) &&
+      lsp_parse_generic_inner(act, "list", &act_inner)) {
+    bool ok = lsp_type_annotations_compatible(exp_inner, act_inner, depth + 1);
+    free(exp_inner);
+    free(act_inner);
+    free(exp);
+    free(act);
+    return ok;
+  }
+  free(exp_inner);
+  free(act_inner);
+
+  if (strcmp(exp, "list") == 0 && strncmp(act, "list<", 5) == 0) {
+    free(exp);
+    free(act);
+    return true;
+  }
+  if (strcmp(exp, "map") == 0 &&
+      (strncmp(act, "map<", 4) == 0 || strncmp(act, "map{", 4) == 0)) {
+    free(exp);
+    free(act);
+    return true;
+  }
+
+  // Generic map compatibility.
+  exp_inner = NULL;
+  act_inner = NULL;
+  if (lsp_parse_generic_inner(exp, "map", &exp_inner) &&
+      lsp_parse_generic_inner(act, "map", &act_inner)) {
+    size_t exp_comma = 0;
+    size_t act_comma = 0;
+    bool ok = false;
+    if (lsp_find_top_level_char(exp_inner, ',', &exp_comma) &&
+        lsp_find_top_level_char(act_inner, ',', &act_comma)) {
+      char *exp_key = lsp_trim_dup(exp_inner, exp_comma);
+      char *exp_val = lsp_trim_dup(exp_inner + exp_comma + 1,
+                                   strlen(exp_inner) - exp_comma - 1);
+      char *act_key = lsp_trim_dup(act_inner, act_comma);
+      char *act_val = lsp_trim_dup(act_inner + act_comma + 1,
+                                   strlen(act_inner) - act_comma - 1);
+      if (exp_key && exp_val && act_key && act_val) {
+        ok = lsp_type_annotations_compatible(exp_key, act_key, depth + 1) &&
+             lsp_type_annotations_compatible(exp_val, act_val, depth + 1);
+      }
+      free(exp_key);
+      free(exp_val);
+      free(act_key);
+      free(act_val);
+    }
+    free(exp_inner);
+    free(act_inner);
+    free(exp);
+    free(act);
+    return ok;
+  }
+  free(exp_inner);
+  free(act_inner);
+
+  free(exp);
+  free(act);
+  return false;
+}
+
+static bool lsp_expr_matches_type(ASTNode *node, const char *expected_type,
+                                  Symbol *symbols, AST *ast, int depth) {
+  (void)symbols;
+  if (!node || !expected_type || depth > LSP_TYPE_MATCH_MAX_DEPTH) {
+    return false;
+  }
+
+  char *expected = lsp_trim_dup(expected_type, strlen(expected_type));
+  if (!expected) {
+    return false;
+  }
+
+  // Union type support.
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t start = 0;
+  size_t len = strlen(expected);
+  bool saw_union = false;
+  for (size_t i = 0; i < len; i++) {
+    char c = expected[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (angle_depth == 0 && brace_depth == 0 && c == 'o' && i + 1 < len &&
+        expected[i + 1] == 'r' &&
+        (i == 0 || isspace((unsigned char)expected[i - 1])) &&
+        (i + 2 >= len || isspace((unsigned char)expected[i + 2]))) {
+      saw_union = true;
+      char *segment = lsp_trim_dup(expected + start, i - start);
+      if (!segment) {
+        free(expected);
+        return false;
+      }
+      bool ok = lsp_expr_matches_type(node, segment, symbols, ast, depth + 1);
+      free(segment);
+      if (ok) {
+        free(expected);
+        return true;
+      }
+      i += 2;
+      while (i < len && isspace((unsigned char)expected[i])) {
+        i++;
+      }
+      if (i > 0) {
+        start = i;
+        i--;
+      } else {
+        start = i;
+      }
+    }
+  }
+  if (saw_union) {
+    char *segment = lsp_trim_dup(expected + start, len - start);
+    bool ok =
+        segment && lsp_expr_matches_type(node, segment, symbols, ast, depth + 1);
+    free(segment);
+    free(expected);
+    return ok;
+  }
+
+  if (node->type == AST_VAR) {
+    Symbol *sym = find_symbol(node->as.var_name);
+    if (!sym || !sym->type_name) {
+      free(expected);
+      return true; // Unknown variable type; avoid false-positive diagnostics.
+    }
+    bool ok = lsp_type_annotations_compatible(expected, sym->type_name, depth + 1);
+    free(expected);
+    return ok;
+  }
+
+  char *inner = NULL;
+  if (lsp_parse_generic_inner(expected, "list", &inner)) {
+    bool ok = false;
+    if (node->type == AST_LIST) {
+      ok = true;
+      for (size_t i = 0; i < node->as.list.element_count; i++) {
+        if (!lsp_expr_matches_type(node->as.list.elements[i], inner, symbols,
+                                   ast, depth + 1)) {
+          ok = false;
+          break;
+        }
+      }
+    } else if (node->type == AST_LIST_COMPREHENSION) {
+      ok = lsp_expr_matches_type(node->as.list_comprehension.element_expr, inner,
+                                 symbols, ast, depth + 1);
+    }
+    free(inner);
+    free(expected);
+    return ok;
+  }
+
+  if (lsp_parse_generic_inner(expected, "map", &inner)) {
+    bool ok = false;
+    if (node->type == AST_MAP) {
+      size_t comma_idx = 0;
+      if (lsp_find_top_level_char(inner, ',', &comma_idx)) {
+        char *key_type = lsp_trim_dup(inner, comma_idx);
+        char *value_type =
+            lsp_trim_dup(inner + comma_idx + 1, strlen(inner) - comma_idx - 1);
+        if (key_type && value_type) {
+          ok = true;
+          for (size_t i = 0; i < node->as.map.entry_count; i++) {
+            if (!lsp_expr_matches_type(node->as.map.keys[i], key_type, symbols,
+                                       ast, depth + 1) ||
+                !lsp_expr_matches_type(node->as.map.values[i], value_type,
+                                       symbols, ast, depth + 1)) {
+              ok = false;
+              break;
+            }
+          }
+        }
+        free(key_type);
+        free(value_type);
+      }
+    }
+    free(inner);
+    free(expected);
+    return ok;
+  }
+
+  size_t expected_len = strlen(expected);
+  if (expected_len >= 5 && strncmp(expected, "map{", 4) == 0 &&
+      expected[expected_len - 1] == '}') {
+    if (node->type != AST_MAP) {
+      free(expected);
+      return false;
+    }
+    char *fields = lsp_trim_dup(expected + 4, expected_len - 5);
+    if (!fields) {
+      free(expected);
+      return false;
+    }
+    if (fields[0] == '\0') {
+      free(fields);
+      free(expected);
+      return true;
+    }
+
+    bool ok = true;
+    size_t fields_len = strlen(fields);
+    size_t field_start = 0;
+    int inner_angle = 0;
+    int inner_brace = 0;
+    for (size_t i = 0; i <= fields_len; i++) {
+      char c = (i < fields_len) ? fields[i] : ',';
+      if (i < fields_len) {
+        if (c == '<') {
+          inner_angle++;
+          continue;
+        }
+        if (c == '>') {
+          inner_angle--;
+          continue;
+        }
+        if (c == '{') {
+          inner_brace++;
+          continue;
+        }
+        if (c == '}') {
+          inner_brace--;
+          continue;
+        }
+      }
+      if (c == ',' && inner_angle == 0 && inner_brace == 0) {
+        char *field = lsp_trim_dup(fields + field_start, i - field_start);
+        size_t colon_idx = 0;
+        if (!field || !lsp_find_top_level_char(field, ':', &colon_idx)) {
+          free(field);
+          ok = false;
+          break;
+        }
+        char *field_name = lsp_trim_dup(field, colon_idx);
+        char *field_type =
+            lsp_trim_dup(field + colon_idx + 1, strlen(field) - colon_idx - 1);
+        free(field);
+        if (!field_name || !field_type || field_name[0] == '\0' ||
+            field_type[0] == '\0') {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+
+        bool found = false;
+        for (size_t m = 0; m < node->as.map.entry_count; m++) {
+          ASTNode *key = node->as.map.keys[m];
+          if (key && key->type == AST_STRING && key->as.string.value &&
+              strcmp(key->as.string.value, field_name) == 0) {
+            found = true;
+            if (!lsp_expr_matches_type(node->as.map.values[m], field_type,
+                                       symbols, ast, depth + 1)) {
+              ok = false;
+            }
+            break;
+          }
+        }
+        free(field_name);
+        free(field_type);
+        if (!found || !ok) {
+          ok = false;
+          break;
+        }
+        field_start = i + 1;
+      }
+    }
+    free(fields);
+    free(expected);
+    return ok;
+  }
+
+  ExprType inferred = infer_type_with_ast(node, symbols, ast);
+  ExprType expected_expr = expr_type_from_annotation(expected);
+  bool ok = false;
+  if (expected_expr != TYPE_UNKNOWN) {
+    ok = inferred == expected_expr;
+  }
+  free(expected);
+  return ok;
+}
+
+static char *lsp_describe_expr_type(ASTNode *node, Symbol *symbols, AST *ast) {
+  if (!node) {
+    return strdup("unknown");
+  }
+  if (node->type == AST_VAR) {
+    Symbol *sym = find_symbol(node->as.var_name);
+    if (sym && sym->type_name) {
+      return strdup(sym->type_name);
+    }
+  }
+
+  switch (node->type) {
+  case AST_NUMBER:
+    return strdup("number");
+  case AST_STRING:
+  case AST_FSTRING:
+    return strdup("string");
+  case AST_BOOL:
+    return strdup("boolean");
+  case AST_NULL:
+    return strdup("null");
+  case AST_LIST:
+  case AST_LIST_COMPREHENSION:
+    return strdup("list");
+  case AST_MAP:
+    return strdup("map");
+  case AST_RANGE:
+    return strdup("range");
+  default:
+    break;
+  }
+
+  ExprType inferred = infer_type_with_ast(node, symbols, ast);
+  switch (inferred) {
+  case TYPE_NUMBER:
+    return strdup("number");
+  case TYPE_STRING:
+    return strdup("string");
+  case TYPE_LIST:
+    return strdup("list");
+  case TYPE_MAP:
+    return strdup("map");
+  case TYPE_RANGE:
+    return strdup("range");
+  case TYPE_BOOL:
+    return strdup("boolean");
+  case TYPE_NULL:
+    return strdup("null");
+  default:
+    return strdup("unknown");
+  }
 }
 
 void check_function_calls(AST *ast, const char *text, Symbol *symbols,
@@ -1254,44 +1912,11 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         if (found && node->as.assign.value) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name) {
-            // Variable has an explicit type annotation - check if the new value
-            // matches
             const char *expected_type = sym->type_name;
-            const char *actual_type = NULL;
+            bool matches = lsp_expr_matches_type(node->as.assign.value,
+                                                 expected_type, symbols, ast, 0);
 
-            // Infer type from the assigned value
-            switch (node->as.assign.value->type) {
-            case AST_NUMBER:
-              actual_type = "number";
-              break;
-            case AST_STRING:
-            case AST_FSTRING:
-              actual_type = "string";
-              break;
-            case AST_BOOL:
-              actual_type = "bool";
-              break;
-            case AST_LIST:
-              actual_type = "list";
-              break;
-            case AST_NULL:
-              actual_type = "null";
-              break;
-            case AST_VAR: {
-              // For variables, try to infer from symbol table
-              Symbol *val_sym = find_symbol(node->as.assign.value->as.var_name);
-              if (val_sym && val_sym->type_name) {
-                actual_type = val_sym->type_name;
-              }
-              break;
-            }
-            default:
-              // Unknown type - skip check
-              break;
-            }
-
-            // If we have both expected and actual types, check for mismatch
-            if (actual_type && strcmp(expected_type, actual_type) != 0) {
+            if (!matches) {
               // Find the position of the problematic value (not the entire
               // assignment) Since we're processing AST nodes in order, we can
               // find all assignments of this variable and use the current
@@ -1335,11 +1960,16 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                 value_length = strlen(node->as.assign.name);
               }
 
+              char *actual_type_name =
+                  lsp_describe_expr_type(node->as.assign.value, symbols, ast);
+              if (!actual_type_name) {
+                actual_type_name = strdup("unknown");
+              }
+
               char escaped_msg[LSP_ERROR_MSG_SIZE];
-              snprintf(
-                  escaped_msg, sizeof(escaped_msg),
-                  "Type mismatch for variable '%s': expected '%s', got '%s'",
-                  node->as.assign.name, expected_type, actual_type);
+              snprintf(escaped_msg, sizeof(escaped_msg),
+                       "Type mismatch for variable '%s': expected '%s', got '%s'",
+                       node->as.assign.name, expected_type, actual_type_name);
               char escaped_msg_final[LSP_ERROR_MSG_SIZE];
               json_escape(escaped_msg, escaped_msg_final,
                           sizeof(escaped_msg_final));
@@ -1354,6 +1984,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                   *has_diagnostics ? "," : "", line - 1, col, line - 1,
                   col + value_length, escaped_msg_final);
               *has_diagnostics = true;
+              free(actual_type_name);
             }
           }
         }

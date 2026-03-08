@@ -80,3 +80,14 @@ Attempting to assign a different type will result in an error:
 let age to 25 as number
 let age to "twenty"  # Error: Type mismatch
 ```
+
+Kronos also supports richer type expressions:
+
+```kronos
+let nums to list 1, 2, 3 as list<number>
+let labels to map "id": "abc" as map<string, string>
+let value to 10 as number or string
+
+type Point to map x: number, y: number
+set p to map x: 1, y: 2 as Point
+```

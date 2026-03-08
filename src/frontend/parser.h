@@ -38,6 +38,7 @@ typedef enum {
   AST_LAMBDA,       // Anonymous function expression
   AST_TUPLE,        // Tuple expression: a, b, c
   AST_UNPACK_ASSIGN, // Destructuring assignment: set x, y to expr
+  AST_TYPE_ALIAS,   // Type alias declaration: type Name to ...
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -96,6 +97,12 @@ struct ASTNode {
       bool is_mutable; // true for 'let', false for 'set'
       char *type_name; // Optional type annotation (NULL if not specified)
     } assign;
+
+    // Type alias: type Name to TypeExpr
+    struct {
+      char *name;
+      char *target_type;
+    } type_alias;
 
     // Print statement
     struct {

@@ -1757,6 +1757,13 @@ int vm_set_global(KronosVM *vm, const char *name, KronosValue *value,
                      GLOBALS_MAX);
   }
 
+  // Validate initial assignment against declared type.
+  if (type_name != NULL && !value_is_type(value, type_name)) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Type mismatch for variable '%s': expected '%s'", name,
+                     type_name);
+  }
+
   // Allocate into temporary pointers first, check each for NULL
   char *name_copy = strdup(name);
   if (!name_copy) {
@@ -1871,6 +1878,13 @@ int vm_set_local(KronosVM *vm, CallFrame *frame, const char *name,
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
                      "Maximum number of local variables exceeded (%d allowed)",
                      LOCALS_MAX);
+  }
+
+  // Validate initial assignment against declared type.
+  if (type_name != NULL && !value_is_type(value, type_name)) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Type mismatch for local variable '%s': expected '%s'",
+                     name, type_name);
   }
 
   // Allocate into temporary pointers first, check each for NULL

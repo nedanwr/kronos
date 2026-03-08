@@ -231,6 +231,8 @@ void handle_hover(const char *id, const char *body) {
     type_str = "function";
   else if (sym->type == SYMBOL_PARAMETER)
     type_str = "parameter";
+  else if (sym->type == SYMBOL_TYPE_ALIAS)
+    type_str = "type alias";
 
   char *escaped_name = malloc(strlen(sym->name) * 2 + 1);
   if (!escaped_name) {
@@ -296,6 +298,24 @@ void handle_hover(const char *id, const char *body) {
                "\n*Accepts %zu to %zu argument%s*",
                sym->required_param_count, sym->param_count,
                sym->param_count == 1 ? "" : "s");
+    }
+  } else if (sym->type == SYMBOL_TYPE_ALIAS) {
+    if (sym->type_name) {
+      char *escaped_type = malloc(strlen(sym->type_name) * 2 + 1);
+      if (escaped_type) {
+        json_escape(sym->type_name, escaped_type,
+                    strlen(sym->type_name) * 2 + 1);
+        snprintf(hover_text, sizeof(hover_text),
+                 "**type alias** `%s`\n\nResolves to: `%s`", escaped_name,
+                 escaped_type);
+        free(escaped_type);
+      } else {
+        snprintf(hover_text, sizeof(hover_text), "**type alias** `%s`",
+                 escaped_name);
+      }
+    } else {
+      snprintf(hover_text, sizeof(hover_text), "**type alias** `%s`",
+               escaped_name);
     }
   } else if (sym->type_name) {
     char *escaped_type = malloc(strlen(sym->type_name) * 2 + 1);

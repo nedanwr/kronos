@@ -103,6 +103,10 @@ typedef struct {
                              protection */
   ParseError **error_out; /**< Optional pointer to error output (for structured
                              errors) */
+  char **type_alias_names;   /**< Type alias names declared in the document */
+  char **type_alias_targets; /**< Canonical alias targets (same index as names) */
+  size_t type_alias_count;
+  size_t type_alias_capacity;
 } Parser;
 
 // Forward declarations
@@ -128,6 +132,10 @@ static Parser *parser_new(TokenArray *tokens, ParseError **error_out) {
   p->pos = 0;
   p->recursion_depth = 0;
   p->error_out = error_out;
+  p->type_alias_names = NULL;
+  p->type_alias_targets = NULL;
+  p->type_alias_count = 0;
+  p->type_alias_capacity = 0;
   return p;
 }
 
@@ -141,6 +149,12 @@ static Parser *parser_new(TokenArray *tokens, ParseError **error_out) {
  */
 static void parser_free(Parser *p) {
   if (p) {
+    for (size_t i = 0; i < p->type_alias_count; i++) {
+      free(p->type_alias_names[i]);
+      free(p->type_alias_targets[i]);
+    }
+    free(p->type_alias_names);
+    free(p->type_alias_targets);
     free(p);
   }
 }
@@ -273,6 +287,10 @@ static const char *token_type_name(TokenType type) {
     return "LBRACKET";
   case TOK_RBRACKET:
     return "RBRACKET";
+  case TOK_LANGLE:
+    return "LANGLE";
+  case TOK_RANGLE:
+    return "RANGLE";
   case TOK_NEWLINE:
     return "NEWLINE";
   case TOK_INDENT:
@@ -478,6 +496,7 @@ static ASTNode *parse_try(Parser *p, int indent);
 static ASTNode *parse_raise(Parser *p, int indent);
 static ASTNode *parse_match(Parser *p, int indent);
 static ASTNode *parse_lambda(Parser *p);
+static ASTNode *parse_type_alias(Parser *p, int indent);
 
 // Helper functions for parse_try
 static bool try_parse_catch_block(Parser *p, int indent, ASTNode *try_node,
@@ -519,6 +538,7 @@ static bool token_starts_expression(const Token *tok);
 static ASTNode *assignment_parse_index(Parser *p, int indent, Token *name);
 static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
                                          bool is_mutable, Token *start_tok);
+static char *parse_type_expression(Parser *p);
 
 // Result structure for extended parameter parsing
 typedef struct {
@@ -656,7 +676,16 @@ static ASTNode *fstring_parse_expression(const char *content, size_t expr_start,
   }
 
   // Create a temporary parser for the expression
-  Parser expr_parser = {expr_tokens, 0, 0, NULL};
+  Parser expr_parser = {
+      .tokens = expr_tokens,
+      .pos = 0,
+      .recursion_depth = 0,
+      .error_out = NULL,
+      .type_alias_names = NULL,
+      .type_alias_targets = NULL,
+      .type_alias_count = 0,
+      .type_alias_capacity = 0,
+  };
 
   // Skip INDENT token if present (tokenizer adds it for each line)
   if (expr_parser.pos < expr_tokens->count &&
@@ -2205,6 +2234,418 @@ static ASTNode *parse_condition(Parser *p) {
   return parse_expression(p);
 }
 
+static const char *parser_find_type_alias(const Parser *p, const char *name) {
+  if (!p || !name) {
+    return NULL;
+  }
+  for (size_t i = 0; i < p->type_alias_count; i++) {
+    if (p->type_alias_names[i] &&
+        strcmp(p->type_alias_names[i], name) == 0) {
+      return p->type_alias_targets[i];
+    }
+  }
+  return NULL;
+}
+
+static bool parser_is_reserved_type_name(const char *name) {
+  if (!name) {
+    return true;
+  }
+  return strcmp(name, "number") == 0 || strcmp(name, "string") == 0 ||
+         strcmp(name, "boolean") == 0 || strcmp(name, "bool") == 0 ||
+         strcmp(name, "null") == 0 || strcmp(name, "list") == 0 ||
+         strcmp(name, "map") == 0 || strcmp(name, "range") == 0 ||
+         strcmp(name, "tuple") == 0 || strcmp(name, "function") == 0 ||
+         strcmp(name, "channel") == 0;
+}
+
+static bool parser_add_type_alias(Parser *p, const char *name,
+                                  const char *target_type) {
+  if (!p || !name || !target_type) {
+    return false;
+  }
+
+  if (parser_is_reserved_type_name(name)) {
+    parser_set_error(p, "Type alias name cannot shadow built-in type names");
+    return false;
+  }
+
+  if (parser_find_type_alias(p, name) != NULL) {
+    parser_set_error(p, "Type alias already defined");
+    return false;
+  }
+
+  if (p->type_alias_count >= p->type_alias_capacity) {
+    size_t new_capacity = p->type_alias_capacity == 0 ? 8 : p->type_alias_capacity * 2;
+    char **new_names =
+        realloc(p->type_alias_names, sizeof(char *) * new_capacity);
+    if (!new_names) {
+      parser_set_error(p, "Failed to allocate type alias table");
+      return false;
+    }
+    p->type_alias_names = new_names;
+
+    char **new_targets =
+        realloc(p->type_alias_targets, sizeof(char *) * new_capacity);
+    if (!new_targets) {
+      parser_set_error(p, "Failed to allocate type alias table");
+      return false;
+    }
+    p->type_alias_targets = new_targets;
+    p->type_alias_capacity = new_capacity;
+  }
+
+  char *name_copy = strdup(name);
+  char *target_copy = strdup(target_type);
+  if (!name_copy || !target_copy) {
+    free(name_copy);
+    free(target_copy);
+    parser_set_error(p, "Failed to allocate type alias");
+    return false;
+  }
+
+  p->type_alias_names[p->type_alias_count] = name_copy;
+  p->type_alias_targets[p->type_alias_count] = target_copy;
+  p->type_alias_count++;
+  return true;
+}
+
+static bool type_builder_append(char **buf, size_t *len, size_t *cap,
+                                const char *text) {
+  if (!buf || !len || !cap || !text) {
+    return false;
+  }
+
+  size_t add_len = strlen(text);
+  if (*len + add_len + 1 > *cap) {
+    size_t new_cap = *cap == 0 ? 64 : *cap;
+    while (*len + add_len + 1 > new_cap) {
+      new_cap *= 2;
+    }
+    char *new_buf = realloc(*buf, new_cap);
+    if (!new_buf) {
+      return false;
+    }
+    *buf = new_buf;
+    *cap = new_cap;
+  }
+
+  memcpy(*buf + *len, text, add_len);
+  *len += add_len;
+  (*buf)[*len] = '\0';
+  return true;
+}
+
+static bool token_is_type_identifier(const Token *tok) {
+  if (!tok) {
+    return false;
+  }
+
+  switch (tok->type) {
+  case TOK_NAME:
+  case TOK_LIST:
+  case TOK_MAP:
+  case TOK_RANGE:
+  case TOK_FUNCTION:
+  case TOK_NULL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static const char *token_type_identifier_text(const Token *tok) {
+  if (!tok) {
+    return NULL;
+  }
+
+  switch (tok->type) {
+  case TOK_NAME:
+    return tok->text;
+  case TOK_LIST:
+    return "list";
+  case TOK_MAP:
+    return "map";
+  case TOK_RANGE:
+    return "range";
+  case TOK_FUNCTION:
+    return "function";
+  case TOK_NULL:
+    return "null";
+  default:
+    return NULL;
+  }
+}
+
+static char *parse_type_primary(Parser *p) {
+  Token *tok = peek(p, 0);
+  if (!tok || !token_is_type_identifier(tok)) {
+    parser_set_error(p, "Expected type name in type annotation");
+    return NULL;
+  }
+
+  // Special shape syntax for map aliases:
+  // type Point to map x: number, y: number
+  if (tok->type == TOK_MAP) {
+    consume_any(p); // consume "map"
+
+    Token *next = peek(p, 0);
+    Token *next2 = peek(p, 1);
+    bool is_shape =
+        next && next2 && next->type == TOK_NAME && next2->type == TOK_COLON;
+    if (is_shape) {
+      char *buf = NULL;
+      size_t len = 0, cap = 0;
+      if (!type_builder_append(&buf, &len, &cap, "map{")) {
+        free(buf);
+        parser_set_error(p, "Failed to allocate map type shape");
+        return NULL;
+      }
+
+      bool first_field = true;
+      while (true) {
+        Token *field_tok = consume(p, TOK_NAME);
+        if (!field_tok) {
+          free(buf);
+          return NULL;
+        }
+        if (!consume(p, TOK_COLON)) {
+          free(buf);
+          return NULL;
+        }
+
+        char *field_type = parse_type_expression(p);
+        if (!field_type) {
+          free(buf);
+          return NULL;
+        }
+
+        if (!first_field &&
+            !type_builder_append(&buf, &len, &cap, ",")) {
+          free(buf);
+          free(field_type);
+          parser_set_error(p, "Failed to allocate map type shape");
+          return NULL;
+        }
+        first_field = false;
+
+        if (!type_builder_append(&buf, &len, &cap, field_tok->text) ||
+            !type_builder_append(&buf, &len, &cap, ":") ||
+            !type_builder_append(&buf, &len, &cap, field_type)) {
+          free(buf);
+          free(field_type);
+          parser_set_error(p, "Failed to allocate map type shape");
+          return NULL;
+        }
+        free(field_type);
+
+        Token *comma = peek(p, 0);
+        if (!comma || comma->type != TOK_COMMA) {
+          break;
+        }
+        consume_any(p);
+      }
+
+      if (!type_builder_append(&buf, &len, &cap, "}")) {
+        free(buf);
+        parser_set_error(p, "Failed to allocate map type shape");
+        return NULL;
+      }
+
+      return buf;
+    }
+
+    // Parse generic map<K, V> if present.
+    next = peek(p, 0);
+    if (next && next->type == TOK_LANGLE) {
+      consume_any(p); // consume '<'
+
+      char *key_type = parse_type_expression(p);
+      if (!key_type) {
+        return NULL;
+      }
+
+      if (!consume(p, TOK_COMMA)) {
+        free(key_type);
+        return NULL;
+      }
+
+      char *value_type = parse_type_expression(p);
+      if (!value_type) {
+        free(key_type);
+        return NULL;
+      }
+
+      if (!consume(p, TOK_RANGLE)) {
+        free(key_type);
+        free(value_type);
+        return NULL;
+      }
+
+      size_t out_len = strlen("map<,>") + strlen(key_type) + strlen(value_type) + 1;
+      char *out = malloc(out_len);
+      if (!out) {
+        free(key_type);
+        free(value_type);
+        parser_set_error(p, "Failed to allocate generic map type");
+        return NULL;
+      }
+      snprintf(out, out_len, "map<%s,%s>", key_type, value_type);
+      free(key_type);
+      free(value_type);
+      return out;
+    }
+
+    return strdup("map");
+  }
+
+  consume_any(p);
+  const char *base_text = token_type_identifier_text(tok);
+  if (!base_text) {
+    parser_set_error(p, "Expected type name in type annotation");
+    return NULL;
+  }
+
+  // Parse generic list<T> and generic forms for named types.
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_LANGLE) {
+    consume_any(p); // consume '<'
+
+    char **generic_args = NULL;
+    size_t arg_count = 0;
+    size_t arg_cap = 0;
+
+    while (true) {
+      char *arg = parse_type_expression(p);
+      if (!arg) {
+        for (size_t i = 0; i < arg_count; i++) {
+          free(generic_args[i]);
+        }
+        free(generic_args);
+        return NULL;
+      }
+
+      if (arg_count >= arg_cap) {
+        size_t new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+        char **new_args = realloc(generic_args, sizeof(char *) * new_cap);
+        if (!new_args) {
+          for (size_t i = 0; i < arg_count; i++) {
+            free(generic_args[i]);
+          }
+          free(generic_args);
+          free(arg);
+          parser_set_error(p, "Failed to allocate generic type arguments");
+          return NULL;
+        }
+        generic_args = new_args;
+        arg_cap = new_cap;
+      }
+      generic_args[arg_count++] = arg;
+
+      Token *comma = peek(p, 0);
+      if (!comma || comma->type != TOK_COMMA) {
+        break;
+      }
+      consume_any(p);
+    }
+
+    if (!consume(p, TOK_RANGLE)) {
+      for (size_t i = 0; i < arg_count; i++) {
+        free(generic_args[i]);
+      }
+      free(generic_args);
+      return NULL;
+    }
+
+    if (strcmp(base_text, "list") == 0 && arg_count != 1) {
+      for (size_t i = 0; i < arg_count; i++) {
+        free(generic_args[i]);
+      }
+      free(generic_args);
+      parser_set_error(p, "Generic list type requires exactly one type argument");
+      return NULL;
+    }
+    if (strcmp(base_text, "map") == 0 && arg_count != 2) {
+      for (size_t i = 0; i < arg_count; i++) {
+        free(generic_args[i]);
+      }
+      free(generic_args);
+      parser_set_error(p, "Generic map type requires exactly two type arguments");
+      return NULL;
+    }
+
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    bool ok = type_builder_append(&buf, &len, &cap, base_text) &&
+              type_builder_append(&buf, &len, &cap, "<");
+    for (size_t i = 0; ok && i < arg_count; i++) {
+      if (i > 0) {
+        ok = type_builder_append(&buf, &len, &cap, ",");
+      }
+      if (ok) {
+        ok = type_builder_append(&buf, &len, &cap, generic_args[i]);
+      }
+    }
+    if (ok) {
+      ok = type_builder_append(&buf, &len, &cap, ">");
+    }
+
+    for (size_t i = 0; i < arg_count; i++) {
+      free(generic_args[i]);
+    }
+    free(generic_args);
+
+    if (!ok) {
+      free(buf);
+      parser_set_error(p, "Failed to allocate generic type annotation");
+      return NULL;
+    }
+    return buf;
+  }
+
+  if (tok->type == TOK_NAME) {
+    const char *alias_target = parser_find_type_alias(p, base_text);
+    if (alias_target) {
+      return strdup(alias_target);
+    }
+  }
+
+  return strdup(base_text);
+}
+
+static char *parse_type_expression(Parser *p) {
+  char *left = parse_type_primary(p);
+  if (!left) {
+    return NULL;
+  }
+
+  while (peek(p, 0) && peek(p, 0)->type == TOK_OR) {
+    consume_any(p); // consume 'or'
+
+    char *right = parse_type_primary(p);
+    if (!right) {
+      free(left);
+      return NULL;
+    }
+
+    size_t out_len =
+        strlen(left) + strlen(" or ") + strlen(right) + 1;
+    char *combined = malloc(out_len);
+    if (!combined) {
+      free(left);
+      free(right);
+      parser_set_error(p, "Failed to allocate union type annotation");
+      return NULL;
+    }
+    snprintf(combined, out_len, "%s or %s", left, right);
+    free(left);
+    free(right);
+    left = combined;
+  }
+
+  return left;
+}
+
 /**
  * @brief Parse an index assignment
  *
@@ -2300,15 +2741,8 @@ static ASTNode *assignment_parse_regular(Parser *p, int indent, Token *name,
   Token *next = peek(p, 0);
   if (next && next->type == TOK_AS) {
     consume(p, TOK_AS);
-    Token *type_tok = consume(p, TOK_NAME);
-    if (!type_tok) {
-      ast_node_free(value);
-      return NULL;
-    }
-    type_name = strdup(type_tok->text);
+    type_name = parse_type_expression(p);
     if (!type_name) {
-      fprintf(stderr,
-              "Memory allocation failed for assignment type annotation\n");
       ast_node_free(value);
       return NULL;
     }
@@ -4613,6 +5047,73 @@ static ASTNode *parse_import(Parser *p, int indent) {
 }
 
 /**
+ * @brief Parse a type alias declaration
+ *
+ * Parses: type AliasName to TypeExpression
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for type alias declaration, or NULL on error
+ */
+static ASTNode *parse_type_alias(Parser *p, int indent) {
+  Token *start_tok = peek(p, 0);
+  if (!start_tok || start_tok->type != TOK_NAME ||
+      strcmp(start_tok->text, "type") != 0) {
+    return NULL;
+  }
+
+  consume_any(p); // consume "type"
+
+  Token *alias_name_tok = consume(p, TOK_NAME);
+  if (!alias_name_tok) {
+    return NULL;
+  }
+
+  if (!consume(p, TOK_TO)) {
+    return NULL;
+  }
+
+  char *target_type = parse_type_expression(p);
+  if (!target_type) {
+    return NULL;
+  }
+
+  Token *next = peek(p, 0);
+  if (next && next->type == TOK_NEWLINE) {
+    consume_any(p);
+  } else if (!(next && (next->type == TOK_INDENT || next->type == TOK_EOF))) {
+    free(target_type);
+    parser_set_error(p, "Expected newline after type alias declaration");
+    return NULL;
+  }
+
+  if (!parser_add_type_alias(p, alias_name_tok->text, target_type)) {
+    free(target_type);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_TYPE_ALIAS);
+  if (!node) {
+    free(target_type);
+    return NULL;
+  }
+  ast_node_set_position(node, start_tok);
+  node->indent = indent;
+  node->as.type_alias.name = strdup(alias_name_tok->text);
+  node->as.type_alias.target_type = target_type;
+
+  if (!node->as.type_alias.name || !node->as.type_alias.target_type) {
+    free(node->as.type_alias.name);
+    free(node->as.type_alias.target_type);
+    free(node);
+    parser_set_error(p, "Failed to allocate type alias AST node");
+    return NULL;
+  }
+
+  return node;
+}
+
+/**
  * @brief Parse a break statement
  *
  * Parses: break
@@ -4696,6 +5197,10 @@ static ASTNode *parse_statement(Parser *p) {
 
   if (!tok) {
     return NULL;
+  }
+
+  if (tok->type == TOK_NAME && tok->text && strcmp(tok->text, "type") == 0) {
+    return parse_type_alias(p, indent);
   }
 
   switch (tok->type) {
@@ -5175,6 +5680,10 @@ void ast_node_free(ASTNode *node) {
     free(node->as.unpack_assign.names);
     ast_node_free(node->as.unpack_assign.value);
     break;
+  case AST_TYPE_ALIAS:
+    free(node->as.type_alias.name);
+    free(node->as.type_alias.target_type);
+    break;
   default:
     break;
   }
@@ -5269,6 +5778,8 @@ static const char *ast_node_type_name(ASTNodeType type) {
     return "TUPLE";
   case AST_UNPACK_ASSIGN:
     return "UNPACK_ASSIGN";
+  case AST_TYPE_ALIAS:
+    return "TYPE_ALIAS";
   default:
     return "UNKNOWN";
   }
@@ -5369,6 +5880,12 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
     }
     printf("\n");
     ast_node_print_recursive(node->as.assign.value, indent + 1);
+    break;
+  case AST_TYPE_ALIAS:
+    printf(": %s -> %s\n",
+           node->as.type_alias.name ? node->as.type_alias.name : "(null)",
+           node->as.type_alias.target_type ? node->as.type_alias.target_type
+                                           : "(null)");
     break;
   case AST_PRINT:
     printf("\n");
