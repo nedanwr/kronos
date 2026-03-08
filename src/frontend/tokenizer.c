@@ -179,9 +179,9 @@ static const char *token_type_names[] = {
     "IS",      "EQUAL",    "NOT",      "GREATER",  "LESS",     "THAN",
     "AND",     "OR",       "PRINT",    "PLUS",     "MINUS",    "TIMES",
     "DIVIDED", "BY",       "MOD",      "DELETE",   "TRY",      "CATCH",
-    "FINALLY", "RAISE",    "NAME",     "COLON",    "COMMA",    "ELLIPSIS",
-    "LPAREN",  "RPAREN",   "LBRACKET", "RBRACKET", "NEWLINE",  "INDENT",
-    "EOF"};
+    "FINALLY", "RAISE",    "MATCH",    "CASE",     "DEFAULT",  "NAME",
+    "COLON",   "COMMA",    "ELLIPSIS", "LPAREN",   "RPAREN",   "LBRACKET",
+    "RBRACKET", "NEWLINE", "INDENT",   "EOF"};
 
 // Compile-time check to ensure array matches enum count
 // This will cause a compilation error if they don't match
