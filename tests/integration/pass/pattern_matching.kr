@@ -1,0 +1,32 @@
+# Basic pattern matching behavior
+set value to 2
+
+match value:
+    case 1:
+        print "one"
+    case 2:
+        print "two"
+    default:
+        print "other"
+
+set subject to "beta"
+match subject:
+    case "alpha":
+        print "alpha"
+    case "beta":
+        print "beta"
+
+match 99:
+    case 1:
+        print "bad"
+    default:
+        print "fallback"
+
+let counter to 0
+while counter is less than 2:
+    match counter:
+        case 0:
+            print "loop-zero"
+        default:
+            print "loop-other"
+    let counter to counter plus 1
