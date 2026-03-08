@@ -274,7 +274,7 @@ This document outlines the planned features and release schedule for Kronos.
   set evens to [x for x in range 1 to 20 if x mod 2 is equal 0]
   ```
 
-- **Pattern Matching** - Advanced control flow
+- ✅ **Pattern Matching** - Advanced control flow (completed)
 
   ```kronos
   match value:
@@ -285,6 +285,10 @@ This document outlines the planned features and release schedule for Kronos.
       default:
           print "Other"
   ```
+
+  - Match value is evaluated once per statement
+  - `case` branches are checked top to bottom
+  - `default` is optional, but must appear last when present
 
 - **Type System Enhancements**
 
