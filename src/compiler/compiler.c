@@ -3395,6 +3395,11 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_return_statement(c, node);
     break;
 
+  case AST_TYPE_ALIAS:
+    // Type aliases are compile-time metadata used for annotations only.
+    // They do not produce runtime bytecode.
+    break;
+
   // Expression nodes can be used as statements (for REPL expression evaluation)
   // Compile the expression and leave the value on the stack
   case AST_NUMBER:
