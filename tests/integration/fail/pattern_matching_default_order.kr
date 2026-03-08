@@ -1,0 +1,6 @@
+# Default must be the last branch in a match statement
+match 1:
+    default:
+        print "fallback"
+    case 1:
+        print "one"
