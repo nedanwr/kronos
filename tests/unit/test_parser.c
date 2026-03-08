@@ -167,6 +167,36 @@ TEST(parse_if_else_if_chain) {
   token_array_free(tokens);
 }
 
+TEST(parse_match_statement) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize(
+      "match value:\n"
+      "    case 1:\n"
+      "        print \"one\"\n"
+      "    case 2:\n"
+      "        print \"two\"\n"
+      "    default:\n"
+      "        print \"other\"",
+      &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_MATCH);
+  ASSERT_INT_EQ(ast->statements[0]->as.match_stmt.value->type, AST_VAR);
+  ASSERT_INT_EQ(ast->statements[0]->as.match_stmt.case_count, 2);
+  ASSERT_INT_EQ(ast->statements[0]->as.match_stmt.default_block_size, 1);
+  ASSERT_INT_EQ(ast->statements[0]->as.match_stmt.case_patterns[0]->type,
+                AST_NUMBER);
+  ASSERT_INT_EQ(ast->statements[0]->as.match_stmt.case_blocks[0][0]->type,
+                AST_PRINT);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
 TEST(parse_variable_reference) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize("print x", &tok_err);
