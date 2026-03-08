@@ -44,6 +44,24 @@ else:
     print "Grade: D or F"
 ```
 
+## Pattern Matching
+
+Use `match` when you want to branch on one value against a sequence of cases:
+
+```kronos
+let status to "ready"
+
+match status:
+    case "ready":
+        print "Start work"
+    case "waiting":
+        print "Hold"
+    default:
+        print "Unknown status"
+```
+
+Kronos evaluates the match value once, checks `case` branches from top to bottom, and runs the first matching block. `default` is optional, but it must be the last branch if you include it.
+
 ## Loops
 
 ### For Loops
