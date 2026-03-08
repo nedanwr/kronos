@@ -200,6 +200,13 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     return;
 
   switch (node->type) {
+  case AST_PRINT:
+    if (node->as.print.value) {
+      search_node_for_references_recursive(node->as.print.value, line_num, ctx,
+                                           depth + 1);
+    }
+    break;
+
   case AST_ASSIGN:
     if (node->as.assign.name &&
         strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
@@ -299,6 +306,23 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
               node->as.if_stmt.else_block[i], line_num, ctx, depth + 1);
         }
       }
+    }
+    break;
+
+  case AST_MATCH:
+    search_node_for_references_recursive(node->as.match_stmt.value, line_num,
+                                         ctx, depth + 1);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      search_node_for_references_recursive(node->as.match_stmt.case_patterns[i],
+                                           line_num, ctx, depth + 1);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        search_node_for_references_recursive(
+            node->as.match_stmt.case_blocks[i][j], line_num, ctx, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      search_node_for_references_recursive(
+          node->as.match_stmt.default_block[i], line_num, ctx, depth + 1);
     }
     break;
 

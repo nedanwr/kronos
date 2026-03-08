@@ -431,6 +431,28 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
         check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
                              remaining, has_diagnostics, capacity);
       }
+    } else if (node->type == AST_MATCH) {
+      for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
+        if (node->as.match_stmt.case_patterns[j]) {
+          check_expression(node->as.match_stmt.case_patterns[j], text, symbols,
+                           ast, diagnostics, pos, remaining, has_diagnostics,
+                           NULL, 0, capacity);
+        }
+        if (node->as.match_stmt.case_blocks[j]) {
+          AST temp_ast = {node->as.match_stmt.case_blocks[j],
+                          node->as.match_stmt.case_block_sizes[j],
+                          node->as.match_stmt.case_block_sizes[j]};
+          check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                               remaining, has_diagnostics, capacity);
+        }
+      }
+      if (node->as.match_stmt.default_block) {
+        AST temp_ast = {node->as.match_stmt.default_block,
+                        node->as.match_stmt.default_block_size,
+                        node->as.match_stmt.default_block_size};
+        check_function_calls(&temp_ast, text, symbols, diagnostics, pos,
+                             remaining, has_diagnostics, capacity);
+      }
     } else if (node->type == AST_FOR || node->type == AST_WHILE) {
       ASTNode **block = NULL;
       size_t block_size = 0;
@@ -1456,6 +1478,21 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
       }
     }
 
+    if (node->type == AST_MATCH) {
+      if (node->as.match_stmt.value) {
+        check_expression(node->as.match_stmt.value, text, symbols, ast,
+                         diagnostics, pos, remaining, has_diagnostics,
+                         seen_vars, seen_count, capacity);
+      }
+      for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
+        if (node->as.match_stmt.case_patterns[j]) {
+          check_expression(node->as.match_stmt.case_patterns[j], text, symbols,
+                           ast, diagnostics, pos, remaining, has_diagnostics,
+                           seen_vars, seen_count, capacity);
+        }
+      }
+    }
+
     // Check expressions in for loops
     if (node->type == AST_FOR) {
       // Mark loop variable as written (assigned by the loop)
@@ -2035,6 +2072,23 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         AST temp_ast = {node->as.if_stmt.else_block,
                         node->as.if_stmt.else_block_size,
                         node->as.if_stmt.else_block_size};
+        check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
+                                  remaining, has_diagnostics, capacity);
+      }
+    } else if (node->type == AST_MATCH) {
+      for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
+        if (node->as.match_stmt.case_blocks[j]) {
+          AST temp_ast = {node->as.match_stmt.case_blocks[j],
+                          node->as.match_stmt.case_block_sizes[j],
+                          node->as.match_stmt.case_block_sizes[j]};
+          check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
+                                    remaining, has_diagnostics, capacity);
+        }
+      }
+      if (node->as.match_stmt.default_block) {
+        AST temp_ast = {node->as.match_stmt.default_block,
+                        node->as.match_stmt.default_block_size,
+                        node->as.match_stmt.default_block_size};
         check_undefined_variables(&temp_ast, text, symbols, diagnostics, pos,
                                   remaining, has_diagnostics, capacity);
       }
