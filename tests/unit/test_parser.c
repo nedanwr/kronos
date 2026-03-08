@@ -87,6 +87,63 @@ TEST(parse_typed_assignment) {
   token_array_free(tokens);
 }
 
+TEST(parse_typed_assignment_with_generic_type) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("set xs to list 1, 2 as list<number>", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_ASSIGN);
+  ASSERT_STR_EQ(ast->statements[0]->as.assign.type_name, "list<number>");
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_typed_assignment_with_union_type) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("set value to 1 as number or string", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_ASSIGN);
+  ASSERT_STR_EQ(ast->statements[0]->as.assign.type_name, "number or string");
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_type_alias_declaration_and_use) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize(
+      "type Point to map x: number, y: number\n"
+      "set p to map x: 1, y: 2 as Point",
+      &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 2);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_TYPE_ALIAS);
+  ASSERT_STR_EQ(ast->statements[0]->as.type_alias.name, "Point");
+  ASSERT_STR_EQ(ast->statements[0]->as.type_alias.target_type,
+                "map{x:number,y:number}");
+
+  ASSERT_INT_EQ(ast->statements[1]->type, AST_ASSIGN);
+  ASSERT_STR_EQ(ast->statements[1]->as.assign.type_name,
+                "map{x:number,y:number}");
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
 TEST(parse_binary_operation) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize("set result to 10 plus 20", &tok_err);
