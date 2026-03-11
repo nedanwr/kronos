@@ -245,6 +245,8 @@ static const char *token_type_name(TokenType type) {
     return "OR";
   case TOK_PRINT:
     return "PRINT";
+  case TOK_DEBUG:
+    return "DEBUG";
   case TOK_PLUS:
     return "PLUS";
   case TOK_MINUS:
@@ -482,6 +484,7 @@ static ASTNode *parse_condition(Parser *p);
 static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size);
 static ASTNode *parse_assignment(Parser *p, int indent);
 static ASTNode *parse_print(Parser *p, int indent);
+static ASTNode *parse_debug(Parser *p, int indent);
 static ASTNode *parse_if(Parser *p, int indent);
 static ASTNode *parse_for(Parser *p, int indent);
 static ASTNode *parse_while(Parser *p, int indent);
@@ -3421,6 +3424,92 @@ static ASTNode *parse_print(Parser *p, int indent) {
 }
 
 /**
+ * @brief Parse a debug statement
+ *
+ * Parses: debug expression[, expression2, ...]
+ * Emits debug output for one or more expressions.
+ *
+ * @param p Parser state
+ * @param indent Indentation level of this statement
+ * @return AST node for the debug statement, or NULL on error
+ */
+static ASTNode *parse_debug(Parser *p, int indent) {
+  Token *start_tok = consume(p, TOK_DEBUG);
+  if (!start_tok) {
+    return NULL;
+  }
+
+  ASTNode *first_value = parse_expression(p);
+  if (!first_value) {
+    return NULL;
+  }
+
+  ASTNode **values = malloc(sizeof(ASTNode *));
+  if (!values) {
+    ast_node_free(first_value);
+    return NULL;
+  }
+  values[0] = first_value;
+  size_t value_count = 1;
+  size_t value_capacity = 1;
+
+  Token *next = peek(p, 0);
+  while (next && next->type == TOK_COMMA) {
+    consume(p, TOK_COMMA);
+
+    ASTNode *additional_value = parse_expression(p);
+    if (!additional_value) {
+      for (size_t i = 0; i < value_count; i++) {
+        ast_node_free(values[i]);
+      }
+      free(values);
+      return NULL;
+    }
+
+    if (value_count >= value_capacity) {
+      size_t new_capacity = value_capacity * 2;
+      ASTNode **new_values = realloc(values, new_capacity * sizeof(ASTNode *));
+      if (!new_values) {
+        ast_node_free(additional_value);
+        for (size_t i = 0; i < value_count; i++) {
+          ast_node_free(values[i]);
+        }
+        free(values);
+        return NULL;
+      }
+      values = new_values;
+      value_capacity = new_capacity;
+    }
+
+    values[value_count++] = additional_value;
+    next = peek(p, 0);
+  }
+
+  if (!consume(p, TOK_NEWLINE)) {
+    for (size_t i = 0; i < value_count; i++) {
+      ast_node_free(values[i]);
+    }
+    free(values);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_DEBUG);
+  if (!node) {
+    for (size_t i = 0; i < value_count; i++) {
+      ast_node_free(values[i]);
+    }
+    free(values);
+    return NULL;
+  }
+  ast_node_set_position(node, start_tok);
+  node->indent = indent;
+  node->as.debug_stmt.values = values;
+  node->as.debug_stmt.value_count = value_count;
+
+  return node;
+}
+
+/**
  * @brief Parse a block of indented statements
  *
  * Collects all statements with indentation greater than parent_indent.
@@ -3475,6 +3564,8 @@ static ASTNode **parse_block(Parser *p, int parent_indent, size_t *block_size) {
       stmt = parse_assignment(p, next_indent);
     } else if (tok->type == TOK_PRINT) {
       stmt = parse_print(p, next_indent);
+    } else if (tok->type == TOK_DEBUG) {
+      stmt = parse_debug(p, next_indent);
     } else if (tok->type == TOK_IF) {
       stmt = parse_if(p, next_indent);
     } else if (tok->type == TOK_FOR) {
@@ -5209,6 +5300,8 @@ static ASTNode *parse_statement(Parser *p) {
     return parse_assignment(p, indent);
   case TOK_PRINT:
     return parse_print(p, indent);
+  case TOK_DEBUG:
+    return parse_debug(p, indent);
   case TOK_IF:
     return parse_if(p, indent);
   case TOK_FOR:
@@ -5434,6 +5527,12 @@ void ast_node_free(ASTNode *node) {
     break;
   case AST_PRINT:
     ast_node_free(node->as.print.value);
+    break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      ast_node_free(node->as.debug_stmt.values[i]);
+    }
+    free(node->as.debug_stmt.values);
     break;
   case AST_BINOP:
     ast_node_free(node->as.binop.left);
@@ -5720,6 +5819,8 @@ static const char *ast_node_type_name(ASTNodeType type) {
     return "ASSIGN";
   case AST_PRINT:
     return "PRINT";
+  case AST_DEBUG:
+    return "DEBUG";
   case AST_IF:
     return "IF";
   case AST_FOR:
@@ -5890,6 +5991,12 @@ static void ast_node_print_recursive(ASTNode *node, int indent) {
   case AST_PRINT:
     printf("\n");
     ast_node_print_recursive(node->as.print.value, indent + 1);
+    break;
+  case AST_DEBUG:
+    printf(" (%zu values)\n", node->as.debug_stmt.value_count);
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      ast_node_print_recursive(node->as.debug_stmt.values[i], indent + 1);
+    }
     break;
   case AST_BINOP:
     printf(": %s\n", binop_name(node->as.binop.op));

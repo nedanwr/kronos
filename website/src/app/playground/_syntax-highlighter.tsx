@@ -123,7 +123,7 @@ export function highlightKronos(code: string): React.ReactNode[] {
 
       // Other keywords
       const otherKeywordMatch = remaining.match(
-        /^(print|to|as|is|than|by|at)\b/
+        /^(print|debug|to|as|is|than|by|at)\b/
       );
       if (otherKeywordMatch) {
         tokens.push(

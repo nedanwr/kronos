@@ -667,6 +667,7 @@ static void compile_assign_statement(Compiler *c, const ASTNode *node);
 static void compile_assign_index_statement(Compiler *c, const ASTNode *node);
 static void compile_delete_statement(Compiler *c, const ASTNode *node);
 static void compile_print_statement(Compiler *c, const ASTNode *node);
+static void compile_debug_statement(Compiler *c, const ASTNode *node);
 static void compile_return_statement(Compiler *c, const ASTNode *node);
 static void compile_break_statement(Compiler *c, const ASTNode *node);
 static void compile_continue_statement(Compiler *c, const ASTNode *node);
@@ -1850,6 +1851,32 @@ static void compile_print_statement(Compiler *c, const ASTNode *node) {
 
   // Emit print instruction
   emit_byte(c, OP_PRINT);
+  if (compiler_has_error(c)) {
+    return;
+  }
+}
+
+/**
+ * @brief Compile a debug statement
+ */
+static void compile_debug_statement(Compiler *c, const ASTNode *node) {
+  if (node->as.debug_stmt.value_count > UINT8_MAX) {
+    compiler_set_error(c, "Debug statement supports at most 255 values");
+    return;
+  }
+
+  for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+    compile_expression(c, node->as.debug_stmt.values[i]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  emit_byte(c, OP_DEBUG);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, (uint8_t)node->as.debug_stmt.value_count);
   if (compiler_has_error(c)) {
     return;
   }
@@ -3351,6 +3378,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_print_statement(c, node);
     break;
 
+  case AST_DEBUG:
+    compile_debug_statement(c, node);
+    break;
+
   case AST_RAISE:
     compile_raise_statement(c, node);
     break;
@@ -3633,6 +3664,15 @@ void bytecode_print(Bytecode *bytecode) {
     case OP_PRINT:
       printf("PRINT\n");
       offset++;
+      break;
+    case OP_DEBUG:
+      if (offset + 1 >= bytecode->count) {
+        printf("DEBUG <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      printf("DEBUG %u\n", bytecode->code[offset + 1]);
+      offset += 2;
       break;
     case OP_ADD:
       printf("ADD\n");

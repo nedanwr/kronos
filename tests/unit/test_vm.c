@@ -75,6 +75,26 @@ TEST(vm_execute_number) {
   vm_free(vm);
 }
 
+TEST(vm_execute_debug_statement) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode =
+      compile_string("set x to 42\ndebug \"Variable x:\", x");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *x = vm_get_global(vm, "x");
+  ASSERT_PTR_NOT_NULL(x);
+  ASSERT_INT_EQ(x->type, VAL_NUMBER);
+  ASSERT_DOUBLE_EQ(x->as.number, 42.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_set_get_global) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);

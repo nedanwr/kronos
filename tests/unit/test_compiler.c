@@ -83,6 +83,31 @@ TEST(compile_print) {
   ast_free(ast);
 }
 
+TEST(compile_debug_statement) {
+  AST *ast = parse_string("debug \"x:\", 42");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_debug = false;
+  bool has_arg_count = false;
+  for (size_t i = 0; i + 1 < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_DEBUG) {
+      has_debug = true;
+      has_arg_count = (bytecode->code[i + 1] == 2);
+      break;
+    }
+  }
+  ASSERT_TRUE(has_debug);
+  ASSERT_TRUE(has_arg_count);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
 TEST(compile_if_statement) {
   AST *ast = parse_string("if true:\n    print 1");
   ASSERT_PTR_NOT_NULL(ast);

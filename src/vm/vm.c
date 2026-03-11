@@ -2052,6 +2052,7 @@ static int handle_op_load_const(KronosVM *vm);
 static int handle_op_load_var(KronosVM *vm);
 static int handle_op_store_var(KronosVM *vm);
 static int handle_op_print(KronosVM *vm);
+static int handle_op_debug(KronosVM *vm);
 static int handle_op_add(KronosVM *vm);
 static int handle_op_sub(KronosVM *vm);
 static int handle_op_mul(KronosVM *vm);
@@ -2220,6 +2221,44 @@ static int handle_op_print(KronosVM *vm) {
   value_fprint(stdout, value);
   printf("\n");
   value_release(value);
+  return 0;
+}
+
+static int handle_op_debug(KronosVM *vm) {
+  uint8_t arg_count = read_byte(vm);
+  if (vm->last_error_message) {
+    return vm_propagate_error(vm, KRONOS_ERR_INTERNAL);
+  }
+
+  KronosValue **values = NULL;
+  if (arg_count > 0) {
+    values = malloc(sizeof(KronosValue *) * arg_count);
+    if (!values) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL,
+                      "Failed to allocate debug value buffer");
+    }
+
+    for (size_t i = arg_count; i > 0; i--) {
+      KronosValue *value = pop(vm);
+      if (!value) {
+        for (size_t j = i; j < arg_count; j++) {
+          value_release(values[j]);
+        }
+        free(values);
+        return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+      }
+      values[i - 1] = value;
+    }
+  }
+
+  fputs("[DEBUG]", stdout);
+  for (size_t i = 0; i < arg_count; i++) {
+    fputc(' ', stdout);
+    value_fprint(stdout, values[i]);
+    value_release(values[i]);
+  }
+  fputc('\n', stdout);
+  free(values);
   return 0;
 }
 
@@ -5533,6 +5572,7 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
       [OP_LOAD_VAR] = handle_op_load_var,
       [OP_STORE_VAR] = handle_op_store_var,
       [OP_PRINT] = handle_op_print,
+      [OP_DEBUG] = handle_op_debug,
       [OP_ADD] = handle_op_add,
       [OP_SUB] = handle_op_sub,
       [OP_MUL] = handle_op_mul,
@@ -5623,10 +5663,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
     // If handling_exception is true, vm->last_error_message is from OP_THROW
     // and we should continue to execute OP_CATCH to handle it
 
-    // Dispatch to handler function using dispatch table
+    // Dispatch to handler function using dispatch table.
     // The dispatch table uses designated initializers, so its size is
-    // determined by the highest index (OP_HALT = 44). Check bounds and NULL
-    // handlers.
+    // determined by the highest opcode value (currently OP_HALT).
     if (instruction > OP_HALT || dispatch_table[instruction] == NULL) {
       // Unknown or unhandled opcode
       return vm_errorf(

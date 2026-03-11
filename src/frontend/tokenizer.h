@@ -48,6 +48,7 @@ typedef enum {
   TOK_AND,
   TOK_OR,
   TOK_PRINT,
+  TOK_DEBUG,
   TOK_PLUS,
   TOK_MINUS,
   TOK_TIMES,

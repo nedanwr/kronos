@@ -68,6 +68,12 @@ static void process_comprehension_symbols_recursive(ASTNode *node,
   case AST_PRINT:
     process_comprehension_symbols_recursive(node->as.print.value, tail);
     break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      process_comprehension_symbols_recursive(node->as.debug_stmt.values[i],
+                                              tail);
+    }
+    break;
   case AST_BINOP:
     process_comprehension_symbols_recursive(node->as.binop.left, tail);
     process_comprehension_symbols_recursive(node->as.binop.right, tail);
@@ -254,6 +260,13 @@ static bool node_declares_loop_variable(ASTNode *node, const char *name) {
     return node_declares_loop_variable(node->as.assign.value, name);
   case AST_PRINT:
     return node_declares_loop_variable(node->as.print.value, name);
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      if (node_declares_loop_variable(node->as.debug_stmt.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
   case AST_BINOP:
     return node_declares_loop_variable(node->as.binop.left, name) ||
            node_declares_loop_variable(node->as.binop.right, name);
@@ -2123,6 +2136,14 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
   case AST_PRINT:
     if (node->as.print.value) {
       count_references_in_node_recursive(node->as.print.value, ctx, depth + 1);
+    }
+    break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      if (node->as.debug_stmt.values[i]) {
+        count_references_in_node_recursive(node->as.debug_stmt.values[i], ctx,
+                                           depth + 1);
+      }
     }
     break;
 

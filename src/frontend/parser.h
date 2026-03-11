@@ -8,6 +8,7 @@
 typedef enum {
   AST_ASSIGN,
   AST_PRINT,
+  AST_DEBUG,
   AST_IF,
   AST_FOR,
   AST_WHILE,
@@ -108,6 +109,12 @@ struct ASTNode {
     struct {
       ASTNode *value;
     } print;
+
+    // Debug statement: debug expr [, expr2, ...]
+    struct {
+      ASTNode **values;
+      size_t value_count;
+    } debug_stmt;
 
     // Binary operation (arithmetic and comparison)
     struct {
