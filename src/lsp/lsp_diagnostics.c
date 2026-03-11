@@ -2300,33 +2300,67 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
           strcmp(actual_func_name, "divide") == 0 ||
           strcmp(actual_func_name, "power") == 0) {
         // These require number arguments
+        size_t invalid_arg_indices[2] = {0, 0};
+        ASTNode *invalid_arg_nodes[2] = {NULL, NULL};
+        size_t invalid_arg_count = 0;
         for (size_t j = 0; j < node->as.call.arg_count && j < 2; j++) {
           ExprType arg_type =
               infer_type_with_ast(node->as.call.args[j], symbols, ast);
           if (arg_type != TYPE_NUMBER && arg_type != TYPE_UNKNOWN) {
-            size_t line = 1, col = 0;
-            find_call_position(text, func_name, &line, &col);
-
-            char escaped_msg[LSP_ERROR_MSG_SIZE];
-            snprintf(escaped_msg, sizeof(escaped_msg),
-                     "Function '%s' requires both arguments to be numbers",
-                     func_name);
-            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
-            json_escape(escaped_msg, escaped_msg_final,
-                        sizeof(escaped_msg_final));
-
-            size_t needed = strlen(escaped_msg_final) + 200;
-            SAFE_DIAGNOSTICS_WRITE(
-                diagnostics, capacity, pos, remaining, needed,
-                "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                "\"severity\":1,"
-                "\"message\":\"%s\"}",
-                *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
-                escaped_msg_final);
-            *has_diagnostics = true;
-            break;
+            if (invalid_arg_count < 2) {
+              invalid_arg_indices[invalid_arg_count] = j;
+              invalid_arg_nodes[invalid_arg_count] = node->as.call.args[j];
+              invalid_arg_count++;
+            }
           }
+        }
+
+        if (invalid_arg_count > 0) {
+          size_t line = 1, col = 0;
+          size_t length = 20;
+          bool have_specific_arg_range = false;
+
+          if (invalid_arg_count == 1 && invalid_arg_nodes[0] != NULL) {
+            ASTNodeType invalid_type = invalid_arg_nodes[0]->type;
+            bool can_use_simple_arg_range =
+                invalid_type == AST_STRING || invalid_type == AST_NUMBER ||
+                invalid_type == AST_BOOL || invalid_type == AST_NULL ||
+                invalid_type == AST_VAR;
+            if (can_use_simple_arg_range) {
+              have_specific_arg_range = find_call_argument_position_by_index(
+                  text, func_name, node->line, invalid_arg_indices[0], &line,
+                  &col, &length);
+            }
+          }
+
+          if (!have_specific_arg_range || length == 0) {
+            if (!find_call_expression_position(text, func_name, node->line,
+                                               &line, &col, &length) ||
+                length == 0) {
+              find_call_position(text, func_name, &line, &col);
+              length = 20;
+            }
+          }
+
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg),
+                   "Function '%s' requires both arguments to be numbers",
+                   func_name);
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+          json_escape(escaped_msg, escaped_msg_final,
+                      sizeof(escaped_msg_final));
+
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"%s\"}",
+              *has_diagnostics ? "," : "", line - 1, col, line - 1,
+              col + length,
+              escaped_msg_final);
+          *has_diagnostics = true;
         }
       } else if (strcmp(actual_func_name, "sqrt") == 0 ||
                  strcmp(actual_func_name, "abs") == 0 ||
