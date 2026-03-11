@@ -85,6 +85,7 @@ void handle_completion(const char *id, const char *body) {
       {"import", "Import module"},
       // I/O
       {"print", "Print value"},
+      {"debug", "Debug-print one or more values"},
       // Literals
       {"true", "Boolean true"},
       {"false", "Boolean false"},

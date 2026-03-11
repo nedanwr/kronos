@@ -2092,6 +2092,17 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
       }
     }
 
+    // Check expressions in debug statements
+    if (node->type == AST_DEBUG) {
+      for (size_t j = 0; j < node->as.debug_stmt.value_count; j++) {
+        if (node->as.debug_stmt.values[j]) {
+          check_expression(node->as.debug_stmt.values[j], text, symbols, ast,
+                           diagnostics, pos, remaining, has_diagnostics,
+                           seen_vars, seen_count, capacity);
+        }
+      }
+    }
+
     // Check expressions in if conditions
     if (node->type == AST_IF) {
       if (node->as.if_stmt.condition) {

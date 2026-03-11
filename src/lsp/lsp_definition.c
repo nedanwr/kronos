@@ -206,6 +206,14 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
                                            depth + 1);
     }
     break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      if (node->as.debug_stmt.values[i]) {
+        search_node_for_references_recursive(node->as.debug_stmt.values[i],
+                                             line_num, ctx, depth + 1);
+      }
+    }
+    break;
 
   case AST_ASSIGN:
     if (node->as.assign.name &&
