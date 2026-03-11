@@ -128,6 +128,20 @@ for i in range 1 to 5:
         print f"{i} is odd"
 ```
 
+## Debug Statements
+
+Use `debug` when you want temporary runtime visibility while developing:
+
+```kronos
+set user to "Ned"
+set score to 87
+
+debug "user:", user
+debug "score and pass status:", score, score is greater than or equal 70
+```
+
+`debug` accepts one or more expressions separated by commas, evaluates them left to right, and emits a single debug output line.
+
 ## Examples
 
 ### Finding Maximum Value
