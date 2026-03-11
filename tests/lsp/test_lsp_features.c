@@ -628,6 +628,28 @@ TEST(lsp_diagnostics_generic_type_mismatch_reported) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_comparison_type_error_no_false_immutable_reassign) {
+  const char *code =
+      "set x to 10\n"
+      "set name to \"Alice\"\n"
+      "if x is greater than name:\n"
+      "    print \"invalid\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Cannot compare - both values must be numbers", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "Cannot compare - both values must be numbers"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "Cannot reassign immutable variable 'x'"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "Cannot reassign immutable variable 'name'"));
+  free(diag);
+}
+
 TEST(lsp_match_statement_diagnostics_and_definition) {
   const char *code =
       "let value to 2\n"
