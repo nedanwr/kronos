@@ -50,7 +50,7 @@ View → Output → "Kronos Language Server"
 Create `~/.vim/syntax/kronos.vim`:
 
 ```vim
-syn keyword kronosKeyword set let to as if for while function return print
+syn keyword kronosKeyword set let to as if for while function return print debug
 syn keyword kronosBoolean true false
 syn keyword kronosConstant Pi null
 syn region kronosString start='"' end='"'
@@ -86,7 +86,7 @@ contexts:
   main:
     - match: "#.*$"
       scope: comment.line.kronos
-    - match: '\b(set|let|if|for|while|function|return|print)\b'
+    - match: '\b(set|let|if|for|while|function|return|print|debug)\b'
       scope: keyword.control.kronos
     - match: '\b(true|false|null|Pi)\b'
       scope: constant.language.kronos
@@ -107,4 +107,3 @@ Editor → Extension → kronos-lsp → Parser → Diagnostics
 ```
 
 The LSP server (`src/lsp/lsp_server.c`) provides real-time syntax checking and autocomplete by parsing your code as you type.
-
