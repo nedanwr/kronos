@@ -10,6 +10,7 @@ typedef enum {
   OP_LOAD_VAR,      // Load variable
   OP_STORE_VAR,     // Store variable
   OP_PRINT,         // Print top of stack
+  OP_DEBUG,         // Print debug message with one or more values
   OP_ADD,           // Binary add
   OP_SUB,           // Binary subtract
   OP_MUL,           // Binary multiply
