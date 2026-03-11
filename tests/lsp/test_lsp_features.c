@@ -359,6 +359,154 @@ TEST(lsp_diagnostics_filter_requires_list_argument) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_builtin_wrong_types_highlights_full_call_line) {
+  const char *code = "call add with \"hello\", \"world\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_wrong_types_covers_all_arithmetic_builtins) {
+  const char *code =
+      "call add with \"hello\", \"world\"\n"
+      "call add with 1, \"world\"\n"
+      "call add with \"hello\", 2\n"
+      "call subtract with \"hello\", 1\n"
+      "call multiply with true, 2\n"
+      "call divide with 8, \"two\"\n"
+      "call power with null, 3\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag,
+                            "Function 'add' requires both arguments to be numbers"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":3,\"character\":19}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":3,\"character\":26}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":4,\"character\":19}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":4,\"character\":23}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":5,\"character\":20}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":5,\"character\":25}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":6,\"character\":16}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":6,\"character\":20}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":3,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":4,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":5,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":6,\"character\":0}"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'subtract' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'multiply' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'divide' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'power' requires both arguments to be numbers"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_add_variants_highlight_correct_ranges) {
+  const char *code =
+      "call add with \"hello\", \"world\"\n"
+      "call add with 1, \"world\"\n"
+      "call add with \"hello\", 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":0}"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_wrong_types_excludes_inline_comments_from_range) {
+  const char *code =
+      "call add with \"hello\", \"world\"  # both wrong\n"
+      "call add with 1, \"world\"  # number + string\n"
+      "call add with \"hello\", 2  # string + number\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  // Ensure diagnostics stop before inline comments.
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  free(diag);
+}
+
 TEST(lsp_completion_includes_filter_and_map_utilities) {
   const char *code = "set numbers to list 1, 2, 3\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
