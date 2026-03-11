@@ -174,6 +174,138 @@ ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
   return infer_type_internal(node, symbols, ast, 0);
 }
 
+static bool lsp_is_static_map_key_literal(ASTNode *node) {
+  if (!node) {
+    return false;
+  }
+  return node->type == AST_STRING || node->type == AST_NUMBER ||
+         node->type == AST_BOOL || node->type == AST_NULL;
+}
+
+static bool lsp_map_key_literals_equal(ASTNode *left, ASTNode *right) {
+  if (!left || !right || left->type != right->type) {
+    return false;
+  }
+
+  switch (left->type) {
+  case AST_STRING:
+    return left->as.string.value && right->as.string.value &&
+           strcmp(left->as.string.value, right->as.string.value) == 0;
+  case AST_NUMBER:
+    return left->as.number == right->as.number;
+  case AST_BOOL:
+    return left->as.boolean == right->as.boolean;
+  case AST_NULL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool lsp_map_has_static_literal_key(ASTNode *map_node, ASTNode *key,
+                                           bool *known, bool *present) {
+  if (!known || !present || !map_node || map_node->type != AST_MAP ||
+      !lsp_is_static_map_key_literal(key)) {
+    return false;
+  }
+
+  *known = false;
+  *present = false;
+
+  for (size_t i = 0; i < map_node->as.map.entry_count; i++) {
+    ASTNode *map_key = map_node->as.map.keys[i];
+    if (!lsp_is_static_map_key_literal(map_key)) {
+      return true;
+    }
+    if (lsp_map_key_literals_equal(map_key, key)) {
+      *present = true;
+    }
+  }
+
+  *known = true;
+  return true;
+}
+
+static bool lsp_target_is_variable(ASTNode *target, const char *name) {
+  return target && target->type == AST_VAR && target->as.var_name &&
+         strcmp(target->as.var_name, name) == 0;
+}
+
+static bool lsp_delete_key_missing_in_static_map(ASTNode *target, ASTNode *key,
+                                                 AST *ast,
+                                                 size_t delete_stmt_index) {
+  if (!target || !key || !ast || !lsp_is_static_map_key_literal(key)) {
+    return false;
+  }
+
+  bool known = false;
+  bool present = false;
+
+  if (target->type == AST_MAP) {
+    if (!lsp_map_has_static_literal_key(target, key, &known, &present)) {
+      return false;
+    }
+    return known && !present;
+  }
+
+  if (target->type != AST_VAR || !target->as.var_name) {
+    return false;
+  }
+
+  const char *target_name = target->as.var_name;
+  bool state_known = false;
+  bool key_present = false;
+
+  // Track map key state from top-level statements before this delete.
+  for (size_t i = 0; i < ast->count && i < delete_stmt_index; i++) {
+    ASTNode *stmt = ast->statements[i];
+    if (!stmt) {
+      continue;
+    }
+
+    if (stmt->type == AST_ASSIGN && stmt->as.assign.name &&
+        strcmp(stmt->as.assign.name, target_name) == 0) {
+      if (stmt->as.assign.value &&
+          lsp_map_has_static_literal_key(stmt->as.assign.value, key, &known,
+                                         &present) &&
+          known) {
+        state_known = true;
+        key_present = present;
+      } else {
+        state_known = false;
+      }
+      continue;
+    }
+
+    if (!state_known) {
+      continue;
+    }
+
+    if (stmt->type == AST_ASSIGN_INDEX &&
+        lsp_target_is_variable(stmt->as.assign_index.target, target_name)) {
+      ASTNode *index = stmt->as.assign_index.index;
+      if (!lsp_is_static_map_key_literal(index)) {
+        state_known = false;
+      } else if (lsp_map_key_literals_equal(index, key)) {
+        key_present = true;
+      }
+      continue;
+    }
+
+    if (stmt->type == AST_DELETE &&
+        lsp_target_is_variable(stmt->as.delete_stmt.target, target_name)) {
+      ASTNode *deleted_key = stmt->as.delete_stmt.key;
+      if (!lsp_is_static_map_key_literal(deleted_key)) {
+        state_known = false;
+      } else if (lsp_map_key_literals_equal(deleted_key, key)) {
+        key_present = false;
+      }
+    }
+  }
+
+  return state_known && !key_present;
+}
+
 #define LSP_TYPE_MATCH_MAX_DEPTH 32
 
 static char *lsp_trim_dup(const char *s, size_t len) {
@@ -2212,6 +2344,28 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         check_expression(node->as.delete_stmt.key, text, symbols, ast,
                          diagnostics, pos, remaining, has_diagnostics,
                          seen_vars, seen_count, capacity);
+      }
+
+      if (lsp_delete_key_missing_in_static_map(node->as.delete_stmt.target,
+                                               node->as.delete_stmt.key, ast,
+                                               i)) {
+        size_t line = 1, col = 0;
+        find_node_position(node, text, "at", &line, &col);
+
+        char escaped_msg[LSP_ERROR_MSG_SIZE] = "Map key not found";
+        char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+        json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
+
+        size_t needed = strlen(escaped_msg_final) + 200;
+        SAFE_DIAGNOSTICS_WRITE(
+            diagnostics, capacity, pos, remaining, needed,
+            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},"
+            "\"severity\":1,"
+            "\"message\":\"%s\"}",
+            *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+            escaped_msg_final);
+        *has_diagnostics = true;
       }
     }
 
