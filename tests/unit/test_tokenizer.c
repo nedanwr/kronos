@@ -275,6 +275,25 @@ TEST(tokenize_match_keywords) {
   token_array_free(tokens);
 }
 
+TEST(tokenize_debug_keyword) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("debug", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_DEBUG);
+  token_array_free(tokens);
+}
+
 TEST(tokenize_bracket_list_comprehension) {
   TokenizeError *err = NULL;
   TokenArray *tokens = tokenize("[x for x in list 1, 2, 3]", &err);
