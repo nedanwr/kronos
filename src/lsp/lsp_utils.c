@@ -1695,6 +1695,328 @@ void find_call_position(const char *text, const char *func_name, size_t *line,
   }
 }
 
+bool find_call_expression_position(const char *text, const char *func_name,
+                                   size_t preferred_line, size_t *line,
+                                   size_t *col, size_t *length) {
+  *line = 1;
+  *col = 0;
+  *length = 0;
+  if (!text || !func_name)
+    return false;
+
+  // Search for "call <func_name> with" pattern
+  char pattern[256];
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    // Pattern too long, cannot search
+    return false;
+  }
+
+  const char *pos = text;
+  bool have_fallback = false;
+  size_t fallback_line = 1;
+  size_t fallback_col = 0;
+  size_t fallback_length = 0;
+  while ((pos = strstr(pos, pattern)) != NULL) {
+    // Check if this is the actual call (not part of a comment)
+    const char *line_start = pos;
+    while (line_start > text && *(line_start - 1) != '\n') {
+      line_start--;
+    }
+
+    const char *line_end = pos;
+    while (*line_end != '\0' && *line_end != '\n') {
+      line_end++;
+    }
+
+    // Skip leading whitespace
+    const char *first_non_ws = line_start;
+    while (first_non_ws < line_end &&
+           (*first_non_ws == ' ' || *first_non_ws == '\t')) {
+      first_non_ws++;
+    }
+    // Skip comment lines
+    if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    // Count lines up to this position
+    size_t current_line = 1;
+    for (const char *p = text; p < pos; p++) {
+      if (*p == '\n')
+        current_line++;
+    }
+    size_t current_col = (size_t)(pos - line_start);
+
+    // Highlight only the call expression, excluding inline comments and trailing
+    // whitespace.
+    const char *range_end = line_end;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+    for (const char *cursor = pos; cursor < line_end; cursor++) {
+      char ch = *cursor;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (ch == '"' && !in_single_quote) {
+        in_double_quote = !in_double_quote;
+        continue;
+      }
+
+      if (ch == '\'' && !in_double_quote) {
+        in_single_quote = !in_single_quote;
+        continue;
+      }
+
+      if (ch == '#' && !in_single_quote && !in_double_quote) {
+        range_end = cursor;
+        break;
+      }
+    }
+
+    while (range_end > pos &&
+           (*(range_end - 1) == ' ' || *(range_end - 1) == '\t' ||
+            *(range_end - 1) == '\r')) {
+      range_end--;
+    }
+
+    if (range_end <= pos) {
+      return false;
+    }
+
+    size_t current_length = (size_t)(range_end - pos);
+    if (current_length == 0) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (preferred_line == 0 || current_line == preferred_line) {
+      *line = current_line;
+      *col = current_col;
+      *length = current_length;
+      return true;
+    }
+
+    if (!have_fallback) {
+      have_fallback = true;
+      fallback_line = current_line;
+      fallback_col = current_col;
+      fallback_length = current_length;
+    }
+
+    pos += strlen(pattern);
+  }
+
+  if (have_fallback) {
+    *line = fallback_line;
+    *col = fallback_col;
+    *length = fallback_length;
+    return true;
+  }
+
+  return false;
+}
+
+bool find_call_argument_position_by_index(const char *text,
+                                          const char *func_name,
+                                          size_t preferred_line,
+                                          size_t arg_index, size_t *line,
+                                          size_t *col, size_t *length) {
+  *line = 1;
+  *col = 0;
+  *length = 0;
+  if (!text || !func_name)
+    return false;
+
+  char pattern[256];
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    return false;
+  }
+
+  const char *pos = text;
+  while ((pos = strstr(pos, pattern)) != NULL) {
+    const char *line_start = pos;
+    while (line_start > text && *(line_start - 1) != '\n') {
+      line_start--;
+    }
+
+    const char *line_end = pos;
+    while (*line_end != '\0' && *line_end != '\n') {
+      line_end++;
+    }
+
+    const char *first_non_ws = line_start;
+    while (first_non_ws < line_end &&
+           (*first_non_ws == ' ' || *first_non_ws == '\t')) {
+      first_non_ws++;
+    }
+    if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    size_t current_line = 1;
+    for (const char *p = text; p < pos; p++) {
+      if (*p == '\n')
+        current_line++;
+    }
+    if (preferred_line != 0 && current_line != preferred_line) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    // Ignore inline comments when splitting arguments.
+    const char *statement_end = line_end;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+    for (const char *cursor = pos; cursor < line_end; cursor++) {
+      char ch = *cursor;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch == '"' && !in_single_quote) {
+        in_double_quote = !in_double_quote;
+        continue;
+      }
+      if (ch == '\'' && !in_double_quote) {
+        in_single_quote = !in_single_quote;
+        continue;
+      }
+      if (ch == '#' && !in_single_quote && !in_double_quote) {
+        statement_end = cursor;
+        break;
+      }
+    }
+
+    const char *args_start = pos + strlen(pattern);
+    while (args_start < statement_end &&
+           (*args_start == ' ' || *args_start == '\t')) {
+      args_start++;
+    }
+    if (args_start >= statement_end) {
+      if (preferred_line != 0)
+        return false;
+      pos += strlen(pattern);
+      continue;
+    }
+
+    size_t current_arg_index = 0;
+    const char *arg_start = args_start;
+    while (arg_start < statement_end) {
+      while (arg_start < statement_end &&
+             (*arg_start == ' ' || *arg_start == '\t')) {
+        arg_start++;
+      }
+      if (arg_start >= statement_end)
+        break;
+
+      const char *cursor = arg_start;
+      bool arg_in_single_quote = false;
+      bool arg_in_double_quote = false;
+      bool arg_escaped = false;
+      int paren_depth = 0;
+      int bracket_depth = 0;
+      int brace_depth = 0;
+      for (; cursor < statement_end; cursor++) {
+        char ch = *cursor;
+        if (arg_escaped) {
+          arg_escaped = false;
+          continue;
+        }
+        if (ch == '\\') {
+          arg_escaped = true;
+          continue;
+        }
+        if (ch == '"' && !arg_in_single_quote) {
+          arg_in_double_quote = !arg_in_double_quote;
+          continue;
+        }
+        if (ch == '\'' && !arg_in_double_quote) {
+          arg_in_single_quote = !arg_in_single_quote;
+          continue;
+        }
+        if (arg_in_single_quote || arg_in_double_quote) {
+          continue;
+        }
+        if (ch == '(') {
+          paren_depth++;
+          continue;
+        }
+        if (ch == ')' && paren_depth > 0) {
+          paren_depth--;
+          continue;
+        }
+        if (ch == '[') {
+          bracket_depth++;
+          continue;
+        }
+        if (ch == ']' && bracket_depth > 0) {
+          bracket_depth--;
+          continue;
+        }
+        if (ch == '{') {
+          brace_depth++;
+          continue;
+        }
+        if (ch == '}' && brace_depth > 0) {
+          brace_depth--;
+          continue;
+        }
+        if (ch == ',' && paren_depth == 0 && bracket_depth == 0 &&
+            brace_depth == 0) {
+          break;
+        }
+      }
+
+      const char *arg_end = cursor;
+      while (arg_end > arg_start &&
+             (*(arg_end - 1) == ' ' || *(arg_end - 1) == '\t' ||
+              *(arg_end - 1) == '\r')) {
+        arg_end--;
+      }
+
+      if (current_arg_index == arg_index) {
+        if (arg_end <= arg_start)
+          return false;
+        *line = current_line;
+        *col = (size_t)(arg_start - line_start);
+        *length = (size_t)(arg_end - arg_start);
+        return true;
+      }
+
+      if (cursor >= statement_end)
+        break;
+
+      current_arg_index++;
+      arg_start = cursor + 1;
+    }
+
+    if (preferred_line != 0)
+      return false;
+
+    pos += strlen(pattern);
+  }
+
+  return false;
+}
+
 bool find_call_argument_position(const char *text, const char *func_name,
                                  ASTNode *arg_node, size_t *line, size_t *col,
                                  size_t *length) {
