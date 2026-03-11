@@ -22,6 +22,64 @@ static char *lsp_read_diagnostics_with_message(const char *message_substring,
   return NULL;
 }
 
+static char *lsp_read_response_with_id(int id, int max_attempts) {
+  char id_pattern[32];
+  snprintf(id_pattern, sizeof(id_pattern), "\"id\":%d", id);
+
+  for (int i = 0; i < max_attempts; i++) {
+    char *msg = lsp_read_response(g_ctx, 500);
+    if (!msg) {
+      continue;
+    }
+    if (lsp_response_contains(msg, id_pattern)) {
+      return msg;
+    }
+    free(msg);
+  }
+  return NULL;
+}
+
+static bool semantic_tokens_has_type(const char *response, int token_type) {
+  if (!response) {
+    return false;
+  }
+
+  const char *data = strstr(response, "\"data\":[");
+  if (!data) {
+    return false;
+  }
+
+  const char *cursor = strchr(data, '[');
+  if (!cursor) {
+    return false;
+  }
+  cursor++;
+
+  int field_index = 0;
+  while (*cursor && *cursor != ']') {
+    while (*cursor && *cursor != '-' &&
+           (*cursor < '0' || *cursor > '9') && *cursor != ']') {
+      cursor++;
+    }
+    if (!*cursor || *cursor == ']') {
+      break;
+    }
+
+    char *endptr = NULL;
+    long value = strtol(cursor, &endptr, 10);
+    if (endptr == cursor) {
+      break;
+    }
+    if ((field_index % 5) == 3 && value == token_type) {
+      return true;
+    }
+    field_index++;
+    cursor = endptr;
+  }
+
+  return false;
+}
+
 // Test hover for file-based modules
 TEST(lsp_hover_file_module) {
   const char *code = "import math\n"
@@ -620,6 +678,139 @@ TEST(lsp_references_include_debug_statement_usage) {
 
   ASSERT_TRUE(count >= 2);
   free(references);
+}
+
+TEST(lsp_initialize_advertises_advanced_lsp_capabilities) {
+  const char *params = "{\"capabilities\":{},\"rootUri\":null}";
+  ASSERT_TRUE(lsp_send_request(g_ctx, "initialize", params, 901));
+
+  char *response = lsp_read_response_with_id(901, 8);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "signatureHelpProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "inlayHintProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "callHierarchyProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "foldingRangeProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"operator\""));
+  ASSERT_TRUE(lsp_response_contains(response, "bracketPairColorization"));
+  free(response);
+}
+
+TEST(lsp_signature_help_for_user_function) {
+  const char *code =
+      "function add with left, right:\n"
+      "    return left plus right\n"
+      "call add with 1, 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_signature_help(g_ctx, 2, 17);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "add(left, right)"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"activeParameter\":1"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"left\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"right\""));
+  free(response);
+}
+
+TEST(lsp_semantic_tokens_include_keywords_and_brackets) {
+  const char *code =
+      "function painter with x:\n"
+      "    set nums to [x, 1]\n"
+      "    return nums\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_semantic_tokens(g_ctx);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(semantic_tokens_has_type(response, 3)); // keyword
+  ASSERT_TRUE(semantic_tokens_has_type(response, 6)); // operator/bracket
+  free(response);
+}
+
+TEST(lsp_inlay_hints_for_call_arguments) {
+  const char *code =
+      "function combine with left, right:\n"
+      "    return left plus right\n"
+      "call combine with 1, 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_inlay_hints(g_ctx, 0, 2);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"left:\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"right:\""));
+  free(response);
+}
+
+TEST(lsp_call_hierarchy_incoming_and_outgoing) {
+  const char *code =
+      "function caller_one with value:\n"
+      "    call target with value\n"
+      "function target with value:\n"
+      "    return value\n"
+      "function caller_two with value:\n"
+      "    call target with value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *prepare = lsp_prepare_call_hierarchy(g_ctx, 2, 10);
+  ASSERT_PTR_NOT_NULL(prepare);
+  ASSERT_TRUE(lsp_is_valid_json(prepare));
+  ASSERT_TRUE(lsp_response_contains(prepare, "\"name\":\"target\""));
+  free(prepare);
+
+  char *incoming = lsp_call_hierarchy_incoming(g_ctx, "target");
+  ASSERT_PTR_NOT_NULL(incoming);
+  ASSERT_TRUE(lsp_is_valid_json(incoming));
+  ASSERT_TRUE(lsp_response_contains(incoming, "\"name\":\"caller_one\""));
+  ASSERT_TRUE(lsp_response_contains(incoming, "\"name\":\"caller_two\""));
+  free(incoming);
+
+  char *outgoing = lsp_call_hierarchy_outgoing(g_ctx, "caller_one");
+  ASSERT_PTR_NOT_NULL(outgoing);
+  ASSERT_TRUE(lsp_is_valid_json(outgoing));
+  ASSERT_TRUE(lsp_response_contains(outgoing, "\"name\":\"target\""));
+  free(outgoing);
+}
+
+TEST(lsp_folding_ranges_for_comments_and_blocks) {
+  const char *code =
+      "# first\n"
+      "# second\n"
+      "function fold_me with value:\n"
+      "    if value is greater than 0:\n"
+      "        print value\n"
+      "    print 1\n"
+      "print 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_folding_range(g_ctx);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"kind\":\"comment\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"kind\":\"region\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"startLine\":2"));
+  free(response);
 }
 
 // Setup and teardown

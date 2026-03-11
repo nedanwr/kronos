@@ -410,6 +410,98 @@ char *lsp_completion(LSPTestContext *ctx, int line, int character) {
   return lsp_read_response(ctx, 1000);
 }
 
+char *lsp_signature_help(LSPTestContext *ctx, int line, int character) {
+  char params[512];
+  snprintf(params, sizeof(params),
+          "{\"textDocument\":{\"uri\":\"file:///test.kr\"},"
+          "\"position\":{\"line\":%d,\"character\":%d}}",
+          line, character);
+
+  if (!lsp_send_request(ctx, "textDocument/signatureHelp", params, 12))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_semantic_tokens(LSPTestContext *ctx) {
+  const char *params = "{\"textDocument\":{\"uri\":\"file:///test.kr\"}}";
+  if (!lsp_send_request(ctx, "textDocument/semanticTokens/full", params, 13))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_inlay_hints(LSPTestContext *ctx, int start_line, int end_line) {
+  char params[512];
+  snprintf(params, sizeof(params),
+          "{\"textDocument\":{\"uri\":\"file:///test.kr\"},"
+          "\"range\":{\"start\":{\"line\":%d,\"character\":0},"
+          "\"end\":{\"line\":%d,\"character\":120}}}",
+          start_line, end_line);
+
+  if (!lsp_send_request(ctx, "textDocument/inlayHint", params, 14))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_prepare_call_hierarchy(LSPTestContext *ctx, int line, int character) {
+  char params[512];
+  snprintf(params, sizeof(params),
+          "{\"textDocument\":{\"uri\":\"file:///test.kr\"},"
+          "\"position\":{\"line\":%d,\"character\":%d}}",
+          line, character);
+
+  if (!lsp_send_request(ctx, "textDocument/prepareCallHierarchy", params, 15))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_call_hierarchy_incoming(LSPTestContext *ctx, const char *name) {
+  char params[1024];
+  snprintf(params, sizeof(params),
+          "{\"item\":{\"name\":\"%s\",\"kind\":12,"
+          "\"uri\":\"file:///test.kr\","
+          "\"range\":{\"start\":{\"line\":0,\"character\":0},"
+          "\"end\":{\"line\":0,\"character\":0}},"
+          "\"selectionRange\":{\"start\":{\"line\":0,\"character\":0},"
+          "\"end\":{\"line\":0,\"character\":0}},"
+          "\"data\":{\"name\":\"%s\"}}}",
+          name, name);
+
+  if (!lsp_send_request(ctx, "callHierarchy/incomingCalls", params, 16))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_call_hierarchy_outgoing(LSPTestContext *ctx, const char *name) {
+  char params[1024];
+  snprintf(params, sizeof(params),
+          "{\"item\":{\"name\":\"%s\",\"kind\":12,"
+          "\"uri\":\"file:///test.kr\","
+          "\"range\":{\"start\":{\"line\":0,\"character\":0},"
+          "\"end\":{\"line\":0,\"character\":0}},"
+          "\"selectionRange\":{\"start\":{\"line\":0,\"character\":0},"
+          "\"end\":{\"line\":0,\"character\":0}},"
+          "\"data\":{\"name\":\"%s\"}}}",
+          name, name);
+
+  if (!lsp_send_request(ctx, "callHierarchy/outgoingCalls", params, 17))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
+char *lsp_folding_range(LSPTestContext *ctx) {
+  const char *params = "{\"textDocument\":{\"uri\":\"file:///test.kr\"}}";
+  if (!lsp_send_request(ctx, "textDocument/foldingRange", params, 18))
+    return NULL;
+
+  return lsp_read_response(ctx, 1000);
+}
+
 char *lsp_extract_json_value(const char *json, const char *key) {
   // Simple JSON value extraction (for testing)
   char pattern[256];
