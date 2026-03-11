@@ -177,6 +177,25 @@ TEST(parse_print_statement) {
   token_array_free(tokens);
 }
 
+TEST(parse_debug_statement_multiple_values) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("debug \"x:\", x, 42", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 1);
+  ASSERT_INT_EQ(ast->statements[0]->type, AST_DEBUG);
+  ASSERT_INT_EQ((int)ast->statements[0]->as.debug_stmt.value_count, 3);
+  ASSERT_INT_EQ(ast->statements[0]->as.debug_stmt.values[0]->type, AST_STRING);
+  ASSERT_INT_EQ(ast->statements[0]->as.debug_stmt.values[1]->type, AST_VAR);
+  ASSERT_INT_EQ(ast->statements[0]->as.debug_stmt.values[2]->type, AST_NUMBER);
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
 TEST(parse_if_statement) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize("if true:\n    print 1", &tok_err);
