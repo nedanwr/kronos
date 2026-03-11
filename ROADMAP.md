@@ -296,11 +296,15 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Type aliases: `type Point to map x: number, y: number`
   - ✅ Multi-type support: `as number or string`
 
-- **Debugging Support**
+- ✅ **Debugging Support** - Lightweight runtime diagnostics (completed)
 
   ```kronos
   debug "Variable x:", x
   ```
+
+  - ✅ `debug` statement with one or more expressions
+  - ✅ Runtime output with consistent `[DEBUG]` prefix
+  - ✅ LSP coverage for completions, diagnostics, and symbol references inside debug statements
 
 - **LSP Improvements**
   - Signature help
