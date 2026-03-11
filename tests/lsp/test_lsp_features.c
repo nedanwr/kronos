@@ -359,6 +359,62 @@ TEST(lsp_diagnostics_filter_requires_list_argument) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_delete_nonexistent_map_key) {
+  const char *code = "let person to map name: \"Alice\", age: 30\n"
+                     "delete person at \"nonexistent\"\n"
+                     "print person\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_existing_map_key_no_error) {
+  const char *code = "let person to map name: \"Alice\", age: 30\n"
+                     "delete person at \"name\"\n"
+                     "print person\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_FALSE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_nonexistent_numeric_map_key) {
+  const char *code = "let single_entry to map 0: \"Alice\"\n"
+                     "delete single_entry at 1\n"
+                     "print single_entry\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_from_empty_map_reports_missing_key) {
+  const char *code = "let empty_map to map\n"
+                     "delete empty_map at 0\n"
+                     "print empty_map\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
 TEST(lsp_diagnostics_builtin_wrong_types_highlights_full_call_line) {
   const char *code = "call add with \"hello\", \"world\"\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
