@@ -180,6 +180,12 @@ void handle_document_symbols(const char *id);
 void handle_workspace_symbol(const char *id, const char *body);
 void handle_code_lens(const char *id, const char *body);
 void handle_semantic_tokens(const char *id);
+void handle_signature_help(const char *id, const char *body);
+void handle_inlay_hints(const char *id, const char *body);
+void handle_prepare_call_hierarchy(const char *id, const char *body);
+void handle_call_hierarchy_incoming(const char *id, const char *body);
+void handle_call_hierarchy_outgoing(const char *id, const char *body);
+void handle_folding_range(const char *id, const char *body);
 
 // Completion (lsp_completion.c)
 void handle_completion(const char *id, const char *body);

@@ -515,16 +515,21 @@ void free_symbols(Symbol *sym) {
 }
 
 void get_node_position(ASTNode *node, size_t *line, size_t *col) {
-  // LIMITATION: This function uses approximate position estimates because
-  // the AST doesn't store exact source positions. The parser would need to
-  // be modified to track line/column information for each AST node.
-  // Current implementation uses indent as a crude estimate, which is
-  // inaccurate.
-  // TODO: Enhance parser to track source positions (line/column) for each node.
   *line = 1;
   *col = 1;
-  if (node && node->indent >= 0) {
-    // Use indent as a rough estimate (inaccurate - see limitation above)
+  if (!node) {
+    return;
+  }
+
+  // Prefer parser-provided source positions when available.
+  if (node->line > 0 && node->column > 0) {
+    *line = node->line;
+    *col = node->column;
+    return;
+  }
+
+  // Fallback for nodes that still don't have explicit source positions.
+  if (node->indent >= 0) {
     *line = (size_t)(node->indent / 4) + 1;
     *col = (size_t)(node->indent % 4) + 1;
   }
