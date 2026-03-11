@@ -1,5 +1,4 @@
 #include "test_lsp_framework.h"
-#include <signal.h>
 #include <unistd.h>
 
 LSPTestContext *g_ctx = NULL; // Global for test setup/teardown
@@ -353,6 +352,36 @@ TEST(lsp_completion_includes_type_keyword) {
   free(response);
 }
 
+TEST(lsp_completion_includes_debug_keyword) {
+  const char *code = "set value to 1\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 4);
+  free(diag);
+
+  char *response = lsp_completion(g_ctx, 0, 0);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"debug\""));
+  ASSERT_TRUE(
+      lsp_response_contains(response, "Debug-print one or more values"));
+  free(response);
+}
+
+TEST(lsp_debug_statement_reports_undefined_variable) {
+  const char *code = "debug missing_value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag =
+      lsp_read_diagnostics_with_message("Undefined variable 'missing_value'", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Undefined variable 'missing_value'"));
+  free(diag);
+}
+
 TEST(lsp_hover_and_definition_for_type_alias) {
   const char *code =
       "type Point to map x: number, y: number\n"
@@ -562,6 +591,35 @@ TEST(lsp_references_list_comprehension_loop_var) {
   ASSERT_TRUE(lsp_is_valid_json(response));
   ASSERT_TRUE(lsp_response_contains(response, "file:///test.kr"));
   free(response);
+}
+
+TEST(lsp_references_include_debug_statement_usage) {
+  const char *code =
+      "set tracked to 10\n"
+      "debug \"tracked:\", tracked\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_FALSE(lsp_response_contains(diag, "Undefined variable 'tracked'"));
+  free(diag);
+
+  char *references = lsp_references(g_ctx, 0, 5);
+  ASSERT_PTR_NOT_NULL(references);
+  ASSERT_TRUE(lsp_is_valid_json(references));
+
+  size_t count = 0;
+  const char *needle = "\"uri\":\"file:///test.kr\"";
+  char *cursor = references;
+  while ((cursor = strstr(cursor, needle)) != NULL) {
+    count++;
+    cursor += strlen(needle);
+  }
+
+  ASSERT_TRUE(count >= 2);
+  free(references);
 }
 
 // Setup and teardown
