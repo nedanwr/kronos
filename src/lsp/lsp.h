@@ -133,6 +133,14 @@ bool get_constant_number(ASTNode *node, double *value);
 int get_builtin_arg_count(const char *func_name);
 void find_call_position(const char *text, const char *func_name,
                         size_t *line, size_t *col);
+bool find_call_expression_position(const char *text, const char *func_name,
+                                   size_t preferred_line, size_t *line,
+                                   size_t *col, size_t *length);
+bool find_call_argument_position_by_index(const char *text,
+                                          const char *func_name,
+                                          size_t preferred_line,
+                                          size_t arg_index, size_t *line,
+                                          size_t *col, size_t *length);
 bool find_call_argument_position(const char *text, const char *func_name,
                                  ASTNode *arg_node, size_t *line,
                                  size_t *col, size_t *length);
