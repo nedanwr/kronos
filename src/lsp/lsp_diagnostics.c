@@ -1674,17 +1674,22 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
 
     // Check assignments for immutable reassignment
     if (node->type == AST_ASSIGN) {
-      // Add variable to seen_vars FIRST, before checking expressions
-      // This allows forward references within the same scope
-      bool found = false;
+      // Track whether this assignment targets an existing variable before we
+      // mutate seen_vars, so reassignment checks don't treat first declarations
+      // as reassignments.
+      bool found_before = false;
+      bool was_immutable_before = false;
+      size_t occurrence = 0;
       for (size_t j = 0; j < seen_count; j++) {
         if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
-          found = true;
+          found_before = true;
+          was_immutable_before = !seen_vars[j].is_mutable;
           seen_vars[j].assignment_count++;
+          occurrence = seen_vars[j].assignment_count;
           break;
         }
       }
-      if (!found) {
+      if (!found_before) {
         // Add new variable to seen_vars
         if (seen_count >= seen_capacity) {
           seen_capacity *= 2;
@@ -1713,6 +1718,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
         seen_vars[seen_count].assignment_count = 1;
         seen_vars[seen_count].first_statement_index = i;
+        occurrence = 1;
         seen_count++;
       }
 
@@ -1748,24 +1754,8 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
             escaped_msg_final);
         *has_diagnostics = true;
       } else {
-        // Check if variable was already assigned (reassignment check)
-        // Note: Variable was already added to seen_vars above, so we just need
-        // to check
-        bool found = false;
-        bool was_immutable = false;
-        size_t occurrence = 0;
-        for (size_t j = 0; j < seen_count; j++) {
-          if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
-            found = true;
-            was_immutable = !seen_vars[j].is_mutable;
-            // Get the occurrence number BEFORE incrementing
-            occurrence = seen_vars[j].assignment_count;
-            break;
-          }
-        }
-
         // If variable was seen before and was immutable, this is an error
-        if (found && was_immutable) {
+        if (found_before && was_immutable_before) {
           // Find the position of this specific assignment (the Nth occurrence)
           size_t line = 1, col = 0;
           if (!find_nth_occurrence(text, node->as.assign.name, occurrence,
@@ -1802,7 +1792,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         // Numbers must have a value (cannot be null/undefined)
         // Strings and lists can be null/undefined (can be empty string/list
         // later)
-        if (!found && node->as.assign.value &&
+        if (!found_before && node->as.assign.value &&
             node->as.assign.value->type == AST_NULL) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name && strcmp(sym->type_name, "number") == 0) {
@@ -1909,7 +1899,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         // explicit type annotation (e.g., "as number")
         // Variables initialized with null or no value can be reassigned to any
         // type
-        if (found && node->as.assign.value) {
+        if (found_before && node->as.assign.value) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name) {
             const char *expected_type = sym->type_name;
