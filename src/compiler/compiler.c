@@ -3462,6 +3462,8 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_MAP:
   case AST_INDEX:
   case AST_SLICE:
+  case AST_LAMBDA:
+  case AST_TUPLE:
     compile_expression(c, node);
     break;
 
