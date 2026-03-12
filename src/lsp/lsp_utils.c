@@ -1994,6 +1994,42 @@ void find_call_position(const char *text, const char *func_name, size_t *line,
   }
 }
 
+static bool is_match_inside_quoted_string(const char *line_start,
+                                          const char *pos) {
+  if (!line_start || !pos || pos < line_start) {
+    return false;
+  }
+
+  bool in_single_quote = false;
+  bool in_double_quote = false;
+  bool escaped = false;
+  for (const char *cursor = line_start; cursor < pos; cursor++) {
+    char ch = *cursor;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch == '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (ch == '"' && !in_single_quote) {
+      in_double_quote = !in_double_quote;
+      continue;
+    }
+
+    if (ch == '\'' && !in_double_quote) {
+      in_single_quote = !in_single_quote;
+      continue;
+    }
+  }
+
+  return in_single_quote || in_double_quote;
+}
+
 bool find_call_expression_position(const char *text, const char *func_name,
                                    size_t preferred_line, size_t *line,
                                    size_t *col, size_t *length) {
@@ -2036,6 +2072,11 @@ bool find_call_expression_position(const char *text, const char *func_name,
     }
     // Skip comment lines
     if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (is_match_inside_quoted_string(line_start, pos)) {
       pos += strlen(pattern);
       continue;
     }
@@ -2161,6 +2202,11 @@ bool find_call_argument_position_by_index(const char *text,
       first_non_ws++;
     }
     if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (is_match_inside_quoted_string(line_start, pos)) {
       pos += strlen(pattern);
       continue;
     }
