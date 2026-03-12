@@ -201,6 +201,8 @@ static KronosValue *pop(KronosVM *vm) {
     }                                                                          \
   } while (0)
 
+static int is_path_separator(char c) { return c == '/' || c == '\\'; }
+
 static int run_function_callback(KronosVM *vm, const char *callback_name,
                                  KronosValue *callback, KronosValue **args,
                                  uint8_t arg_count,
@@ -1510,9 +1512,24 @@ int builtin_to_number(KronosVM *vm, uint8_t arg_count) {
   } else if (arg->type == VAL_STRING) {
     // Try to parse string as number
     char *endptr;
-    double num = strtod(arg->as.string.data, &endptr);
+    const char *input = arg->as.string.data;
+    double num = strtod(input, &endptr);
+
+    if (endptr == input) {
+      int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Cannot convert string to number: '%s'",
+                          arg->as.string.data);
+      value_release(arg);
+      return err;
+    }
+
+    while (*endptr == ' ' || *endptr == '\t' || *endptr == '\r' ||
+           *endptr == '\n') {
+      endptr++;
+    }
+
     // Check if conversion was successful (endptr should point to end of string)
-    if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r') {
+    if (*endptr != '\0') {
       int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                           "Cannot convert string to number: '%s'",
                           arg->as.string.data);
@@ -1859,7 +1876,7 @@ int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
-  FILE *file = portable_fopen(path_arg->as.string.data, "w");
+  FILE *file = portable_fopen(path_arg->as.string.data, "wb");
   if (!file) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Failed to open file '%s' for writing",
@@ -1871,9 +1888,9 @@ int builtin_write_file(KronosVM *vm, uint8_t arg_count) {
 
   size_t bytes_written = fwrite(content_arg->as.string.data, 1,
                                 content_arg->as.string.length, file);
-  fclose(file);
+  int close_status = fclose(file);
 
-  if (bytes_written != content_arg->as.string.length) {
+  if (bytes_written != content_arg->as.string.length || close_status != 0) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
                         "Failed to write all content to file '%s'",
                         path_arg->as.string.data);
@@ -2106,9 +2123,23 @@ int builtin_join_path(KronosVM *vm, uint8_t arg_count) {
   const char *path2 = path2_arg->as.string.data;
   size_t path1_len = path1_arg->as.string.length;
   size_t path2_len = path2_arg->as.string.length;
+  size_t path2_start = 0;
+  int path1_has_trailing_sep =
+      path1_len > 0 && is_path_separator(path1[path1_len - 1]);
+  char separator =
+      (path1_has_trailing_sep && path1[path1_len - 1] == '\\') ? '\\' : '/';
+
+  if (path1_has_trailing_sep && path2_len > 0 && is_path_separator(path2[0])) {
+    while (path2_start < path2_len && is_path_separator(path2[path2_start])) {
+      path2_start++;
+    }
+  }
+  size_t path2_copy_len = path2_len - path2_start;
+  int path2_has_leading_sep =
+      path2_copy_len > 0 && is_path_separator(path2[path2_start]);
 
   // Calculate result length
-  size_t result_len = path1_len + path2_len + 1; // +1 for separator
+  size_t result_len = path1_len + path2_copy_len + 1; // +1 for separator
   char *joined = malloc(result_len + 1);
   if (!joined) {
     value_release(path1_arg);
@@ -2121,14 +2152,14 @@ int builtin_join_path(KronosVM *vm, uint8_t arg_count) {
   size_t offset = path1_len;
 
   // Add separator if needed
-  if (path1_len > 0 && path1[path1_len - 1] != '/' && path2_len > 0 &&
-      path2[0] != '/') {
-    joined[offset++] = '/';
+  if (path1_len > 0 && !path1_has_trailing_sep && path2_copy_len > 0 &&
+      !path2_has_leading_sep) {
+    joined[offset++] = separator;
   }
 
   // Copy second path
-  memcpy(joined + offset, path2, path2_len);
-  offset += path2_len;
+  memcpy(joined + offset, path2 + path2_start, path2_copy_len);
+  offset += path2_copy_len;
   joined[offset] = '\0';
 
   KronosValue *result = value_new_string(joined, offset);
@@ -2162,18 +2193,36 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
 
   const char *path = path_arg->as.string.data;
   size_t path_len = path_arg->as.string.length;
+  size_t end = path_len;
 
-  // Find last separator
-  size_t last_sep = path_len;
-  for (size_t i = path_len; i > 0; i--) {
-    if (path[i - 1] == '/') {
+  // Trim trailing separators.
+  while (end > 0 && is_path_separator(path[end - 1])) {
+    end--;
+  }
+
+  if (end == 0 && path_len > 0) {
+    char root_sep = (path[0] == '\\') ? '\\' : '/';
+    KronosValue *result = value_new_string(&root_sep, 1);
+    value_release(path_arg);
+    if (!result) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
+    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+    value_release(result);
+    return 0;
+  }
+
+  // Find last separator in the trimmed path.
+  size_t last_sep = end;
+  for (size_t i = end; i > 0; i--) {
+    if (is_path_separator(path[i - 1])) {
       last_sep = i - 1;
       break;
     }
   }
 
   // If no separator found, return "."
-  if (last_sep == path_len) {
+  if (last_sep == end) {
     KronosValue *result = value_new_string(".", 1);
     value_release(path_arg);
     if (!result) {
@@ -2184,9 +2233,15 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
     return 0;
   }
 
-  // If separator is at start, return "/"
-  if (last_sep == 0) {
-    KronosValue *result = value_new_string("/", 1);
+  size_t dir_len = last_sep;
+  while (dir_len > 0 && is_path_separator(path[dir_len - 1])) {
+    dir_len--;
+  }
+
+  // If separator is at start, return root separator.
+  if (dir_len == 0) {
+    char root_sep = (path[0] == '\\') ? '\\' : '/';
+    KronosValue *result = value_new_string(&root_sep, 1);
     value_release(path_arg);
     if (!result) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
@@ -2197,7 +2252,7 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
   }
 
   // Return path up to (but not including) last separator
-  KronosValue *result = value_new_string(path, last_sep);
+  KronosValue *result = value_new_string(path, dir_len);
   value_release(path_arg);
   if (!result) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
@@ -2225,27 +2280,55 @@ int builtin_basename(KronosVM *vm, uint8_t arg_count) {
 
   const char *path = path_arg->as.string.data;
   size_t path_len = path_arg->as.string.length;
+  size_t end = path_len;
 
-  // Find last separator
-  size_t last_sep = path_len;
-  for (size_t i = path_len; i > 0; i--) {
-    if (path[i - 1] == '/') {
+  // Trim trailing separators.
+  while (end > 0 && is_path_separator(path[end - 1])) {
+    end--;
+  }
+
+  if (end == 0 && path_len > 0) {
+    char root_sep = (path[0] == '\\') ? '\\' : '/';
+    KronosValue *result = value_new_string(&root_sep, 1);
+    value_release(path_arg);
+    if (!result) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
+    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+    value_release(result);
+    return 0;
+  }
+
+  // Find last separator in the trimmed path.
+  size_t last_sep = end;
+  for (size_t i = end; i > 0; i--) {
+    if (is_path_separator(path[i - 1])) {
       last_sep = i - 1;
       break;
     }
   }
 
   // If no separator found, return entire path
-  if (last_sep == path_len) {
-    value_retain(path_arg);
-    PUSH_OR_RETURN_WITH_CLEANUP(vm, path_arg, value_release(path_arg););
+  if (last_sep == end) {
+    if (end == path_len) {
+      value_retain(path_arg);
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, path_arg, value_release(path_arg););
+      value_release(path_arg);
+      return 0;
+    }
+    KronosValue *result = value_new_string(path, end);
     value_release(path_arg);
+    if (!result) {
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
+    }
+    PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+    value_release(result);
     return 0;
   }
 
   // Return path after last separator
   size_t name_start = last_sep + 1;
-  size_t name_len = path_len - name_start;
+  size_t name_len = end - name_start;
   KronosValue *result = value_new_string(path + name_start, name_len);
   value_release(path_arg);
   if (!result) {
@@ -2477,4 +2560,3 @@ int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
   value_release(string_arg);
   return 0;
 }
-
