@@ -445,6 +445,22 @@ TEST(lsp_diagnostics_delete_from_empty_map_reports_missing_key) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_arithmetic_by_zero_through_constant_variable) {
+  const char *code = "set x to 10\n"
+                     "set y to 0\n"
+                     "print x divided by y\n"
+                     "print x mod y\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Cannot divide by zero", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Cannot divide by zero"));
+  ASSERT_TRUE(lsp_response_contains(diag, "Cannot modulo by zero"));
+  free(diag);
+}
+
 TEST(lsp_diagnostics_builtin_wrong_types_highlights_full_call_line) {
   const char *code = "call add with \"hello\", \"world\"\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
