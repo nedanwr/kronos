@@ -40,7 +40,7 @@ typedef struct {
 #define LSP_IMPORT_STACK_MAX 256
 
 typedef struct {
-  char *modules[LSP_IMPORT_STACK_MAX];
+  char *paths[LSP_IMPORT_STACK_MAX];
   size_t count;
 } LSPImportStack;
 
@@ -143,32 +143,32 @@ static char *lsp_resolve_module_path(const char *base_path,
 }
 
 static bool lsp_import_stack_contains(const LSPImportStack *stack,
-                                      const char *module_name) {
-  if (!stack || !module_name) {
+                                      const char *path_key) {
+  if (!stack || !path_key) {
     return false;
   }
 
   for (size_t i = 0; i < stack->count; i++) {
-    if (stack->modules[i] && strcmp(stack->modules[i], module_name) == 0) {
+    if (stack->paths[i] && strcmp(stack->paths[i], path_key) == 0) {
       return true;
     }
   }
   return false;
 }
 
-static bool lsp_import_stack_push(LSPImportStack *stack, const char *module_name) {
-  if (!stack || !module_name) {
+static bool lsp_import_stack_push(LSPImportStack *stack, const char *path_key) {
+  if (!stack || !path_key) {
     return false;
   }
   if (stack->count >= LSP_IMPORT_STACK_MAX) {
     return false;
   }
 
-  char *copy = strdup(module_name);
+  char *copy = strdup(path_key);
   if (!copy) {
     return false;
   }
-  stack->modules[stack->count++] = copy;
+  stack->paths[stack->count++] = copy;
   return true;
 }
 
@@ -177,8 +177,8 @@ static void lsp_import_stack_pop(LSPImportStack *stack) {
     return;
   }
   stack->count--;
-  free(stack->modules[stack->count]);
-  stack->modules[stack->count] = NULL;
+  free(stack->paths[stack->count]);
+  stack->paths[stack->count] = NULL;
 }
 
 static void lsp_import_stack_clear(LSPImportStack *stack) {
@@ -252,7 +252,7 @@ static bool lsp_check_import_chain_recursive(const char *module_name,
     return false;
   }
 
-  if (lsp_import_stack_contains(stack, module_name)) {
+  if (lsp_import_stack_contains(stack, resolved_path)) {
     snprintf(error_msg, error_msg_size,
              "Circular import detected: module '%s' is already being loaded",
              module_name);
@@ -267,7 +267,7 @@ static bool lsp_check_import_chain_recursive(const char *module_name,
   }
   fclose(probe);
 
-  if (!lsp_import_stack_push(stack, module_name)) {
+  if (!lsp_import_stack_push(stack, resolved_path)) {
     return false;
   }
 
