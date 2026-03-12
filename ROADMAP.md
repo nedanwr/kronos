@@ -306,13 +306,13 @@ This document outlines the planned features and release schedule for Kronos.
   - ✅ Runtime output with consistent `[DEBUG]` prefix
   - ✅ LSP coverage for completions, diagnostics, and symbol references inside debug statements
 
-- **LSP Improvements**
-  - Signature help
-  - Semantic tokens
-  - Inlay hints
-  - Call hierarchy
-  - Code folding
-  - Bracket pair colorization
+- ✅ **LSP Improvements** (completed)
+  - ✅ Signature help
+  - ✅ Semantic tokens
+  - ✅ Inlay hints
+  - ✅ Call hierarchy
+  - ✅ Code folding
+  - ✅ Bracket pair colorization
 
 ---
 
