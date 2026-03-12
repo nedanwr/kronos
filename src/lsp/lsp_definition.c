@@ -14,6 +14,7 @@ extern DocumentState *g_doc;
 // Helper structure for reference search context
 typedef struct {
   const char *symbol_name;
+  const Symbol *target_symbol;
   char *result;
   size_t *pos;
   size_t *remaining;
@@ -187,6 +188,29 @@ void add_reference_location(ReferenceSearchContext *ctx, size_t line,
   }
 }
 
+static bool reference_matches_symbol(const ReferenceSearchContext *ctx,
+                                     ASTNode *node, const char *name) {
+  if (!ctx || !name || !ctx->symbol_name) {
+    return false;
+  }
+  if (strcmp(name, ctx->symbol_name) != 0) {
+    return false;
+  }
+  if (!ctx->target_symbol || !node) {
+    return true;
+  }
+
+  size_t line = 1;
+  size_t col = 1;
+  get_node_position(node, &line, &col);
+  if (line == 0 || col == 0) {
+    return true;
+  }
+
+  Symbol *resolved = find_symbol_at_position(ctx->symbol_name, line - 1, col - 1);
+  return resolved == ctx->target_symbol;
+}
+
 // Internal recursive version with depth tracking
 static void search_node_for_references_recursive(ASTNode *node, size_t *line_num,
                                                   ReferenceSearchContext *ctx,
@@ -217,7 +241,7 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
 
   case AST_ASSIGN:
     if (node->as.assign.name &&
-        strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
+        reference_matches_symbol(ctx, node, node->as.assign.name)) {
       // This is the definition, also count as a reference
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
@@ -231,7 +255,7 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     // Check each unpacking target for references
     for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
       if (node->as.unpack_assign.names[i] &&
-          strcmp(node->as.unpack_assign.names[i], ctx->symbol_name) == 0) {
+          reference_matches_symbol(ctx, node, node->as.unpack_assign.names[i])) {
         add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
       }
     }
@@ -252,14 +276,15 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     break;
 
   case AST_VAR:
-    if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
+    if (node->as.var_name &&
+        reference_matches_symbol(ctx, node, node->as.var_name)) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     break;
 
   case AST_CALL:
     if (node->as.call.name &&
-        strcmp(node->as.call.name, ctx->symbol_name) == 0) {
+        reference_matches_symbol(ctx, node, node->as.call.name)) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
@@ -272,7 +297,7 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
 
   case AST_FUNCTION:
     if (node->as.function.name &&
-        strcmp(node->as.function.name, ctx->symbol_name) == 0) {
+        reference_matches_symbol(ctx, node, node->as.function.name)) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
@@ -361,7 +386,7 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
 
   case AST_FOR:
     if (node->as.for_stmt.var &&
-        strcmp(node->as.for_stmt.var, ctx->symbol_name) == 0) {
+        reference_matches_symbol(ctx, node, node->as.for_stmt.var)) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     if (node->as.for_stmt.iterable) {
@@ -435,7 +460,7 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
 
   case AST_LIST_COMPREHENSION:
     if (node->as.list_comprehension.var &&
-        strcmp(node->as.list_comprehension.var, ctx->symbol_name) == 0) {
+        reference_matches_symbol(ctx, node, node->as.list_comprehension.var)) {
       add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
     }
     search_node_for_references_recursive(node->as.list_comprehension.element_expr,
@@ -477,8 +502,8 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     }
     for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
       if (node->as.try_stmt.catch_blocks[i].catch_var &&
-          strcmp(node->as.try_stmt.catch_blocks[i].catch_var,
-                 ctx->symbol_name) == 0) {
+          reference_matches_symbol(ctx, node,
+                                   node->as.try_stmt.catch_blocks[i].catch_var)) {
         add_reference_location(ctx, *line_num, 1, strlen(ctx->symbol_name));
       }
       for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
@@ -511,13 +536,15 @@ void search_node_for_references(ASTNode *node, size_t *line_num,
   search_node_for_references_recursive(node, line_num, ctx, 0);
 }
 
-void find_all_references_in_ast(const char *symbol_name, const char *text,
-                                       AST *ast, char *result, size_t *pos,
-                                       size_t *remaining, bool *first) {
+void find_all_references_in_ast(const char *symbol_name,
+                                const Symbol *target_symbol, const char *text,
+                                AST *ast, char *result, size_t *pos,
+                                size_t *remaining, bool *first) {
   if (!symbol_name || !ast || !ast->statements)
     return;
 
-  ReferenceSearchContext ctx = {symbol_name, result, pos, remaining, first};
+  ReferenceSearchContext ctx = {symbol_name, target_symbol, result, pos,
+                                remaining, first};
 
   // Use text-based position tracking when available for more accuracy
   if (text) {
@@ -631,7 +658,7 @@ void handle_references(const char *id, const char *body) {
   }
 
   // Find all references in AST
-  find_all_references_in_ast(word, g_doc->text, g_doc->ast, result, &pos,
+  find_all_references_in_ast(word, sym, g_doc->text, g_doc->ast, result, &pos,
                              &remaining, &first);
 
   free(word);
@@ -756,30 +783,9 @@ void handle_rename(const char *id, const char *body) {
     return;
   }
 
-  // Build references array (similar to handle_references)
-  char references[LSP_REFERENCES_BUFFER_SIZE];
-  size_t ref_pos = 0;
-  size_t ref_remaining = sizeof(references);
-  bool first_ref = true;
-
-  // Add definition location
   char escaped_uri[LSP_PATTERN_BUFFER_SIZE];
   json_escape(g_doc->uri, escaped_uri, sizeof(escaped_uri));
-  int written = snprintf(
-      references + ref_pos, ref_remaining,
-      "{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-      "\"end\":{\"line\":%zu,\"character\":%zu}}}",
-      escaped_uri, sym->line - 1, sym->column - 1, sym->line - 1,
-      sym->column - 1 + strlen(sym->name));
-  if (written > 0 && (size_t)written < ref_remaining) {
-    ref_pos += (size_t)written;
-    ref_remaining -= (size_t)written;
-    first_ref = false;
-  }
-
-  // Find all references in AST
-  find_all_references_in_ast(word, g_doc->text, g_doc->ast, references,
-                             &ref_pos, &ref_remaining, &first_ref);
+  int written = 0;
 
   // Build WorkspaceEdit with TextEdits
   char result[LSP_LARGE_BUFFER_SIZE];
@@ -789,11 +795,6 @@ void handle_rename(const char *id, const char *body) {
   // Escape new_name for JSON
   char escaped_new_name[LSP_PATTERN_BUFFER_SIZE];
   json_escape(new_name, escaped_new_name, sizeof(escaped_new_name));
-
-  // Parse references JSON array and build TextEdits
-  // For simplicity, we'll create a TextEdit for each reference
-  // In a real implementation, we'd parse the references array properly
-  // For now, we'll use the same approach as references but create edits
 
   // Start building WorkspaceEdit
   written =
@@ -817,9 +818,7 @@ void handle_rename(const char *id, const char *body) {
     first_edit = false;
   }
 
-  // Parse references and add TextEdits
-  // For now, we'll use a simpler approach: find all occurrences in text
-  // and create edits for them
+  // Add TextEdits for references that resolve to the same symbol.
   const char *text = g_doc->text;
   size_t text_len = strlen(text);
   size_t word_len = strlen(word);
@@ -856,7 +855,6 @@ void handle_rename(const char *id, const char *body) {
                            text[i + word_len] != '_'));
 
       if (is_word_start && is_word_end) {
-        // Calculate line and column for this occurrence
         size_t edit_line = current_line;
         size_t edit_col = current_col;
 
@@ -866,18 +864,20 @@ void handle_rename(const char *id, const char *body) {
           continue;
         }
 
-        // Add TextEdit
-        written = snprintf(
-            result + pos, remaining,
-            ",{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-            "\"end\":{\"line\":%zu,\"character\":%zu}},\"newText\":\"%s\"}",
-            edit_line - 1, edit_col, edit_line - 1, edit_col + word_len,
-            escaped_new_name);
-        if (written > 0 && (size_t)written < remaining) {
-          pos += (size_t)written;
-          remaining -= (size_t)written;
-        } else {
-          break; // Buffer full
+        Symbol *resolved = find_symbol_at_position(word, edit_line - 1, edit_col);
+        if (resolved == sym) {
+          written = snprintf(
+              result + pos, remaining,
+              ",{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},\"newText\":\"%s\"}",
+              edit_line - 1, edit_col, edit_line - 1, edit_col + word_len,
+              escaped_new_name);
+          if (written > 0 && (size_t)written < remaining) {
+            pos += (size_t)written;
+            remaining -= (size_t)written;
+          } else {
+            break; // Buffer full
+          }
         }
       }
     }
