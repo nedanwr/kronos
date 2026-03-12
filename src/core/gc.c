@@ -381,6 +381,9 @@ void gc_cleanup(void) {
         case VAL_LIST:
           free(obj->as.list.items);
           break;
+        case VAL_TUPLE:
+          free(obj->as.tuple.items);
+          break;
         case VAL_MAP:
           free(obj->as.map.entries);
           break;
@@ -777,6 +780,9 @@ void gc_collect_cycles(void) {
       break;
     case VAL_LIST:
       free(obj->as.list.items);
+      break;
+    case VAL_TUPLE:
+      free(obj->as.tuple.items);
       break;
     case VAL_MAP:
       free(obj->as.map.entries);
