@@ -609,6 +609,40 @@ TEST(lsp_diagnostics_builtin_wrong_types_excludes_inline_comments_from_range) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_file_io_wrong_types_reports_all_calls) {
+  const char *code =
+      "call read_file with 123\n"
+      "call write_file with 456, \"content\"\n"
+      "call file_exists with true\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("requires a string argument", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "Function 'read_file' requires a string argument"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'write_file' requires two string arguments"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'file_exists' requires a string argument"));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":20}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":23}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":21}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":22}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":26}"));
+  free(diag);
+}
+
 TEST(lsp_completion_includes_filter_and_map_utilities) {
   const char *code = "set numbers to list 1, 2, 3\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
