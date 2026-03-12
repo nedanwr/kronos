@@ -145,7 +145,7 @@ void handle_definition(const char *id, const char *body) {
   }
 
   // Find symbol
-  Symbol *sym = find_symbol(word);
+  Symbol *sym = find_symbol_at_position(word, line, character);
   free(word);
 
   if (!sym) {
@@ -602,7 +602,7 @@ void handle_references(const char *id, const char *body) {
   }
 
   // Find symbol to get its definition location
-  Symbol *sym = find_symbol(word);
+  Symbol *sym = find_symbol_at_position(word, line, character);
   if (!sym) {
     free(word);
     send_response(id, "[]");
@@ -684,7 +684,7 @@ void handle_prepare_rename(const char *id, const char *body) {
   }
 
   // Find symbol
-  Symbol *sym = find_symbol(word);
+  Symbol *sym = find_symbol_at_position(word, line, character);
   if (!sym) {
     free(word);
     send_response(id, "null");
@@ -748,7 +748,7 @@ void handle_rename(const char *id, const char *body) {
   }
 
   // Find symbol
-  Symbol *sym = find_symbol(word);
+  Symbol *sym = find_symbol_at_position(word, line, character);
   if (!sym) {
     free(word);
     free(new_name);
