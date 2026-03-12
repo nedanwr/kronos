@@ -1547,6 +1547,63 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
   }
 }
 
+static const SeenVar *find_seen_var(const SeenVar *seen_vars, size_t seen_count,
+                                    const char *name) {
+  if (!seen_vars || !name) {
+    return NULL;
+  }
+
+  for (size_t i = 0; i < seen_count; i++) {
+    if (seen_vars[i].name && strcmp(seen_vars[i].name, name) == 0) {
+      return &seen_vars[i];
+    }
+  }
+  return NULL;
+}
+
+static bool resolve_constant_number(ASTNode *node, AST *ast,
+                                    const SeenVar *seen_vars,
+                                    size_t seen_count, double *value,
+                                    int depth) {
+  if (!node || !value || depth > MAX_TYPE_INFER_DEPTH) {
+    return false;
+  }
+
+  if (node->type == AST_NUMBER) {
+    *value = node->as.number;
+    return true;
+  }
+
+  if (node->type == AST_BINOP && node->as.binop.op == BINOP_NEG &&
+      node->as.binop.right == NULL && node->as.binop.left) {
+    double operand_value = 0.0;
+    if (resolve_constant_number(node->as.binop.left, ast, seen_vars, seen_count,
+                                &operand_value, depth + 1)) {
+      *value = -operand_value;
+      return true;
+    }
+    return false;
+  }
+
+  if (node->type == AST_VAR && ast && node->as.var_name) {
+    const SeenVar *seen = find_seen_var(seen_vars, seen_count, node->as.var_name);
+    if (!seen || seen->assignment_count != 1) {
+      return false;
+    }
+
+    ASTNode *assignment = find_variable_assignment(ast, node->as.var_name);
+    if (!assignment || !assignment->as.assign.value ||
+        assignment->as.assign.value == node) {
+      return false;
+    }
+
+    return resolve_constant_number(assignment->as.assign.value, ast, seen_vars,
+                                   seen_count, value, depth + 1);
+  }
+
+  return false;
+}
+
 // Internal recursive version with depth tracking
 static void check_expression_recursive(ASTNode *node, const char *text,
                                        Symbol *symbols, AST *ast,
@@ -1742,15 +1799,22 @@ static void check_expression_recursive(ASTNode *node, const char *text,
         }
       }
 
-      // Check for division by zero (constant)
-      if (node->as.binop.op == BINOP_DIV) {
-        double right_val;
-        if (get_constant_number(node->as.binop.right, &right_val) &&
+      // Check for division/modulo by zero when the right side resolves to a
+      // compile-time constant (literal, unary-negated literal, or single-
+      // assignment variable in scope).
+      if (node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) {
+        double right_val = 0.0;
+        if (resolve_constant_number(node->as.binop.right, ast, seen_vars,
+                                    seen_count, &right_val, 0) &&
             right_val == 0.0) {
           size_t line = 1, col = 0;
-          find_node_position(node, text, "divided by", &line, &col);
+          const bool is_division = node->as.binop.op == BINOP_DIV;
+          find_node_position(node, text, is_division ? "divided by" : "mod",
+                             &line, &col);
 
-          char escaped_msg[LSP_ERROR_MSG_SIZE] = "Cannot divide by zero";
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg), "Cannot %s by zero",
+                   is_division ? "divide" : "modulo");
           char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
