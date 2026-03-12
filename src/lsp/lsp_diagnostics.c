@@ -2847,7 +2847,8 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         if (module_name) {
           strncpy(module_name, func_name, module_len);
           module_name[module_len] = '\0';
-          if (strcmp(module_name, "math") == 0) {
+          if (strcmp(module_name, "math") == 0 ||
+              strcmp(module_name, "regex") == 0) {
             actual_func_name = dot + 1;
           } else if (is_module_imported(module_name)) {
             // File-based module - skip type checking for now
