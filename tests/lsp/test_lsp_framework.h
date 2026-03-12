@@ -68,6 +68,23 @@ char *lsp_code_lens(LSPTestContext *ctx);
 // Send completion request
 char *lsp_completion(LSPTestContext *ctx, int line, int character);
 
+// Send signatureHelp request
+char *lsp_signature_help(LSPTestContext *ctx, int line, int character);
+
+// Send semanticTokens/full request
+char *lsp_semantic_tokens(LSPTestContext *ctx);
+
+// Send inlayHint request for a line range
+char *lsp_inlay_hints(LSPTestContext *ctx, int start_line, int end_line);
+
+// Send call hierarchy requests
+char *lsp_prepare_call_hierarchy(LSPTestContext *ctx, int line, int character);
+char *lsp_call_hierarchy_incoming(LSPTestContext *ctx, const char *name);
+char *lsp_call_hierarchy_outgoing(LSPTestContext *ctx, const char *name);
+
+// Send foldingRange request
+char *lsp_folding_range(LSPTestContext *ctx);
+
 // Helper to extract JSON value from response
 char *lsp_extract_json_value(const char *json, const char *key);
 

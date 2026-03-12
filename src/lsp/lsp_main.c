@@ -27,6 +27,12 @@ DocumentState *g_doc = NULL;
  * - textDocument/hover: Hover information
  * - textDocument/documentSymbol: Document outline
  * - textDocument/semanticTokens/full: Semantic highlighting
+ * - textDocument/signatureHelp: Function signature assistance
+ * - textDocument/inlayHint: Parameter/type hints
+ * - textDocument/foldingRange: Code folding regions
+ * - textDocument/prepareCallHierarchy: Call hierarchy item lookup
+ * - callHierarchy/incomingCalls: Incoming call sites
+ * - callHierarchy/outgoingCalls: Outgoing call sites
  * - workspace/symbol: Search symbols across workspace
  * - textDocument/codeLens: Show reference counts and parameter info
  *
@@ -134,6 +140,30 @@ int main(void) {
       char *id = json_get_id_value(body);
       handle_semantic_tokens(id ? id : "null");
       free(id);
+    } else if (strcmp(method, "textDocument/signatureHelp") == 0) {
+      char *id = json_get_id_value(body);
+      handle_signature_help(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/inlayHint") == 0) {
+      char *id = json_get_id_value(body);
+      handle_inlay_hints(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/prepareCallHierarchy") == 0) {
+      char *id = json_get_id_value(body);
+      handle_prepare_call_hierarchy(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "callHierarchy/incomingCalls") == 0) {
+      char *id = json_get_id_value(body);
+      handle_call_hierarchy_incoming(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "callHierarchy/outgoingCalls") == 0) {
+      char *id = json_get_id_value(body);
+      handle_call_hierarchy_outgoing(id ? id : "null", body);
+      free(id);
+    } else if (strcmp(method, "textDocument/foldingRange") == 0) {
+      char *id = json_get_id_value(body);
+      handle_folding_range(id ? id : "null", body);
+      free(id);
     } else if (strcmp(method, "workspace/symbol") == 0) {
       char *id = json_get_id_value(body);
       handle_workspace_symbol(id ? id : "null", body);
@@ -155,4 +185,3 @@ int main(void) {
   free(body);
   return 0;
 }
-

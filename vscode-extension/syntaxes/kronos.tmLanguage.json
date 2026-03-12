@@ -240,7 +240,7 @@
               "name": "keyword.control.kronos"
             }
           },
-          "end": "\\b(with)\\b",
+          "end": "(\\bwith\\b|$)",
           "endCaptures": {
             "1": {
               "name": "keyword.control.kronos"
@@ -264,7 +264,7 @@
               "name": "keyword.control.kronos"
             }
           },
-          "end": "\\b(with)\\b",
+          "end": "(\\bwith\\b|$)",
           "endCaptures": {
             "1": {
               "name": "keyword.control.kronos"

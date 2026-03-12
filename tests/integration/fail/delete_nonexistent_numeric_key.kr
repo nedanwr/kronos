@@ -1,0 +1,6 @@
+# Test: Delete non-existent map key (numeric key)
+# Expected: Fail with "Map key not found"
+
+let single_entry to map 0: "Alice"
+delete single_entry at 1
+print single_entry

@@ -133,6 +133,14 @@ bool get_constant_number(ASTNode *node, double *value);
 int get_builtin_arg_count(const char *func_name);
 void find_call_position(const char *text, const char *func_name,
                         size_t *line, size_t *col);
+bool find_call_expression_position(const char *text, const char *func_name,
+                                   size_t preferred_line, size_t *line,
+                                   size_t *col, size_t *length);
+bool find_call_argument_position_by_index(const char *text,
+                                          const char *func_name,
+                                          size_t preferred_line,
+                                          size_t arg_index, size_t *line,
+                                          size_t *col, size_t *length);
 bool find_call_argument_position(const char *text, const char *func_name,
                                  ASTNode *arg_node, size_t *line,
                                  size_t *col, size_t *length);
@@ -180,6 +188,12 @@ void handle_document_symbols(const char *id);
 void handle_workspace_symbol(const char *id, const char *body);
 void handle_code_lens(const char *id, const char *body);
 void handle_semantic_tokens(const char *id);
+void handle_signature_help(const char *id, const char *body);
+void handle_inlay_hints(const char *id, const char *body);
+void handle_prepare_call_hierarchy(const char *id, const char *body);
+void handle_call_hierarchy_incoming(const char *id, const char *body);
+void handle_call_hierarchy_outgoing(const char *id, const char *body);
+void handle_folding_range(const char *id, const char *body);
 
 // Completion (lsp_completion.c)
 void handle_completion(const char *id, const char *body);

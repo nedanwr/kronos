@@ -37,6 +37,276 @@ typedef struct {
 // Maximum recursion depth for type inference to prevent stack overflow
 #define MAX_TYPE_INFER_DEPTH 32
 
+#define LSP_IMPORT_STACK_MAX 256
+
+typedef struct {
+  char *modules[LSP_IMPORT_STACK_MAX];
+  size_t count;
+} LSPImportStack;
+
+static int lsp_hex_value(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return 10 + (c - 'a');
+  }
+  if (c >= 'A' && c <= 'F') {
+    return 10 + (c - 'A');
+  }
+  return -1;
+}
+
+static char *lsp_uri_to_path(const char *uri) {
+  if (!uri) {
+    return NULL;
+  }
+
+  const char *path = uri;
+  if (strncmp(uri, "file://", 7) == 0) {
+    path = uri + 7;
+  }
+
+  size_t path_len = strlen(path);
+  char *decoded = malloc(path_len + 1);
+  if (!decoded) {
+    return NULL;
+  }
+
+  size_t out = 0;
+  for (size_t i = 0; i < path_len; i++) {
+    if (path[i] == '%' && i + 2 < path_len) {
+      int hi = lsp_hex_value(path[i + 1]);
+      int lo = lsp_hex_value(path[i + 2]);
+      if (hi >= 0 && lo >= 0) {
+        decoded[out++] = (char)((hi << 4) | lo);
+        i += 2;
+        continue;
+      }
+    }
+    decoded[out++] = path[i];
+  }
+  decoded[out] = '\0';
+  return decoded;
+}
+
+static char *lsp_resolve_module_path(const char *base_path,
+                                     const char *module_path) {
+  if (!module_path) {
+    return NULL;
+  }
+
+  if (module_path[0] == '/') {
+    return strdup(module_path);
+  }
+
+  if ((module_path[0] == '.' && module_path[1] == '/') ||
+      (module_path[0] == '.' && module_path[1] == '.' &&
+       module_path[2] == '/')) {
+    if (base_path && base_path[0] != '\0') {
+      char *last_slash = strrchr(base_path, '/');
+      if (last_slash) {
+        size_t dir_len = (size_t)(last_slash - base_path) + 1;
+        size_t module_len = strlen(module_path);
+        char *resolved = malloc(dir_len + module_len + 1);
+        if (!resolved) {
+          return NULL;
+        }
+        strncpy(resolved, base_path, dir_len);
+        strcpy(resolved + dir_len, module_path);
+        return resolved;
+      }
+    }
+    return strdup(module_path);
+  }
+
+  if (strchr(module_path, '/')) {
+    return strdup(module_path);
+  }
+
+  if (base_path && base_path[0] != '\0') {
+    char *last_slash = strrchr(base_path, '/');
+    if (last_slash) {
+      size_t dir_len = (size_t)(last_slash - base_path) + 1;
+      size_t module_len = strlen(module_path);
+      char *resolved = malloc(dir_len + module_len + 1);
+      if (!resolved) {
+        return NULL;
+      }
+      strncpy(resolved, base_path, dir_len);
+      strcpy(resolved + dir_len, module_path);
+      return resolved;
+    }
+  }
+
+  return strdup(module_path);
+}
+
+static bool lsp_import_stack_contains(const LSPImportStack *stack,
+                                      const char *module_name) {
+  if (!stack || !module_name) {
+    return false;
+  }
+
+  for (size_t i = 0; i < stack->count; i++) {
+    if (stack->modules[i] && strcmp(stack->modules[i], module_name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool lsp_import_stack_push(LSPImportStack *stack, const char *module_name) {
+  if (!stack || !module_name) {
+    return false;
+  }
+  if (stack->count >= LSP_IMPORT_STACK_MAX) {
+    return false;
+  }
+
+  char *copy = strdup(module_name);
+  if (!copy) {
+    return false;
+  }
+  stack->modules[stack->count++] = copy;
+  return true;
+}
+
+static void lsp_import_stack_pop(LSPImportStack *stack) {
+  if (!stack || stack->count == 0) {
+    return;
+  }
+  stack->count--;
+  free(stack->modules[stack->count]);
+  stack->modules[stack->count] = NULL;
+}
+
+static void lsp_import_stack_clear(LSPImportStack *stack) {
+  if (!stack) {
+    return;
+  }
+  while (stack->count > 0) {
+    lsp_import_stack_pop(stack);
+  }
+}
+
+static AST *lsp_parse_ast_from_file(const char *file_path) {
+  if (!file_path) {
+    return NULL;
+  }
+
+  FILE *file = fopen(file_path, "r");
+  if (!file) {
+    return NULL;
+  }
+
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    return NULL;
+  }
+  long size = ftell(file);
+  if (size < 0 || (uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
+    fclose(file);
+    return NULL;
+  }
+  if (fseek(file, 0, SEEK_SET) != 0) {
+    fclose(file);
+    return NULL;
+  }
+
+  size_t length = (size_t)size;
+  char *source = malloc(length + 1);
+  if (!source) {
+    fclose(file);
+    return NULL;
+  }
+
+  size_t read_size = fread(source, 1, length, file);
+  if (ferror(file) || (read_size < length && !feof(file))) {
+    free(source);
+    fclose(file);
+    return NULL;
+  }
+  source[read_size] = '\0';
+  fclose(file);
+
+  TokenArray *tokens = tokenize(source, NULL);
+  free(source);
+  if (!tokens) {
+    return NULL;
+  }
+
+  AST *ast = parse(tokens, NULL);
+  token_array_free(tokens);
+  return ast;
+}
+
+static bool lsp_check_import_chain_recursive(const char *module_name,
+                                             const char *import_path,
+                                             const char *resolved_path,
+                                             LSPImportStack *stack,
+                                             char *error_msg,
+                                             size_t error_msg_size) {
+  if (!module_name || !resolved_path || !stack || !error_msg ||
+      error_msg_size == 0) {
+    return false;
+  }
+
+  if (lsp_import_stack_contains(stack, module_name)) {
+    snprintf(error_msg, error_msg_size,
+             "Circular import detected: module '%s' is already being loaded",
+             module_name);
+    return true;
+  }
+
+  FILE *probe = fopen(resolved_path, "r");
+  if (!probe) {
+    snprintf(error_msg, error_msg_size, "Failed to open module file: %s",
+             import_path ? import_path : resolved_path);
+    return true;
+  }
+  fclose(probe);
+
+  if (!lsp_import_stack_push(stack, module_name)) {
+    return false;
+  }
+
+  AST *module_ast = lsp_parse_ast_from_file(resolved_path);
+  if (!module_ast) {
+    lsp_import_stack_pop(stack);
+    return false;
+  }
+
+  for (size_t i = 0; i < module_ast->count; i++) {
+    ASTNode *node = module_ast->statements[i];
+    if (!node || node->type != AST_IMPORT || !node->as.import.module_name ||
+        !node->as.import.file_path) {
+      continue;
+    }
+
+    char *child_resolved =
+        lsp_resolve_module_path(resolved_path, node->as.import.file_path);
+    if (!child_resolved) {
+      continue;
+    }
+
+    bool has_issue = lsp_check_import_chain_recursive(
+        node->as.import.module_name, node->as.import.file_path, child_resolved,
+        stack, error_msg, error_msg_size);
+    free(child_resolved);
+
+    if (has_issue) {
+      ast_free(module_ast);
+      lsp_import_stack_pop(stack);
+      return true;
+    }
+  }
+
+  ast_free(module_ast);
+  lsp_import_stack_pop(stack);
+  return false;
+}
+
 static ExprType expr_type_from_annotation(const char *type_name) {
   if (!type_name) {
     return TYPE_UNKNOWN;
@@ -172,6 +442,138 @@ static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
 // Public API wrapper - starts recursion with depth 0
 ExprType infer_type_with_ast(ASTNode *node, Symbol *symbols, AST *ast) {
   return infer_type_internal(node, symbols, ast, 0);
+}
+
+static bool lsp_is_static_map_key_literal(ASTNode *node) {
+  if (!node) {
+    return false;
+  }
+  return node->type == AST_STRING || node->type == AST_NUMBER ||
+         node->type == AST_BOOL || node->type == AST_NULL;
+}
+
+static bool lsp_map_key_literals_equal(ASTNode *left, ASTNode *right) {
+  if (!left || !right || left->type != right->type) {
+    return false;
+  }
+
+  switch (left->type) {
+  case AST_STRING:
+    return left->as.string.value && right->as.string.value &&
+           strcmp(left->as.string.value, right->as.string.value) == 0;
+  case AST_NUMBER:
+    return left->as.number == right->as.number;
+  case AST_BOOL:
+    return left->as.boolean == right->as.boolean;
+  case AST_NULL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool lsp_map_has_static_literal_key(ASTNode *map_node, ASTNode *key,
+                                           bool *known, bool *present) {
+  if (!known || !present || !map_node || map_node->type != AST_MAP ||
+      !lsp_is_static_map_key_literal(key)) {
+    return false;
+  }
+
+  *known = false;
+  *present = false;
+
+  for (size_t i = 0; i < map_node->as.map.entry_count; i++) {
+    ASTNode *map_key = map_node->as.map.keys[i];
+    if (!lsp_is_static_map_key_literal(map_key)) {
+      return true;
+    }
+    if (lsp_map_key_literals_equal(map_key, key)) {
+      *present = true;
+    }
+  }
+
+  *known = true;
+  return true;
+}
+
+static bool lsp_target_is_variable(ASTNode *target, const char *name) {
+  return target && target->type == AST_VAR && target->as.var_name &&
+         strcmp(target->as.var_name, name) == 0;
+}
+
+static bool lsp_delete_key_missing_in_static_map(ASTNode *target, ASTNode *key,
+                                                 AST *ast,
+                                                 size_t delete_stmt_index) {
+  if (!target || !key || !ast || !lsp_is_static_map_key_literal(key)) {
+    return false;
+  }
+
+  bool known = false;
+  bool present = false;
+
+  if (target->type == AST_MAP) {
+    if (!lsp_map_has_static_literal_key(target, key, &known, &present)) {
+      return false;
+    }
+    return known && !present;
+  }
+
+  if (target->type != AST_VAR || !target->as.var_name) {
+    return false;
+  }
+
+  const char *target_name = target->as.var_name;
+  bool state_known = false;
+  bool key_present = false;
+
+  // Track map key state from top-level statements before this delete.
+  for (size_t i = 0; i < ast->count && i < delete_stmt_index; i++) {
+    ASTNode *stmt = ast->statements[i];
+    if (!stmt) {
+      continue;
+    }
+
+    if (stmt->type == AST_ASSIGN && stmt->as.assign.name &&
+        strcmp(stmt->as.assign.name, target_name) == 0) {
+      if (stmt->as.assign.value &&
+          lsp_map_has_static_literal_key(stmt->as.assign.value, key, &known,
+                                         &present) &&
+          known) {
+        state_known = true;
+        key_present = present;
+      } else {
+        state_known = false;
+      }
+      continue;
+    }
+
+    if (!state_known) {
+      continue;
+    }
+
+    if (stmt->type == AST_ASSIGN_INDEX &&
+        lsp_target_is_variable(stmt->as.assign_index.target, target_name)) {
+      ASTNode *index = stmt->as.assign_index.index;
+      if (!lsp_is_static_map_key_literal(index)) {
+        state_known = false;
+      } else if (lsp_map_key_literals_equal(index, key)) {
+        key_present = true;
+      }
+      continue;
+    }
+
+    if (stmt->type == AST_DELETE &&
+        lsp_target_is_variable(stmt->as.delete_stmt.target, target_name)) {
+      ASTNode *deleted_key = stmt->as.delete_stmt.key;
+      if (!lsp_is_static_map_key_literal(deleted_key)) {
+        state_known = false;
+      } else if (lsp_map_key_literals_equal(deleted_key, key)) {
+        key_present = false;
+      }
+    }
+  }
+
+  return state_known && !key_present;
 }
 
 #define LSP_TYPE_MATCH_MAX_DEPTH 32
@@ -1145,6 +1547,63 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
   }
 }
 
+static const SeenVar *find_seen_var(const SeenVar *seen_vars, size_t seen_count,
+                                    const char *name) {
+  if (!seen_vars || !name) {
+    return NULL;
+  }
+
+  for (size_t i = 0; i < seen_count; i++) {
+    if (seen_vars[i].name && strcmp(seen_vars[i].name, name) == 0) {
+      return &seen_vars[i];
+    }
+  }
+  return NULL;
+}
+
+static bool resolve_constant_number(ASTNode *node, AST *ast,
+                                    const SeenVar *seen_vars,
+                                    size_t seen_count, double *value,
+                                    int depth) {
+  if (!node || !value || depth > MAX_TYPE_INFER_DEPTH) {
+    return false;
+  }
+
+  if (node->type == AST_NUMBER) {
+    *value = node->as.number;
+    return true;
+  }
+
+  if (node->type == AST_BINOP && node->as.binop.op == BINOP_NEG &&
+      node->as.binop.right == NULL && node->as.binop.left) {
+    double operand_value = 0.0;
+    if (resolve_constant_number(node->as.binop.left, ast, seen_vars, seen_count,
+                                &operand_value, depth + 1)) {
+      *value = -operand_value;
+      return true;
+    }
+    return false;
+  }
+
+  if (node->type == AST_VAR && ast && node->as.var_name) {
+    const SeenVar *seen = find_seen_var(seen_vars, seen_count, node->as.var_name);
+    if (!seen || seen->assignment_count != 1) {
+      return false;
+    }
+
+    ASTNode *assignment = find_variable_assignment(ast, node->as.var_name);
+    if (!assignment || !assignment->as.assign.value ||
+        assignment->as.assign.value == node) {
+      return false;
+    }
+
+    return resolve_constant_number(assignment->as.assign.value, ast, seen_vars,
+                                   seen_count, value, depth + 1);
+  }
+
+  return false;
+}
+
 // Internal recursive version with depth tracking
 static void check_expression_recursive(ASTNode *node, const char *text,
                                        Symbol *symbols, AST *ast,
@@ -1340,15 +1799,22 @@ static void check_expression_recursive(ASTNode *node, const char *text,
         }
       }
 
-      // Check for division by zero (constant)
-      if (node->as.binop.op == BINOP_DIV) {
-        double right_val;
-        if (get_constant_number(node->as.binop.right, &right_val) &&
+      // Check for division/modulo by zero when the right side resolves to a
+      // compile-time constant (literal, unary-negated literal, or single-
+      // assignment variable in scope).
+      if (node->as.binop.op == BINOP_DIV || node->as.binop.op == BINOP_MOD) {
+        double right_val = 0.0;
+        if (resolve_constant_number(node->as.binop.right, ast, seen_vars,
+                                    seen_count, &right_val, 0) &&
             right_val == 0.0) {
           size_t line = 1, col = 0;
-          find_node_position(node, text, "divided by", &line, &col);
+          const bool is_division = node->as.binop.op == BINOP_DIV;
+          find_node_position(node, text, is_division ? "divided by" : "mod",
+                             &line, &col);
 
-          char escaped_msg[LSP_ERROR_MSG_SIZE] = "Cannot divide by zero";
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg), "Cannot %s by zero",
+                   is_division ? "divide" : "modulo");
           char escaped_msg_final[LSP_ERROR_MSG_SIZE];
           json_escape(escaped_msg, escaped_msg_final,
                       sizeof(escaped_msg_final));
@@ -1597,6 +2063,77 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
                              seen_count, capacity, 0);
 }
 
+static void check_import_diagnostics(AST *ast, const char *text,
+                                     char **diagnostics, size_t *pos,
+                                     size_t *remaining, bool *has_diagnostics,
+                                     size_t *capacity) {
+  if (!ast || !ast->statements || !text) {
+    return;
+  }
+
+  char *current_file_path = lsp_uri_to_path(g_doc ? g_doc->uri : NULL);
+
+  for (size_t i = 0; i < ast->count; i++) {
+    ASTNode *node = ast->statements[i];
+    if (!node || node->type != AST_IMPORT || !node->as.import.module_name ||
+        !node->as.import.file_path) {
+      continue;
+    }
+
+    char *resolved_path =
+        lsp_resolve_module_path(current_file_path, node->as.import.file_path);
+    if (!resolved_path) {
+      continue;
+    }
+
+    char error_msg[LSP_ERROR_MSG_SIZE] = {0};
+    LSPImportStack stack = {0};
+    bool has_import_error = lsp_check_import_chain_recursive(
+        node->as.import.module_name, node->as.import.file_path, resolved_path,
+        &stack, error_msg, sizeof(error_msg));
+
+    lsp_import_stack_clear(&stack);
+    free(resolved_path);
+
+    if (!has_import_error || error_msg[0] == '\0') {
+      continue;
+    }
+
+    size_t line = 1, col = 0;
+    char pattern[LSP_PATTERN_BUFFER_SIZE];
+    int n = snprintf(pattern, sizeof(pattern), "import %s",
+                     node->as.import.module_name);
+    if (n >= 0 && (size_t)n < sizeof(pattern)) {
+      find_node_position(node, text, pattern, &line, &col);
+    }
+
+    if (line == 1 && col == 0) {
+      get_node_position(node, &line, &col);
+      if (col > 0) {
+        col--;
+      }
+    }
+
+    char escaped_msg[LSP_ERROR_MSG_SIZE];
+    json_escape(error_msg, escaped_msg, sizeof(escaped_msg));
+
+    size_t marker_len =
+        (n > 0 && (size_t)n < sizeof(pattern)) ? (size_t)n : 20;
+    size_t needed = strlen(escaped_msg) + marker_len + 200;
+    SAFE_DIAGNOSTICS_WRITE(
+        diagnostics, capacity, pos, remaining, needed,
+        "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+        "\"end\":{\"line\":%zu,\"character\":%zu}},"
+        "\"severity\":1,"
+        "\"message\":\"%s\"}",
+        *has_diagnostics ? "," : "", line - 1, col, line - 1, col + marker_len,
+        escaped_msg);
+    *has_diagnostics = true;
+  }
+
+  free(current_file_path);
+}
+
 void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                                char **diagnostics, size_t *pos,
                                size_t *remaining, bool *has_diagnostics,
@@ -1674,17 +2211,22 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
 
     // Check assignments for immutable reassignment
     if (node->type == AST_ASSIGN) {
-      // Add variable to seen_vars FIRST, before checking expressions
-      // This allows forward references within the same scope
-      bool found = false;
+      // Track whether this assignment targets an existing variable before we
+      // mutate seen_vars, so reassignment checks don't treat first declarations
+      // as reassignments.
+      bool found_before = false;
+      bool was_immutable_before = false;
+      size_t occurrence = 0;
       for (size_t j = 0; j < seen_count; j++) {
         if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
-          found = true;
+          found_before = true;
+          was_immutable_before = !seen_vars[j].is_mutable;
           seen_vars[j].assignment_count++;
+          occurrence = seen_vars[j].assignment_count;
           break;
         }
       }
-      if (!found) {
+      if (!found_before) {
         // Add new variable to seen_vars
         if (seen_count >= seen_capacity) {
           seen_capacity *= 2;
@@ -1713,6 +2255,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         seen_vars[seen_count].is_mutable = node->as.assign.is_mutable;
         seen_vars[seen_count].assignment_count = 1;
         seen_vars[seen_count].first_statement_index = i;
+        occurrence = 1;
         seen_count++;
       }
 
@@ -1748,24 +2291,8 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
             escaped_msg_final);
         *has_diagnostics = true;
       } else {
-        // Check if variable was already assigned (reassignment check)
-        // Note: Variable was already added to seen_vars above, so we just need
-        // to check
-        bool found = false;
-        bool was_immutable = false;
-        size_t occurrence = 0;
-        for (size_t j = 0; j < seen_count; j++) {
-          if (strcmp(seen_vars[j].name, node->as.assign.name) == 0) {
-            found = true;
-            was_immutable = !seen_vars[j].is_mutable;
-            // Get the occurrence number BEFORE incrementing
-            occurrence = seen_vars[j].assignment_count;
-            break;
-          }
-        }
-
         // If variable was seen before and was immutable, this is an error
-        if (found && was_immutable) {
+        if (found_before && was_immutable_before) {
           // Find the position of this specific assignment (the Nth occurrence)
           size_t line = 1, col = 0;
           if (!find_nth_occurrence(text, node->as.assign.name, occurrence,
@@ -1802,7 +2329,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         // Numbers must have a value (cannot be null/undefined)
         // Strings and lists can be null/undefined (can be empty string/list
         // later)
-        if (!found && node->as.assign.value &&
+        if (!found_before && node->as.assign.value &&
             node->as.assign.value->type == AST_NULL) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name && strcmp(sym->type_name, "number") == 0) {
@@ -1909,7 +2436,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
         // explicit type annotation (e.g., "as number")
         // Variables initialized with null or no value can be reassigned to any
         // type
-        if (found && node->as.assign.value) {
+        if (found_before && node->as.assign.value) {
           Symbol *sym = find_symbol(node->as.assign.name);
           if (sym && sym->type_name) {
             const char *expected_type = sym->type_name;
@@ -2223,6 +2750,28 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                          diagnostics, pos, remaining, has_diagnostics,
                          seen_vars, seen_count, capacity);
       }
+
+      if (lsp_delete_key_missing_in_static_map(node->as.delete_stmt.target,
+                                               node->as.delete_stmt.key, ast,
+                                               i)) {
+        size_t line = 1, col = 0;
+        find_node_position(node, text, "at", &line, &col);
+
+        char escaped_msg[LSP_ERROR_MSG_SIZE] = "Map key not found";
+        char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+        json_escape(escaped_msg, escaped_msg_final, sizeof(escaped_msg_final));
+
+        size_t needed = strlen(escaped_msg_final) + 200;
+        SAFE_DIAGNOSTICS_WRITE(
+            diagnostics, capacity, pos, remaining, needed,
+            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},"
+            "\"severity\":1,"
+            "\"message\":\"%s\"}",
+            *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
+            escaped_msg_final);
+        *has_diagnostics = true;
+      }
     }
 
     // Check expressions in try/catch/finally blocks
@@ -2300,33 +2849,67 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
           strcmp(actual_func_name, "divide") == 0 ||
           strcmp(actual_func_name, "power") == 0) {
         // These require number arguments
+        size_t invalid_arg_indices[2] = {0, 0};
+        ASTNode *invalid_arg_nodes[2] = {NULL, NULL};
+        size_t invalid_arg_count = 0;
         for (size_t j = 0; j < node->as.call.arg_count && j < 2; j++) {
           ExprType arg_type =
               infer_type_with_ast(node->as.call.args[j], symbols, ast);
           if (arg_type != TYPE_NUMBER && arg_type != TYPE_UNKNOWN) {
-            size_t line = 1, col = 0;
-            find_call_position(text, func_name, &line, &col);
-
-            char escaped_msg[LSP_ERROR_MSG_SIZE];
-            snprintf(escaped_msg, sizeof(escaped_msg),
-                     "Function '%s' requires both arguments to be numbers",
-                     func_name);
-            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
-            json_escape(escaped_msg, escaped_msg_final,
-                        sizeof(escaped_msg_final));
-
-            size_t needed = strlen(escaped_msg_final) + 200;
-            SAFE_DIAGNOSTICS_WRITE(
-                diagnostics, capacity, pos, remaining, needed,
-                "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
-                "\"end\":{\"line\":%zu,\"character\":%zu}},"
-                "\"severity\":1,"
-                "\"message\":\"%s\"}",
-                *has_diagnostics ? "," : "", line - 1, col, line - 1, col + 20,
-                escaped_msg_final);
-            *has_diagnostics = true;
-            break;
+            if (invalid_arg_count < 2) {
+              invalid_arg_indices[invalid_arg_count] = j;
+              invalid_arg_nodes[invalid_arg_count] = node->as.call.args[j];
+              invalid_arg_count++;
+            }
           }
+        }
+
+        if (invalid_arg_count > 0) {
+          size_t line = 1, col = 0;
+          size_t length = 20;
+          bool have_specific_arg_range = false;
+
+          if (invalid_arg_count == 1 && invalid_arg_nodes[0] != NULL) {
+            ASTNodeType invalid_type = invalid_arg_nodes[0]->type;
+            bool can_use_simple_arg_range =
+                invalid_type == AST_STRING || invalid_type == AST_NUMBER ||
+                invalid_type == AST_BOOL || invalid_type == AST_NULL ||
+                invalid_type == AST_VAR;
+            if (can_use_simple_arg_range) {
+              have_specific_arg_range = find_call_argument_position_by_index(
+                  text, func_name, node->line, invalid_arg_indices[0], &line,
+                  &col, &length);
+            }
+          }
+
+          if (!have_specific_arg_range || length == 0) {
+            if (!find_call_expression_position(text, func_name, node->line,
+                                               &line, &col, &length) ||
+                length == 0) {
+              find_call_position(text, func_name, &line, &col);
+              length = 20;
+            }
+          }
+
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg),
+                   "Function '%s' requires both arguments to be numbers",
+                   func_name);
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+          json_escape(escaped_msg, escaped_msg_final,
+                      sizeof(escaped_msg_final));
+
+          size_t needed = strlen(escaped_msg_final) + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"%s\"}",
+              *has_diagnostics ? "," : "", line - 1, col, line - 1,
+              col + length,
+              escaped_msg_final);
+          *has_diagnostics = true;
         }
       } else if (strcmp(actual_func_name, "sqrt") == 0 ||
                  strcmp(actual_func_name, "abs") == 0 ||
@@ -2516,6 +3099,97 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                 escaped_msg_final);
             *has_diagnostics = true;
           }
+        }
+      } else if (strcmp(actual_func_name, "read_file") == 0 ||
+                 strcmp(actual_func_name, "read_lines") == 0 ||
+                 strcmp(actual_func_name, "file_exists") == 0) {
+        // These require string argument.
+        if (node->as.call.arg_count > 0) {
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[0], symbols, ast);
+          if (arg_type != TYPE_STRING && arg_type != TYPE_UNKNOWN) {
+            size_t line = 1, col = 0, length = 0;
+            if (!find_call_argument_position_by_index(text, func_name, node->line,
+                                                      0, &line, &col, &length) ||
+                length == 0) {
+              if (!find_call_expression_position(text, func_name, node->line,
+                                                 &line, &col, &length) ||
+                  length == 0) {
+                find_call_position(text, func_name, &line, &col);
+                length = 20;
+              }
+            }
+
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
+            snprintf(escaped_msg, sizeof(escaped_msg),
+                     "Function '%s' requires a string argument", func_name);
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+            json_escape(escaped_msg, escaped_msg_final,
+                        sizeof(escaped_msg_final));
+
+            size_t needed = strlen(escaped_msg_final) + length + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
+                "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                "\"severity\":1,"
+                "\"message\":\"%s\"}",
+                *has_diagnostics ? "," : "", line - 1, col, line - 1,
+                col + length, escaped_msg_final);
+            *has_diagnostics = true;
+          }
+        }
+      } else if (strcmp(actual_func_name, "write_file") == 0) {
+        // write_file requires two string arguments.
+        size_t invalid_arg_indices[2] = {0, 0};
+        size_t invalid_arg_count = 0;
+        for (size_t j = 0; j < node->as.call.arg_count && j < 2; j++) {
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[j], symbols, ast);
+          if (arg_type != TYPE_STRING && arg_type != TYPE_UNKNOWN) {
+            if (invalid_arg_count < 2) {
+              invalid_arg_indices[invalid_arg_count] = j;
+              invalid_arg_count++;
+            }
+          }
+        }
+
+        if (invalid_arg_count > 0) {
+          size_t line = 1, col = 0, length = 20;
+          bool have_specific_arg_range = false;
+
+          if (invalid_arg_count == 1) {
+            have_specific_arg_range = find_call_argument_position_by_index(
+                text, func_name, node->line, invalid_arg_indices[0], &line, &col,
+                &length);
+          }
+
+          if (!have_specific_arg_range || length == 0) {
+            if (!find_call_expression_position(text, func_name, node->line, &line,
+                                               &col, &length) ||
+                length == 0) {
+              find_call_position(text, func_name, &line, &col);
+              length = 20;
+            }
+          }
+
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg),
+                   "Function '%s' requires two string arguments", func_name);
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+          json_escape(escaped_msg, escaped_msg_final,
+                      sizeof(escaped_msg_final));
+
+          size_t needed = strlen(escaped_msg_final) + length + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"%s\"}",
+              *has_diagnostics ? "," : "", line - 1, col, line - 1, col + length,
+              escaped_msg_final);
+          *has_diagnostics = true;
         }
       } else if (strcmp(actual_func_name, "to_number") == 0) {
         // to_number requires string or number argument, not list
@@ -3118,6 +3792,11 @@ void check_diagnostics(const char *uri, const char *text) {
       Symbol *symbols = g_doc ? g_doc->symbols : NULL;
       // Pass capacity pointer so helper functions can grow buffer
       size_t *capacity_ptr = &diagnostics_capacity;
+
+      // Check import-related diagnostics (missing files, circular imports)
+      check_import_diagnostics(ast, text, &diagnostics, &pos, &remaining,
+                               &has_diagnostics, capacity_ptr);
+
       check_function_calls(ast, text, symbols, &diagnostics, &pos, &remaining,
                            &has_diagnostics, capacity_ptr);
 

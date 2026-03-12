@@ -5627,6 +5627,11 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   bool handling_exception = false;
 
   while (1) {
+    // Once a catch block has consumed the error, return to normal execution.
+    if (handling_exception && vm->last_error_code == KRONOS_OK) {
+      handling_exception = false;
+    }
+
     // Check for exceptions before executing next instruction
     // Only check if we're not already handling an exception (to avoid infinite
     // loop)
@@ -5639,15 +5644,6 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
         // No handler - propagate the error and stop execution
         return vm_propagate_error(vm, vm->last_error_code);
       }
-    }
-    // Reset handling_exception after we've executed an instruction
-    // This allows OP_CATCH to check for errors and match them
-    if (handling_exception) {
-      // We're in exception handling mode - don't reset yet, let OP_CATCH handle
-      // it Reset will happen after OP_CATCH clears the error
-    } else {
-      // Normal execution - reset flag (redundant but safe)
-      handling_exception = false;
     }
 
     uint8_t instruction = read_byte(vm);
@@ -5676,6 +5672,15 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
 
     int result = dispatch_table[instruction](vm);
     if (result != 0) {
+      // If an opcode reports an error while a try/catch is active, route control
+      // to the active exception handler instead of bailing out immediately.
+      if (vm->last_error_code != KRONOS_OK && vm->exception_handler_count > 0 &&
+          !handling_exception) {
+        if (handle_exception_if_any(vm)) {
+          handling_exception = true;
+          continue;
+        }
+      }
       return result;
     }
 

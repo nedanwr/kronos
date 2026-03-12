@@ -6,14 +6,16 @@ set -e
 echo "📦 Installing Kronos VSCode Extension..."
 echo ""
 
-# Determine script directory and switch to project root
+# Determine script directory and project root
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [ -z "$SCRIPT_DIR" ]; then
-    echo "❌ Error: Failed to resolve script directory."
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+if [ -z "$SCRIPT_DIR" ] || [ -z "$PROJECT_ROOT" ]; then
+    echo "❌ Error: Failed to resolve script or project root directory."
     exit 1
 fi
 
-cd "$SCRIPT_DIR"
+cd "$PROJECT_ROOT"
 
 # Always rebuild the LSP server to ensure it's up to date
 echo "🔨 Building LSP server..."
@@ -23,12 +25,12 @@ echo ""
 
 # Install npm dependencies
 echo "1️⃣  Installing extension dependencies..."
-if [ ! -d "$SCRIPT_DIR/vscode-extension" ]; then
-    echo "❌ Error: vscode-extension directory not found at $SCRIPT_DIR/vscode-extension"
+if [ ! -d "$PROJECT_ROOT/vscode-extension" ]; then
+    echo "❌ Error: vscode-extension directory not found at $PROJECT_ROOT/vscode-extension"
     exit 1
 fi
 
-cd "$SCRIPT_DIR/vscode-extension"
+cd "$PROJECT_ROOT/vscode-extension"
 
 if ! command -v npm &> /dev/null; then
     echo "❌ Error: npm not found. Please install Node.js first."
@@ -39,7 +41,7 @@ npm install --silent
 echo "✅ Dependencies installed"
 echo ""
 
-cd "$SCRIPT_DIR"
+cd "$PROJECT_ROOT"
 
 # Get extension directory for each editor
 VSCODE_EXT="$HOME/.vscode/extensions"
@@ -62,7 +64,7 @@ install_to_editor() {
         rm -rf "$TARGET"
 
         # Copy extension
-        cp -r "$SCRIPT_DIR/vscode-extension" "$TARGET"
+        cp -r "$PROJECT_ROOT/vscode-extension" "$TARGET"
 
         echo "✅ Installed to $TARGET"
         INSTALLED=true
@@ -105,4 +107,3 @@ echo "     ✅ Real-time error checking"
 echo "     ✅ Autocomplete (press space after keywords)"
 echo ""
 echo "🎉 Installation complete!"
-

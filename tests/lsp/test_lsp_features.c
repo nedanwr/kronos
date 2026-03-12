@@ -22,6 +22,64 @@ static char *lsp_read_diagnostics_with_message(const char *message_substring,
   return NULL;
 }
 
+static char *lsp_read_response_with_id(int id, int max_attempts) {
+  char id_pattern[32];
+  snprintf(id_pattern, sizeof(id_pattern), "\"id\":%d", id);
+
+  for (int i = 0; i < max_attempts; i++) {
+    char *msg = lsp_read_response(g_ctx, 500);
+    if (!msg) {
+      continue;
+    }
+    if (lsp_response_contains(msg, id_pattern)) {
+      return msg;
+    }
+    free(msg);
+  }
+  return NULL;
+}
+
+static bool semantic_tokens_has_type(const char *response, int token_type) {
+  if (!response) {
+    return false;
+  }
+
+  const char *data = strstr(response, "\"data\":[");
+  if (!data) {
+    return false;
+  }
+
+  const char *cursor = strchr(data, '[');
+  if (!cursor) {
+    return false;
+  }
+  cursor++;
+
+  int field_index = 0;
+  while (*cursor && *cursor != ']') {
+    while (*cursor && *cursor != '-' &&
+           (*cursor < '0' || *cursor > '9') && *cursor != ']') {
+      cursor++;
+    }
+    if (!*cursor || *cursor == ']') {
+      break;
+    }
+
+    char *endptr = NULL;
+    long value = strtol(cursor, &endptr, 10);
+    if (endptr == cursor) {
+      break;
+    }
+    if ((field_index % 5) == 3 && value == token_type) {
+      return true;
+    }
+    field_index++;
+    cursor = endptr;
+  }
+
+  return false;
+}
+
 // Test hover for file-based modules
 TEST(lsp_hover_file_module) {
   const char *code = "import math\n"
@@ -56,6 +114,36 @@ TEST(lsp_module_function_validation) {
   // The LSP should validate module functions
   // This test verifies the feature exists (actual validation happens in diagnostics)
   ASSERT_TRUE(true);
+}
+
+TEST(lsp_diagnostics_missing_module_file_reported) {
+  const char *code =
+      "import missing_module from \"nonexistent_module_987654.kr\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Failed to open module file: nonexistent_module_987654.kr", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Failed to open module file: nonexistent_module_987654.kr"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_circular_import_reported) {
+  const char *code =
+      "import circular_a from \"tests/integration/fail/circular_a.kr\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Circular import detected: module 'circular_a' is already being loaded", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Circular import detected: module 'circular_a' is already being loaded"));
+  free(diag);
 }
 
 // Test find all references
@@ -301,6 +389,260 @@ TEST(lsp_diagnostics_filter_requires_list_argument) {
   free(diag);
 }
 
+TEST(lsp_diagnostics_delete_nonexistent_map_key) {
+  const char *code = "let person to map name: \"Alice\", age: 30\n"
+                     "delete person at \"nonexistent\"\n"
+                     "print person\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_existing_map_key_no_error) {
+  const char *code = "let person to map name: \"Alice\", age: 30\n"
+                     "delete person at \"name\"\n"
+                     "print person\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_FALSE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_nonexistent_numeric_map_key) {
+  const char *code = "let single_entry to map 0: \"Alice\"\n"
+                     "delete single_entry at 1\n"
+                     "print single_entry\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_delete_from_empty_map_reports_missing_key) {
+  const char *code = "let empty_map to map\n"
+                     "delete empty_map at 0\n"
+                     "print empty_map\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Map key not found", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Map key not found"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_arithmetic_by_zero_through_constant_variable) {
+  const char *code = "set x to 10\n"
+                     "set y to 0\n"
+                     "print x divided by y\n"
+                     "print x mod y\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("Cannot divide by zero", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "Cannot divide by zero"));
+  ASSERT_TRUE(lsp_response_contains(diag, "Cannot modulo by zero"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_wrong_types_highlights_full_call_line) {
+  const char *code = "call add with \"hello\", \"world\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_wrong_types_covers_all_arithmetic_builtins) {
+  const char *code =
+      "call add with \"hello\", \"world\"\n"
+      "call add with 1, \"world\"\n"
+      "call add with \"hello\", 2\n"
+      "call subtract with \"hello\", 1\n"
+      "call multiply with true, 2\n"
+      "call divide with 8, \"two\"\n"
+      "call power with null, 3\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag,
+                            "Function 'add' requires both arguments to be numbers"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":3,\"character\":19}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":3,\"character\":26}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":4,\"character\":19}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":4,\"character\":23}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":5,\"character\":20}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":5,\"character\":25}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":6,\"character\":16}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":6,\"character\":20}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":3,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":4,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":5,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":6,\"character\":0}"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'subtract' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'multiply' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'divide' requires both arguments to be numbers"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'power' requires both arguments to be numbers"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_add_variants_highlight_correct_ranges) {
+  const char *code =
+      "call add with \"hello\", \"world\"\n"
+      "call add with 1, \"world\"\n"
+      "call add with \"hello\", 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":0}"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":0}"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_builtin_wrong_types_excludes_inline_comments_from_range) {
+  const char *code =
+      "call add with \"hello\", \"world\"  # both wrong\n"
+      "call add with 1, \"world\"  # number + string\n"
+      "call add with \"hello\", 2  # string + number\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Function 'add' requires both arguments to be numbers", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  // Ensure diagnostics stop before inline comments.
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":0}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":30}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":17}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":14}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":21}"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_file_io_wrong_types_reports_all_calls) {
+  const char *code =
+      "call read_file with 123\n"
+      "call write_file with 456, \"content\"\n"
+      "call file_exists with true\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message("requires a string argument", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "Function 'read_file' requires a string argument"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'write_file' requires two string arguments"));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'file_exists' requires a string argument"));
+
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":0,\"character\":20}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":0,\"character\":23}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":1,\"character\":21}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":1,\"character\":24}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"start\":{\"line\":2,\"character\":22}"));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "\"end\":{\"line\":2,\"character\":26}"));
+  free(diag);
+}
+
 TEST(lsp_completion_includes_filter_and_map_utilities) {
   const char *code = "set numbers to list 1, 2, 3\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
@@ -419,6 +761,28 @@ TEST(lsp_diagnostics_generic_type_mismatch_reported) {
   ASSERT_PTR_NOT_NULL(diag);
   ASSERT_TRUE(lsp_is_valid_json(diag));
   ASSERT_TRUE(lsp_response_contains(diag, "expected 'list<number>'"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_comparison_type_error_no_false_immutable_reassign) {
+  const char *code =
+      "set x to 10\n"
+      "set name to \"Alice\"\n"
+      "if x is greater than name:\n"
+      "    print \"invalid\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Cannot compare - both values must be numbers", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(
+      lsp_response_contains(diag, "Cannot compare - both values must be numbers"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "Cannot reassign immutable variable 'x'"));
+  ASSERT_FALSE(
+      lsp_response_contains(diag, "Cannot reassign immutable variable 'name'"));
   free(diag);
 }
 
@@ -620,6 +984,139 @@ TEST(lsp_references_include_debug_statement_usage) {
 
   ASSERT_TRUE(count >= 2);
   free(references);
+}
+
+TEST(lsp_initialize_advertises_advanced_lsp_capabilities) {
+  const char *params = "{\"capabilities\":{},\"rootUri\":null}";
+  ASSERT_TRUE(lsp_send_request(g_ctx, "initialize", params, 901));
+
+  char *response = lsp_read_response_with_id(901, 8);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "signatureHelpProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "inlayHintProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "callHierarchyProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "foldingRangeProvider"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"operator\""));
+  ASSERT_TRUE(lsp_response_contains(response, "bracketPairColorization"));
+  free(response);
+}
+
+TEST(lsp_signature_help_for_user_function) {
+  const char *code =
+      "function add with left, right:\n"
+      "    return left plus right\n"
+      "call add with 1, 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_signature_help(g_ctx, 2, 17);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "add(left, right)"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"activeParameter\":1"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"left\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"right\""));
+  free(response);
+}
+
+TEST(lsp_semantic_tokens_include_keywords_and_brackets) {
+  const char *code =
+      "function painter with x:\n"
+      "    set nums to [x, 1]\n"
+      "    return nums\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_semantic_tokens(g_ctx);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(semantic_tokens_has_type(response, 3)); // keyword
+  ASSERT_TRUE(semantic_tokens_has_type(response, 6)); // operator/bracket
+  free(response);
+}
+
+TEST(lsp_inlay_hints_for_call_arguments) {
+  const char *code =
+      "function combine with left, right:\n"
+      "    return left plus right\n"
+      "call combine with 1, 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_inlay_hints(g_ctx, 0, 2);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"left:\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"right:\""));
+  free(response);
+}
+
+TEST(lsp_call_hierarchy_incoming_and_outgoing) {
+  const char *code =
+      "function caller_one with value:\n"
+      "    call target with value\n"
+      "function target with value:\n"
+      "    return value\n"
+      "function caller_two with value:\n"
+      "    call target with value\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *prepare = lsp_prepare_call_hierarchy(g_ctx, 2, 10);
+  ASSERT_PTR_NOT_NULL(prepare);
+  ASSERT_TRUE(lsp_is_valid_json(prepare));
+  ASSERT_TRUE(lsp_response_contains(prepare, "\"name\":\"target\""));
+  free(prepare);
+
+  char *incoming = lsp_call_hierarchy_incoming(g_ctx, "target");
+  ASSERT_PTR_NOT_NULL(incoming);
+  ASSERT_TRUE(lsp_is_valid_json(incoming));
+  ASSERT_TRUE(lsp_response_contains(incoming, "\"name\":\"caller_one\""));
+  ASSERT_TRUE(lsp_response_contains(incoming, "\"name\":\"caller_two\""));
+  free(incoming);
+
+  char *outgoing = lsp_call_hierarchy_outgoing(g_ctx, "caller_one");
+  ASSERT_PTR_NOT_NULL(outgoing);
+  ASSERT_TRUE(lsp_is_valid_json(outgoing));
+  ASSERT_TRUE(lsp_response_contains(outgoing, "\"name\":\"target\""));
+  free(outgoing);
+}
+
+TEST(lsp_folding_ranges_for_comments_and_blocks) {
+  const char *code =
+      "# first\n"
+      "# second\n"
+      "function fold_me with value:\n"
+      "    if value is greater than 0:\n"
+      "        print value\n"
+      "    print 1\n"
+      "print 2\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_folding_range(g_ctx);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"kind\":\"comment\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"kind\":\"region\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"startLine\":2"));
+  free(response);
 }
 
 // Setup and teardown
