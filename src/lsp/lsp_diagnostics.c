@@ -501,6 +501,23 @@ static bool lsp_target_is_variable(ASTNode *target, const char *name) {
          strcmp(target->as.var_name, name) == 0;
 }
 
+static bool lsp_stmt_has_non_linear_control_flow(const ASTNode *stmt) {
+  if (!stmt) {
+    return false;
+  }
+
+  switch (stmt->type) {
+  case AST_IF:
+  case AST_MATCH:
+  case AST_WHILE:
+  case AST_FOR:
+  case AST_TRY:
+    return true;
+  default:
+    return false;
+  }
+}
+
 static bool lsp_delete_key_missing_in_static_map(ASTNode *target, ASTNode *key,
                                                  AST *ast,
                                                  size_t delete_stmt_index) {
@@ -530,6 +547,11 @@ static bool lsp_delete_key_missing_in_static_map(ASTNode *target, ASTNode *key,
   for (size_t i = 0; i < ast->count && i < delete_stmt_index; i++) {
     ASTNode *stmt = ast->statements[i];
     if (!stmt) {
+      continue;
+    }
+
+    if (lsp_stmt_has_non_linear_control_flow(stmt)) {
+      state_known = false;
       continue;
     }
 
