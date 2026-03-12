@@ -51,6 +51,11 @@ typedef struct Symbol {
   char **param_names;           /**< For functions: parameter names array (NULL if no params) */
   bool written;        /**< Track if variable has been assigned to */
   bool read;           /**< Track if variable has been read from */
+  bool is_block_local; /**< Whether symbol visibility is limited to a source range */
+  size_t scope_start_line;   /**< 1-based inclusive scope start line (0 when not scoped) */
+  size_t scope_start_column; /**< 1-based inclusive scope start column (0 when not scoped) */
+  size_t scope_end_line;     /**< 1-based inclusive scope end line (0 when not scoped) */
+  size_t scope_end_column;   /**< 1-based inclusive scope end column (0 when not scoped) */
   struct Symbol *next; /**< Next symbol in linked list */
 } Symbol;
 
@@ -124,6 +129,8 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
                                      Symbol ***tail, Symbol **head);
 void build_symbol_table(DocumentState *doc, AST *ast, const char *text);
 Symbol *find_symbol(const char *const name);
+Symbol *find_symbol_at_position(const char *const name, size_t line,
+                                size_t character);
 char *get_word_at_position(const char *source, size_t line, size_t character);
 bool find_nth_occurrence(const char *text, const char *varname, size_t n,
                          size_t *line, size_t *col);
@@ -152,6 +159,7 @@ bool is_loop_variable(Symbol *sym, AST *ast);
 const char *get_module_description(const char *module_name);
 void count_references_in_node(ASTNode *node, void *ctx);
 size_t count_symbol_references(const char *symbol_name, AST *ast);
+size_t count_symbol_references_for_symbol(const Symbol *symbol, AST *ast);
 bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity,
                              size_t pos, size_t needed);
 bool safe_strtoul(const char *str, size_t *out_value);
