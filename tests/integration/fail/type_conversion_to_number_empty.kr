@@ -1,0 +1,4 @@
+# Test to_number with empty string
+# Expected: Runtime error - empty string cannot be converted to number
+
+set num to call to_number with ""
