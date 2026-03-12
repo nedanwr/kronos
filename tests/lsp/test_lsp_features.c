@@ -116,6 +116,36 @@ TEST(lsp_module_function_validation) {
   ASSERT_TRUE(true);
 }
 
+TEST(lsp_diagnostics_missing_module_file_reported) {
+  const char *code =
+      "import missing_module from \"nonexistent_module_987654.kr\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Failed to open module file: nonexistent_module_987654.kr", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Failed to open module file: nonexistent_module_987654.kr"));
+  free(diag);
+}
+
+TEST(lsp_diagnostics_circular_import_reported) {
+  const char *code =
+      "import circular_a from \"tests/integration/fail/circular_a.kr\"\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(
+      "Circular import detected: module 'circular_a' is already being loaded", 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Circular import detected: module 'circular_a' is already being loaded"));
+  free(diag);
+}
+
 // Test find all references
 TEST(lsp_find_references) {
   const char *code = "set x to 10\n"
