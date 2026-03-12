@@ -1984,6 +1984,17 @@ int builtin_read_lines(KronosVM *vm, uint8_t arg_count) {
     value_release(line_val);
   }
 
+  if (ferror(file) || !feof(file)) {
+    free(line);
+    fclose(file);
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                        "Failed to read all lines from file '%s'",
+                        path_arg->as.string.data);
+    value_release(result);
+    value_release(path_arg);
+    return err;
+  }
+
   free(line);
   fclose(file);
   value_release(path_arg);
