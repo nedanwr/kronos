@@ -37,6 +37,276 @@ typedef struct {
 // Maximum recursion depth for type inference to prevent stack overflow
 #define MAX_TYPE_INFER_DEPTH 32
 
+#define LSP_IMPORT_STACK_MAX 256
+
+typedef struct {
+  char *modules[LSP_IMPORT_STACK_MAX];
+  size_t count;
+} LSPImportStack;
+
+static int lsp_hex_value(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return 10 + (c - 'a');
+  }
+  if (c >= 'A' && c <= 'F') {
+    return 10 + (c - 'A');
+  }
+  return -1;
+}
+
+static char *lsp_uri_to_path(const char *uri) {
+  if (!uri) {
+    return NULL;
+  }
+
+  const char *path = uri;
+  if (strncmp(uri, "file://", 7) == 0) {
+    path = uri + 7;
+  }
+
+  size_t path_len = strlen(path);
+  char *decoded = malloc(path_len + 1);
+  if (!decoded) {
+    return NULL;
+  }
+
+  size_t out = 0;
+  for (size_t i = 0; i < path_len; i++) {
+    if (path[i] == '%' && i + 2 < path_len) {
+      int hi = lsp_hex_value(path[i + 1]);
+      int lo = lsp_hex_value(path[i + 2]);
+      if (hi >= 0 && lo >= 0) {
+        decoded[out++] = (char)((hi << 4) | lo);
+        i += 2;
+        continue;
+      }
+    }
+    decoded[out++] = path[i];
+  }
+  decoded[out] = '\0';
+  return decoded;
+}
+
+static char *lsp_resolve_module_path(const char *base_path,
+                                     const char *module_path) {
+  if (!module_path) {
+    return NULL;
+  }
+
+  if (module_path[0] == '/') {
+    return strdup(module_path);
+  }
+
+  if ((module_path[0] == '.' && module_path[1] == '/') ||
+      (module_path[0] == '.' && module_path[1] == '.' &&
+       module_path[2] == '/')) {
+    if (base_path && base_path[0] != '\0') {
+      char *last_slash = strrchr(base_path, '/');
+      if (last_slash) {
+        size_t dir_len = (size_t)(last_slash - base_path) + 1;
+        size_t module_len = strlen(module_path);
+        char *resolved = malloc(dir_len + module_len + 1);
+        if (!resolved) {
+          return NULL;
+        }
+        strncpy(resolved, base_path, dir_len);
+        strcpy(resolved + dir_len, module_path);
+        return resolved;
+      }
+    }
+    return strdup(module_path);
+  }
+
+  if (strchr(module_path, '/')) {
+    return strdup(module_path);
+  }
+
+  if (base_path && base_path[0] != '\0') {
+    char *last_slash = strrchr(base_path, '/');
+    if (last_slash) {
+      size_t dir_len = (size_t)(last_slash - base_path) + 1;
+      size_t module_len = strlen(module_path);
+      char *resolved = malloc(dir_len + module_len + 1);
+      if (!resolved) {
+        return NULL;
+      }
+      strncpy(resolved, base_path, dir_len);
+      strcpy(resolved + dir_len, module_path);
+      return resolved;
+    }
+  }
+
+  return strdup(module_path);
+}
+
+static bool lsp_import_stack_contains(const LSPImportStack *stack,
+                                      const char *module_name) {
+  if (!stack || !module_name) {
+    return false;
+  }
+
+  for (size_t i = 0; i < stack->count; i++) {
+    if (stack->modules[i] && strcmp(stack->modules[i], module_name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool lsp_import_stack_push(LSPImportStack *stack, const char *module_name) {
+  if (!stack || !module_name) {
+    return false;
+  }
+  if (stack->count >= LSP_IMPORT_STACK_MAX) {
+    return false;
+  }
+
+  char *copy = strdup(module_name);
+  if (!copy) {
+    return false;
+  }
+  stack->modules[stack->count++] = copy;
+  return true;
+}
+
+static void lsp_import_stack_pop(LSPImportStack *stack) {
+  if (!stack || stack->count == 0) {
+    return;
+  }
+  stack->count--;
+  free(stack->modules[stack->count]);
+  stack->modules[stack->count] = NULL;
+}
+
+static void lsp_import_stack_clear(LSPImportStack *stack) {
+  if (!stack) {
+    return;
+  }
+  while (stack->count > 0) {
+    lsp_import_stack_pop(stack);
+  }
+}
+
+static AST *lsp_parse_ast_from_file(const char *file_path) {
+  if (!file_path) {
+    return NULL;
+  }
+
+  FILE *file = fopen(file_path, "r");
+  if (!file) {
+    return NULL;
+  }
+
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    return NULL;
+  }
+  long size = ftell(file);
+  if (size < 0 || (uintmax_t)size > (uintmax_t)(SIZE_MAX - 1)) {
+    fclose(file);
+    return NULL;
+  }
+  if (fseek(file, 0, SEEK_SET) != 0) {
+    fclose(file);
+    return NULL;
+  }
+
+  size_t length = (size_t)size;
+  char *source = malloc(length + 1);
+  if (!source) {
+    fclose(file);
+    return NULL;
+  }
+
+  size_t read_size = fread(source, 1, length, file);
+  if (ferror(file) || (read_size < length && !feof(file))) {
+    free(source);
+    fclose(file);
+    return NULL;
+  }
+  source[read_size] = '\0';
+  fclose(file);
+
+  TokenArray *tokens = tokenize(source, NULL);
+  free(source);
+  if (!tokens) {
+    return NULL;
+  }
+
+  AST *ast = parse(tokens, NULL);
+  token_array_free(tokens);
+  return ast;
+}
+
+static bool lsp_check_import_chain_recursive(const char *module_name,
+                                             const char *import_path,
+                                             const char *resolved_path,
+                                             LSPImportStack *stack,
+                                             char *error_msg,
+                                             size_t error_msg_size) {
+  if (!module_name || !resolved_path || !stack || !error_msg ||
+      error_msg_size == 0) {
+    return false;
+  }
+
+  if (lsp_import_stack_contains(stack, module_name)) {
+    snprintf(error_msg, error_msg_size,
+             "Circular import detected: module '%s' is already being loaded",
+             module_name);
+    return true;
+  }
+
+  FILE *probe = fopen(resolved_path, "r");
+  if (!probe) {
+    snprintf(error_msg, error_msg_size, "Failed to open module file: %s",
+             import_path ? import_path : resolved_path);
+    return true;
+  }
+  fclose(probe);
+
+  if (!lsp_import_stack_push(stack, module_name)) {
+    return false;
+  }
+
+  AST *module_ast = lsp_parse_ast_from_file(resolved_path);
+  if (!module_ast) {
+    lsp_import_stack_pop(stack);
+    return false;
+  }
+
+  for (size_t i = 0; i < module_ast->count; i++) {
+    ASTNode *node = module_ast->statements[i];
+    if (!node || node->type != AST_IMPORT || !node->as.import.module_name ||
+        !node->as.import.file_path) {
+      continue;
+    }
+
+    char *child_resolved =
+        lsp_resolve_module_path(resolved_path, node->as.import.file_path);
+    if (!child_resolved) {
+      continue;
+    }
+
+    bool has_issue = lsp_check_import_chain_recursive(
+        node->as.import.module_name, node->as.import.file_path, child_resolved,
+        stack, error_msg, error_msg_size);
+    free(child_resolved);
+
+    if (has_issue) {
+      ast_free(module_ast);
+      lsp_import_stack_pop(stack);
+      return true;
+    }
+  }
+
+  ast_free(module_ast);
+  lsp_import_stack_pop(stack);
+  return false;
+}
+
 static ExprType expr_type_from_annotation(const char *type_name) {
   if (!type_name) {
     return TYPE_UNKNOWN;
@@ -1729,6 +1999,77 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
                              seen_count, capacity, 0);
 }
 
+static void check_import_diagnostics(AST *ast, const char *text,
+                                     char **diagnostics, size_t *pos,
+                                     size_t *remaining, bool *has_diagnostics,
+                                     size_t *capacity) {
+  if (!ast || !ast->statements || !text) {
+    return;
+  }
+
+  char *current_file_path = lsp_uri_to_path(g_doc ? g_doc->uri : NULL);
+
+  for (size_t i = 0; i < ast->count; i++) {
+    ASTNode *node = ast->statements[i];
+    if (!node || node->type != AST_IMPORT || !node->as.import.module_name ||
+        !node->as.import.file_path) {
+      continue;
+    }
+
+    char *resolved_path =
+        lsp_resolve_module_path(current_file_path, node->as.import.file_path);
+    if (!resolved_path) {
+      continue;
+    }
+
+    char error_msg[LSP_ERROR_MSG_SIZE] = {0};
+    LSPImportStack stack = {0};
+    bool has_import_error = lsp_check_import_chain_recursive(
+        node->as.import.module_name, node->as.import.file_path, resolved_path,
+        &stack, error_msg, sizeof(error_msg));
+
+    lsp_import_stack_clear(&stack);
+    free(resolved_path);
+
+    if (!has_import_error || error_msg[0] == '\0') {
+      continue;
+    }
+
+    size_t line = 1, col = 0;
+    char pattern[LSP_PATTERN_BUFFER_SIZE];
+    int n = snprintf(pattern, sizeof(pattern), "import %s",
+                     node->as.import.module_name);
+    if (n >= 0 && (size_t)n < sizeof(pattern)) {
+      find_node_position(node, text, pattern, &line, &col);
+    }
+
+    if (line == 1 && col == 0) {
+      get_node_position(node, &line, &col);
+      if (col > 0) {
+        col--;
+      }
+    }
+
+    char escaped_msg[LSP_ERROR_MSG_SIZE];
+    json_escape(error_msg, escaped_msg, sizeof(escaped_msg));
+
+    size_t marker_len =
+        (n > 0 && (size_t)n < sizeof(pattern)) ? (size_t)n : 20;
+    size_t needed = strlen(escaped_msg) + marker_len + 200;
+    SAFE_DIAGNOSTICS_WRITE(
+        diagnostics, capacity, pos, remaining, needed,
+        "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+        "\"end\":{\"line\":%zu,\"character\":%zu}},"
+        "\"severity\":1,"
+        "\"message\":\"%s\"}",
+        *has_diagnostics ? "," : "", line - 1, col, line - 1, col + marker_len,
+        escaped_msg);
+    *has_diagnostics = true;
+  }
+
+  free(current_file_path);
+}
+
 void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
                                char **diagnostics, size_t *pos,
                                size_t *remaining, bool *has_diagnostics,
@@ -3296,6 +3637,11 @@ void check_diagnostics(const char *uri, const char *text) {
       Symbol *symbols = g_doc ? g_doc->symbols : NULL;
       // Pass capacity pointer so helper functions can grow buffer
       size_t *capacity_ptr = &diagnostics_capacity;
+
+      // Check import-related diagnostics (missing files, circular imports)
+      check_import_diagnostics(ast, text, &diagnostics, &pos, &remaining,
+                               &has_diagnostics, capacity_ptr);
+
       check_function_calls(ast, text, symbols, &diagnostics, &pos, &remaining,
                            &has_diagnostics, capacity_ptr);
 
