@@ -318,19 +318,44 @@ static void search_node_for_references_recursive(ASTNode *node, size_t *line_num
     break;
 
   case AST_MATCH:
-    search_node_for_references_recursive(node->as.match_stmt.value, line_num,
-                                         ctx, depth + 1);
+    if (node->as.match_stmt.value) {
+      size_t value_line =
+          node->as.match_stmt.value->line ? node->as.match_stmt.value->line
+                                          : *line_num;
+      search_node_for_references_recursive(node->as.match_stmt.value, &value_line,
+                                           ctx, depth + 1);
+    }
     for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
-      search_node_for_references_recursive(node->as.match_stmt.case_patterns[i],
-                                           line_num, ctx, depth + 1);
-      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
-        search_node_for_references_recursive(
-            node->as.match_stmt.case_blocks[i][j], line_num, ctx, depth + 1);
+      ASTNode *case_pattern = node->as.match_stmt.case_patterns
+                                  ? node->as.match_stmt.case_patterns[i]
+                                  : NULL;
+      if (case_pattern) {
+        size_t pattern_line = case_pattern->line ? case_pattern->line : *line_num;
+        search_node_for_references_recursive(case_pattern, &pattern_line, ctx,
+                                             depth + 1);
+      }
+      if (node->as.match_stmt.case_blocks && node->as.match_stmt.case_blocks[i]) {
+        for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+          ASTNode *case_stmt = node->as.match_stmt.case_blocks[i][j];
+          if (case_stmt) {
+            size_t case_stmt_line =
+                case_stmt->line ? case_stmt->line : *line_num;
+            search_node_for_references_recursive(case_stmt, &case_stmt_line, ctx,
+                                                 depth + 1);
+          }
+        }
       }
     }
-    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
-      search_node_for_references_recursive(
-          node->as.match_stmt.default_block[i], line_num, ctx, depth + 1);
+    if (node->as.match_stmt.default_block) {
+      for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+        ASTNode *default_stmt = node->as.match_stmt.default_block[i];
+        if (default_stmt) {
+          size_t default_stmt_line =
+              default_stmt->line ? default_stmt->line : *line_num;
+          search_node_for_references_recursive(default_stmt, &default_stmt_line,
+                                               ctx, depth + 1);
+        }
+      }
     }
     break;
 
