@@ -415,7 +415,8 @@ This document outlines the planned features and release schedule for Kronos.
 - **Networking & Data Modules (Beta)** - `http`, `csv`, and `crypto` module hardening
   - **HTTP:** `http_get()`, `http_post()`, HTTP server (requires concurrency)
   - **CSV:** `read_csv()`, `write_csv()`, `parse_csv()`, `to_csv()`
-  - **Crypto:** `md5()`, `sha1()`, `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
+  - **Crypto:** `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
+  - **Crypto (legacy/checksum only):** `md5()`, `sha1()` (insecure for password hashing/signatures)
 
 - **Package Manager (Beta)** - Install and manage packages
 
