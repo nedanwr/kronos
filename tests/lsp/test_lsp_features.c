@@ -957,6 +957,48 @@ TEST(lsp_references_list_comprehension_loop_var) {
   free(response);
 }
 
+TEST(lsp_references_exclude_shadowed_comprehension_var_for_outer_symbol) {
+  const char *code =
+      "set item to 0\n"
+      "set values to [item for item in [1, 2, 3]]\n"
+      "print item\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_references(g_ctx, 0, 5);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"line\":0,\"character\":0"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"line\":2,\"character\":0"));
+  ASSERT_FALSE(lsp_response_contains(response, "\"line\":1,\"character\":0"));
+  free(response);
+}
+
+TEST(lsp_rename_excludes_shadowed_comprehension_var_for_outer_symbol) {
+  const char *code =
+      "set item to 0\n"
+      "set values to [item for item in [1, 2, 3]]\n"
+      "print item\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_response(g_ctx, 500);
+  free(diag);
+
+  char *response = lsp_rename(g_ctx, 0, 5, "renamed_item");
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"newText\":\"renamed_item\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"line\":0,\"character\":4"));
+  ASSERT_TRUE(lsp_response_contains(response, "\"line\":2,\"character\":6"));
+  ASSERT_FALSE(lsp_response_contains(response, "\"line\":1,\"character\":15"));
+  ASSERT_FALSE(lsp_response_contains(response, "\"line\":1,\"character\":24"));
+  free(response);
+}
+
 TEST(lsp_references_include_debug_statement_usage) {
   const char *code =
       "set tracked to 10\n"
