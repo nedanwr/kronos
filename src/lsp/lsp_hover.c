@@ -216,7 +216,7 @@ void handle_hover(const char *id, const char *body) {
   }
 
   // Find symbol
-  Symbol *sym = find_symbol(word);
+  Symbol *sym = find_symbol_at_position(word, line, character);
   free(word);
 
   if (!sym) {
