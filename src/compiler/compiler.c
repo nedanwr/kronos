@@ -1124,7 +1124,6 @@ static void emit_expr_to_string(Compiler *c, const char *format_spec) {
     }
     size_t spec_idx = add_constant(c, spec_val);
     if (spec_idx == SIZE_MAX) {
-      value_release(spec_val);
       return;
     }
     emit_byte(c, OP_FORMAT_VALUE);
@@ -1899,6 +1898,11 @@ static void compile_return_statement(Compiler *c, const ASTNode *node) {
     }
   } else {
     // Multiple return values - compile each and create a tuple
+    if (value_count > UINT8_MAX) {
+      compiler_set_error(c, "Return tuple too large (max 255 values)");
+      return;
+    }
+
     for (size_t i = 0; i < value_count; i++) {
       compile_expression(c, node->as.return_stmt.values[i]);
       if (compiler_has_error(c)) {
@@ -3016,6 +3020,18 @@ static KronosValue *compile_default_value_to_constant(Compiler *c,
     return value_new_bool(expr->as.boolean);
   case AST_NULL:
     return value_new_nil();
+  case AST_BINOP:
+    if (expr->as.binop.op == BINOP_NEG) {
+      // Unary negation may be stored in left (current parser) or right
+      // (compatibility with older AST shapes).
+      const ASTNode *operand =
+          expr->as.binop.left ? expr->as.binop.left : expr->as.binop.right;
+      if (operand && operand->type == AST_NUMBER) {
+        return value_new_number(-operand->as.number);
+      }
+    }
+    compiler_set_error(c, "Default parameter value must be a literal constant");
+    return NULL;
   default:
     compiler_set_error(c, "Default parameter value must be a literal constant");
     return NULL;
