@@ -30,7 +30,7 @@ A high-performance programming language built in C with human-readable syntax, f
 ### Developer Experience
 
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
-- **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
+- **LSP Support**: Real-time diagnostics, definitions/references, hover, autocomplete, signature help, inlay hints, call hierarchy, semantic tokens, and folding
 - **Comprehensive Testing**: Unit, integration, and LSP coverage across implemented language features
 
 ## Quick Start
