@@ -460,7 +460,7 @@ void handle_code_lens(const char *id,
     if (sym->type == SYMBOL_FUNCTION ||
         (sym->type == SYMBOL_VARIABLE && sym->line > 0)) {
       // Count references
-      size_t ref_count = count_symbol_references(sym->name, g_doc->ast);
+      size_t ref_count = count_symbol_references_for_symbol(sym, g_doc->ast);
 
       if (!first)
         pos += snprintf(lenses + pos, remaining - pos, ",");
