@@ -3100,6 +3100,97 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
             *has_diagnostics = true;
           }
         }
+      } else if (strcmp(actual_func_name, "read_file") == 0 ||
+                 strcmp(actual_func_name, "read_lines") == 0 ||
+                 strcmp(actual_func_name, "file_exists") == 0) {
+        // These require string argument.
+        if (node->as.call.arg_count > 0) {
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[0], symbols, ast);
+          if (arg_type != TYPE_STRING && arg_type != TYPE_UNKNOWN) {
+            size_t line = 1, col = 0, length = 0;
+            if (!find_call_argument_position_by_index(text, func_name, node->line,
+                                                      0, &line, &col, &length) ||
+                length == 0) {
+              if (!find_call_expression_position(text, func_name, node->line,
+                                                 &line, &col, &length) ||
+                  length == 0) {
+                find_call_position(text, func_name, &line, &col);
+                length = 20;
+              }
+            }
+
+            char escaped_msg[LSP_ERROR_MSG_SIZE];
+            snprintf(escaped_msg, sizeof(escaped_msg),
+                     "Function '%s' requires a string argument", func_name);
+            char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+            json_escape(escaped_msg, escaped_msg_final,
+                        sizeof(escaped_msg_final));
+
+            size_t needed = strlen(escaped_msg_final) + length + 200;
+            SAFE_DIAGNOSTICS_WRITE(
+                diagnostics, capacity, pos, remaining, needed,
+                "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+                "\"end\":{\"line\":%zu,\"character\":%zu}},"
+                "\"severity\":1,"
+                "\"message\":\"%s\"}",
+                *has_diagnostics ? "," : "", line - 1, col, line - 1,
+                col + length, escaped_msg_final);
+            *has_diagnostics = true;
+          }
+        }
+      } else if (strcmp(actual_func_name, "write_file") == 0) {
+        // write_file requires two string arguments.
+        size_t invalid_arg_indices[2] = {0, 0};
+        size_t invalid_arg_count = 0;
+        for (size_t j = 0; j < node->as.call.arg_count && j < 2; j++) {
+          ExprType arg_type =
+              infer_type_with_ast(node->as.call.args[j], symbols, ast);
+          if (arg_type != TYPE_STRING && arg_type != TYPE_UNKNOWN) {
+            if (invalid_arg_count < 2) {
+              invalid_arg_indices[invalid_arg_count] = j;
+              invalid_arg_count++;
+            }
+          }
+        }
+
+        if (invalid_arg_count > 0) {
+          size_t line = 1, col = 0, length = 20;
+          bool have_specific_arg_range = false;
+
+          if (invalid_arg_count == 1) {
+            have_specific_arg_range = find_call_argument_position_by_index(
+                text, func_name, node->line, invalid_arg_indices[0], &line, &col,
+                &length);
+          }
+
+          if (!have_specific_arg_range || length == 0) {
+            if (!find_call_expression_position(text, func_name, node->line, &line,
+                                               &col, &length) ||
+                length == 0) {
+              find_call_position(text, func_name, &line, &col);
+              length = 20;
+            }
+          }
+
+          char escaped_msg[LSP_ERROR_MSG_SIZE];
+          snprintf(escaped_msg, sizeof(escaped_msg),
+                   "Function '%s' requires two string arguments", func_name);
+          char escaped_msg_final[LSP_ERROR_MSG_SIZE];
+          json_escape(escaped_msg, escaped_msg_final,
+                      sizeof(escaped_msg_final));
+
+          size_t needed = strlen(escaped_msg_final) + length + 200;
+          SAFE_DIAGNOSTICS_WRITE(
+              diagnostics, capacity, pos, remaining, needed,
+              "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+              "\"end\":{\"line\":%zu,\"character\":%zu}},"
+              "\"severity\":1,"
+              "\"message\":\"%s\"}",
+              *has_diagnostics ? "," : "", line - 1, col, line - 1, col + length,
+              escaped_msg_final);
+          *has_diagnostics = true;
+        }
       } else if (strcmp(actual_func_name, "to_number") == 0) {
         // to_number requires string or number argument, not list
         if (node->as.call.arg_count > 0) {
