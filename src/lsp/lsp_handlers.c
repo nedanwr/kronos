@@ -1357,8 +1357,7 @@ static bool parse_call_edges(const char *text, CallEdge **out_edges, size_t *out
         memcpy(callee_raw, trimmed + name_start, copy_len);
         callee_raw[copy_len] = '\0';
 
-        const char *normalized = strip_module_prefix(callee_raw);
-        if (!normalized || normalized[0] == '\0') {
+        if (callee_raw[0] == '\0') {
           continue;
         }
 
@@ -1376,11 +1375,11 @@ static bool parse_call_edges(const char *text, CallEdge **out_edges, size_t *out
 
         memset(&edges[edge_count], 0, sizeof(edges[edge_count]));
         strncpy(edges[edge_count].caller, caller, sizeof(edges[edge_count].caller) - 1);
-        strncpy(edges[edge_count].callee, normalized,
+        strncpy(edges[edge_count].callee, callee_raw,
                 sizeof(edges[edge_count].callee) - 1);
         edges[edge_count].line = line_no;
         edges[edge_count].col = indent + name_start;
-        edges[edge_count].length = strlen(normalized);
+        edges[edge_count].length = strlen(callee_raw);
         edge_count++;
       }
     }
