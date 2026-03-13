@@ -4,7 +4,6 @@
 #include <dirent.h>
 #include <limits.h>
 #include <math.h>
-#include <regex.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +14,13 @@
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
+#endif
+
+#if (defined(HAVE_POSIX_REGEX) && HAVE_POSIX_REGEX) || !defined(_WIN32)
+#include <regex.h>
+#define KRONOS_HAS_POSIX_REGEX 1
+#else
+#define KRONOS_HAS_POSIX_REGEX 0
 #endif
 
 #define NUMBER_STRING_BUFFER_SIZE 64
@@ -2060,19 +2066,150 @@ int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
-  DIR *dir = opendir(path_arg->as.string.data);
-  if (!dir) {
+  KronosValue *result = value_new_list(16);
+  if (!result) {
+    value_release(path_arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+  }
+
+#ifdef _WIN32
+  int path_wlen =
+      MultiByteToWideChar(CP_UTF8, 0, path_arg->as.string.data, -1, NULL, 0);
+  if (path_wlen <= 0) {
     int err = vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open directory '%s'",
                         path_arg->as.string.data);
+    value_release(result);
     value_release(path_arg);
     return err;
   }
 
-  KronosValue *result = value_new_list(16);
-  if (!result) {
-    closedir(dir);
+  size_t pattern_cap = (size_t)path_wlen + 2;
+  wchar_t *search_pattern = malloc(pattern_cap * sizeof(wchar_t));
+  if (!search_pattern) {
+    value_release(result);
     value_release(path_arg);
-    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create list");
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate path buffer");
+  }
+
+  if (MultiByteToWideChar(CP_UTF8, 0, path_arg->as.string.data, -1,
+                          search_pattern, path_wlen) <= 0) {
+    free(search_pattern);
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open directory '%s'",
+                        path_arg->as.string.data);
+    value_release(result);
+    value_release(path_arg);
+    return err;
+  }
+
+  size_t pattern_len = (size_t)path_wlen - 1;
+  if (pattern_len == 0 ||
+      (search_pattern[pattern_len - 1] != L'\\' &&
+       search_pattern[pattern_len - 1] != L'/')) {
+    search_pattern[pattern_len++] = L'\\';
+  }
+  search_pattern[pattern_len++] = L'*';
+  search_pattern[pattern_len] = L'\0';
+
+  WIN32_FIND_DATAW find_data;
+  HANDLE find_handle = FindFirstFileW(search_pattern, &find_data);
+  free(search_pattern);
+
+  if (find_handle != INVALID_HANDLE_VALUE) {
+    do {
+      if ((find_data.cFileName[0] == L'.' && find_data.cFileName[1] == L'\0') ||
+          (find_data.cFileName[0] == L'.' && find_data.cFileName[1] == L'.' &&
+           find_data.cFileName[2] == L'\0')) {
+        continue;
+      }
+
+      int name_len = WideCharToMultiByte(CP_UTF8, 0, find_data.cFileName, -1,
+                                         NULL, 0, NULL, NULL);
+      if (name_len <= 0) {
+        FindClose(find_handle);
+        value_release(result);
+        value_release(path_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to convert filename to UTF-8");
+      }
+
+      char *name_utf8 = malloc((size_t)name_len);
+      if (!name_utf8) {
+        FindClose(find_handle);
+        value_release(result);
+        value_release(path_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate filename");
+      }
+
+      if (WideCharToMultiByte(CP_UTF8, 0, find_data.cFileName, -1, name_utf8,
+                              name_len, NULL, NULL) <= 0) {
+        free(name_utf8);
+        FindClose(find_handle);
+        value_release(result);
+        value_release(path_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to convert filename to UTF-8");
+      }
+
+      KronosValue *name_val =
+          value_new_string(name_utf8, (size_t)(name_len - 1));
+      free(name_utf8);
+      if (!name_val) {
+        FindClose(find_handle);
+        value_release(result);
+        value_release(path_arg);
+        return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
+      }
+
+      // Grow list if needed
+      if (result->as.list.count >= result->as.list.capacity) {
+        size_t old_cap = result->as.list.capacity;
+        size_t new_cap = old_cap * 2;
+        KronosValue **new_items =
+            realloc(result->as.list.items, sizeof(KronosValue *) * new_cap);
+        if (!new_items) {
+          value_release(name_val);
+          FindClose(find_handle);
+          value_release(result);
+          value_release(path_arg);
+          return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to grow list");
+        }
+        result->as.list.items = new_items;
+        result->as.list.capacity = new_cap;
+        // Initialize new slots to NULL (realloc doesn't zero new memory)
+        memset(&new_items[old_cap], 0,
+               (new_cap - old_cap) * sizeof(KronosValue *));
+      }
+
+      value_retain(name_val);
+      result->as.list.items[result->as.list.count++] = name_val;
+      value_release(name_val);
+    } while (FindNextFileW(find_handle, &find_data) != 0);
+
+    DWORD find_error = GetLastError();
+    FindClose(find_handle);
+    if (find_error != ERROR_NO_MORE_FILES) {
+      int err = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Failed to read directory '%s'",
+                          path_arg->as.string.data);
+      value_release(result);
+      value_release(path_arg);
+      return err;
+    }
+  } else if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open directory '%s'",
+                        path_arg->as.string.data);
+    value_release(result);
+    value_release(path_arg);
+    return err;
+  }
+#else
+  DIR *dir = opendir(path_arg->as.string.data);
+  if (!dir) {
+    int err = vm_errorf(vm, KRONOS_ERR_RUNTIME, "Failed to open directory '%s'",
+                        path_arg->as.string.data);
+    value_release(result);
+    value_release(path_arg);
+    return err;
   }
 
   struct dirent *entry;
@@ -2117,6 +2254,7 @@ int builtin_list_files(KronosVM *vm, uint8_t arg_count) {
   }
 
   closedir(dir);
+#endif
   value_release(path_arg);
 
   PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
@@ -2390,6 +2528,20 @@ int builtin_basename(KronosVM *vm, uint8_t arg_count) {
   return 0;
 }
 
+#if !KRONOS_HAS_POSIX_REGEX
+static int regex_unavailable_error(KronosVM *vm, const char *function_name,
+                                   KronosValue *pattern_arg,
+                                   KronosValue *string_arg) {
+  int err = vm_errorf(
+      vm, KRONOS_ERR_RUNTIME,
+      "Function '%s' is unavailable: this build lacks POSIX regex support",
+      function_name);
+  value_release(pattern_arg);
+  value_release(string_arg);
+  return err;
+}
+#endif
+
 int builtin_regex_match(KronosVM *vm, uint8_t arg_count) {
   if (arg_count != 2) {
     return vm_errorf(vm, KRONOS_ERR_RUNTIME,
@@ -2410,6 +2562,7 @@ int builtin_regex_match(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
+#if KRONOS_HAS_POSIX_REGEX
   regex_t regex;
   int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
   if (ret != 0) {
@@ -2436,6 +2589,9 @@ int builtin_regex_match(KronosVM *vm, uint8_t arg_count) {
   value_release(pattern_arg);
   value_release(string_arg);
   return 0;
+#else
+  return regex_unavailable_error(vm, "regex.match", pattern_arg, string_arg);
+#endif
 }
 
 int builtin_regex_search(KronosVM *vm, uint8_t arg_count) {
@@ -2458,6 +2614,7 @@ int builtin_regex_search(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
+#if KRONOS_HAS_POSIX_REGEX
   regex_t regex;
   int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
   if (ret != 0) {
@@ -2500,6 +2657,9 @@ int builtin_regex_search(KronosVM *vm, uint8_t arg_count) {
   value_release(pattern_arg);
   value_release(string_arg);
   return 0;
+#else
+  return regex_unavailable_error(vm, "regex.search", pattern_arg, string_arg);
+#endif
 }
 
 int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
@@ -2522,6 +2682,7 @@ int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
+#if KRONOS_HAS_POSIX_REGEX
   regex_t regex;
   int ret = regcomp(&regex, pattern_arg->as.string.data, REG_EXTENDED);
   if (ret != 0) {
@@ -2610,4 +2771,7 @@ int builtin_regex_findall(KronosVM *vm, uint8_t arg_count) {
   value_release(pattern_arg);
   value_release(string_arg);
   return 0;
+#else
+  return regex_unavailable_error(vm, "regex.findall", pattern_arg, string_arg);
+#endif
 }
