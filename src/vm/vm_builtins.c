@@ -1198,10 +1198,33 @@ int builtin_replace(KronosVM *vm, uint8_t arg_count) {
   const char *search_end = str->as.string.data + str->as.string.length;
 
   while (search_start < search_end) {
-    const char *found = strstr(search_start, old_str->as.string.data);
-    if (!found || found >= search_end) {
+    const char *found = NULL;
+    size_t remaining = (size_t)(search_end - search_start);
+
+    if (remaining >= old_len) {
+      const char *scan = search_start;
+      const char *scan_end = search_end - old_len + 1;
+      unsigned char first_byte = (unsigned char)old_str->as.string.data[0];
+
+      while (scan < scan_end) {
+        const void *candidate_ptr =
+            memchr(scan, first_byte, (size_t)(scan_end - scan));
+        if (!candidate_ptr) {
+          break;
+        }
+
+        const char *candidate = (const char *)candidate_ptr;
+        if (memcmp(candidate, old_str->as.string.data, old_len) == 0) {
+          found = candidate;
+          break;
+        }
+
+        scan = candidate + 1;
+      }
+    }
+
+    if (!found) {
       // No more occurrences, copy rest of string
-      size_t remaining = search_end - search_start;
       memcpy(result_buf + result_len, search_start, remaining);
       result_len += remaining;
       break;
@@ -1218,7 +1241,7 @@ int builtin_replace(KronosVM *vm, uint8_t arg_count) {
     result_len += new_str->as.string.length;
 
     // Move past the old substring
-    search_start = found + old_str->as.string.length;
+    search_start = found + old_len;
   }
 
   result_buf[result_len] = '\0';
