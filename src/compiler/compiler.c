@@ -3988,26 +3988,70 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_MAKE_FUNCTION: {
-      if (offset + 1 >= bytecode->count) {
+      if (offset + 3 >= bytecode->count) {
         printf("MAKE_FUNCTION <invalid: out of bounds>\n");
         offset = bytecode->count;
         break;
       }
       uint8_t param_count = bytecode->code[offset + 1];
-      printf("MAKE_FUNCTION params=%u", param_count);
-      offset += 2;
+      uint8_t required_param_count = bytecode->code[offset + 2];
+      uint8_t has_variadic = bytecode->code[offset + 3];
+      printf("MAKE_FUNCTION params=%u required=%u variadic=%u", param_count,
+             required_param_count, has_variadic);
+
+      if (has_variadic > 1 ||
+          (has_variadic && param_count == 0)) {
+        printf(" <invalid metadata>\n");
+        offset = bytecode->count;
+        break;
+      }
+
+      size_t regular_param_count =
+          (size_t)param_count - (has_variadic ? 1u : 0u);
+      if ((size_t)required_param_count > regular_param_count) {
+        printf(" <invalid metadata>\n");
+        offset = bytecode->count;
+        break;
+      }
+
+      size_t num_defaults = regular_param_count - (size_t)required_param_count;
+      offset += 4;
+      bool truncated = false;
+
       // Skip param name indices
-      for (int i = 0; i < param_count; i++) {
+      for (size_t i = 0; i < (size_t)param_count; i++) {
         if (offset + 1 >= bytecode->count) {
-          printf(" <truncated>\n");
+          printf(" <param_names truncated>\n");
           offset = bytecode->count;
+          truncated = true;
           break;
         }
         uint16_t idx = (uint16_t)(bytecode->code[offset] << 8 |
                                    bytecode->code[offset + 1]);
-        printf(" name%d=%u", i, idx);
+        printf(" name%zu=%u", i, idx);
         offset += 2;
       }
+      if (truncated) {
+        break;
+      }
+
+      // Skip default value constant indices
+      for (size_t i = 0; i < num_defaults; i++) {
+        if (offset + 1 >= bytecode->count) {
+          printf(" <defaults truncated>\n");
+          offset = bytecode->count;
+          truncated = true;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[offset] << 8 |
+                                   bytecode->code[offset + 1]);
+        printf(" default%zu=%u", (size_t)required_param_count + i, idx);
+        offset += 2;
+      }
+      if (truncated) {
+        break;
+      }
+
       if (offset + 1 >= bytecode->count) {
         printf(" <body_len truncated>\n");
         offset = bytecode->count;
@@ -4015,8 +4059,14 @@ void bytecode_print(Bytecode *bytecode) {
       }
       uint16_t body_len = (uint16_t)(bytecode->code[offset] << 8 |
                                       bytecode->code[offset + 1]);
-      printf(" body_len=%u\n", body_len);
       offset += 2;
+      if ((size_t)body_len > bytecode->count - offset) {
+        printf(" body_len=%u <body truncated>\n", body_len);
+        offset = bytecode->count;
+        break;
+      }
+
+      printf(" body_len=%u\n", body_len);
       // Skip over inline body bytecode
       offset += body_len;
       break;
