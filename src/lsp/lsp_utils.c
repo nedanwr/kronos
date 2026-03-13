@@ -2131,7 +2131,8 @@ bool find_call_expression_position(const char *text, const char *func_name,
     }
 
     if (range_end <= pos) {
-      return false;
+      pos += strlen(pattern);
+      continue;
     }
 
     size_t current_length = (size_t)(range_end - pos);
