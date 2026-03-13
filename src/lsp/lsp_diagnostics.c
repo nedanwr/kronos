@@ -436,6 +436,9 @@ static LSPModuleLoadResult lsp_parse_ast_from_file(const char *file_path,
   }
 
   if (entry && entry->state == LSP_MODULE_CACHE_STATE_MISSING) {
+    if (!allow_disk_io) {
+      return LSP_MODULE_LOAD_PENDING;
+    }
     return LSP_MODULE_LOAD_MISSING;
   }
 
