@@ -570,6 +570,22 @@ static ExprType expr_type_from_annotation(const char *type_name) {
   return TYPE_UNKNOWN;
 }
 
+static Symbol *lsp_find_symbol_for_var_node(const ASTNode *node) {
+  if (!node || node->type != AST_VAR || !node->as.var_name) {
+    return NULL;
+  }
+
+  if (node->line > 0 && node->column > 0) {
+    Symbol *scoped = find_symbol_at_position(node->as.var_name, node->line - 1,
+                                             node->column - 1);
+    if (scoped) {
+      return scoped;
+    }
+  }
+
+  return find_symbol(node->as.var_name);
+}
+
 // Internal recursive version with depth tracking
 static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
                                     int depth) {
@@ -596,7 +612,7 @@ static ExprType infer_type_internal(ASTNode *node, Symbol *symbols, AST *ast,
   case AST_MAP:
     return TYPE_MAP;
   case AST_VAR: {
-    Symbol *sym = find_symbol(node->as.var_name);
+    Symbol *sym = lsp_find_symbol_for_var_node(node);
     if (sym && sym->type_name) {
       ExprType annotated = expr_type_from_annotation(sym->type_name);
       if (annotated != TYPE_UNKNOWN) {
@@ -1256,7 +1272,7 @@ static bool lsp_expr_matches_type(ASTNode *node, const char *expected_type,
   }
 
   if (node->type == AST_VAR) {
-    Symbol *sym = find_symbol(node->as.var_name);
+    Symbol *sym = lsp_find_symbol_for_var_node(node);
     if (!sym || !sym->type_name) {
       free(expected);
       return true; // Unknown variable type; avoid false-positive diagnostics.
@@ -1421,7 +1437,7 @@ static char *lsp_describe_expr_type(ASTNode *node, Symbol *symbols, AST *ast) {
     return strdup("unknown");
   }
   if (node->type == AST_VAR) {
-    Symbol *sym = find_symbol(node->as.var_name);
+    Symbol *sym = lsp_find_symbol_for_var_node(node);
     if (sym && sym->type_name) {
       return strdup(sym->type_name);
     }
@@ -1881,7 +1897,7 @@ static void check_expression_recursive(ASTNode *node, const char *text,
   if (node->type == AST_INDEX) {
     // Mark list/string variable as read (indexing is a read operation)
     if (node->as.index.list_expr->type == AST_VAR) {
-      Symbol *list_sym = find_symbol(node->as.index.list_expr->as.var_name);
+      Symbol *list_sym = lsp_find_symbol_for_var_node(node->as.index.list_expr);
       if (list_sym && list_sym->type == SYMBOL_VARIABLE) {
         list_sym->read = true;
         list_sym->read = true;
@@ -2202,7 +2218,7 @@ static void check_expression_recursive(ASTNode *node, const char *text,
 
   // Check variables
   if (node->type == AST_VAR) {
-    Symbol *sym = find_symbol(node->as.var_name);
+    Symbol *sym = lsp_find_symbol_for_var_node(node);
 
     // Check if variable was assigned earlier in this scope
     bool assigned_in_scope = false;
@@ -2415,7 +2431,7 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
 
     // Check variable usage
     if (node->type == AST_VAR) {
-      Symbol *sym = find_symbol(node->as.var_name);
+      Symbol *sym = lsp_find_symbol_for_var_node(node);
 
       // Check if variable was assigned earlier in this scope
       bool assigned_in_scope = false;
