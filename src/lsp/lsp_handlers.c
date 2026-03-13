@@ -30,6 +30,37 @@ static bool starts_with_keyword(const char *text, const char *keyword) {
   return next == '\0' || isspace((unsigned char)next) || next == ':';
 }
 
+static bool ensure_format_buffer_capacity(char **buffer, size_t *capacity,
+                                          size_t pos, size_t additional) {
+  if (!buffer || !*buffer || !capacity) {
+    return false;
+  }
+
+  size_t required = pos + additional + 1; // Keep room for trailing '\0'
+  if (required <= *capacity) {
+    return true;
+  }
+
+  size_t new_capacity = *capacity > 0 ? *capacity : 1;
+  while (new_capacity < required) {
+    size_t doubled = new_capacity * 2;
+    if (doubled <= new_capacity) {
+      new_capacity = required;
+      break;
+    }
+    new_capacity = doubled;
+  }
+
+  char *resized = realloc(*buffer, new_capacity);
+  if (!resized) {
+    return false;
+  }
+
+  *buffer = resized;
+  *capacity = new_capacity;
+  return true;
+}
+
 void handle_initialize(const char *id) {
   const char *capabilities =
       "{"
@@ -167,22 +198,15 @@ void handle_formatting(const char *id,
   // and proper spacing around operators
   const char *text = g_doc->text;
   size_t text_len = strlen(text);
-  size_t formatted_capacity = text_len * 2 + 1;
+  size_t formatted_capacity = text_len + 1;
+  if (text_len <= (((size_t)-1) - 1) / 2) {
+    formatted_capacity = text_len * 2 + 1;
+  }
   char *formatted = malloc(formatted_capacity); // Allocate extra space
   if (!formatted) {
     send_response(id, "null");
     return; // No memory allocated, nothing to free
   }
-  // VERIFICATION: formatted is ALWAYS freed at line 189 before function returns
-  // Execution path analysis:
-  // 1. Line 84-87: Early return if !g_doc - BEFORE malloc, no leak
-  // 2. Line 93: malloc(text_len * 2 + 1) - ALLOCATION
-  // 3. Line 94-97: Early return if !formatted - malloc failed, nothing to free, no leak
-  // 4. Line 106-167: Loop - only has 'continue', no 'return' statements
-  // 5. Line 174: json_escape() - void function, always completes, no early return
-  // 6. Line 184-187: snprintf() - may truncate but continues, no early return
-  // 7. Line 189: free(formatted) - ALWAYS EXECUTED (verified by code analysis and test)
-  // Conclusion: No memory leak exists - this is a false positive
 
   size_t out_pos = 0;
   int indent_level = 0;
@@ -192,10 +216,16 @@ void handle_formatting(const char *id,
   FormatBlockType block_stack[256];
   size_t block_depth = 0;
 
-  for (size_t i = 0; i < text_len && out_pos < formatted_capacity - 1; i++) {
+  for (size_t i = 0; i < text_len; i++) {
     char c = text[i];
 
     if (c == '\n') {
+      if (!ensure_format_buffer_capacity(&formatted, &formatted_capacity, out_pos,
+                                         1)) {
+        free(formatted);
+        send_response(id, "null");
+        return;
+      }
       formatted[out_pos++] = '\n';
       at_line_start = true;
       last_was_space = false;
@@ -242,7 +272,14 @@ void handle_formatting(const char *id,
 
       // Apply indentation
       int spaces = indent_level * 4;
-      for (int j = 0; j < spaces && out_pos < formatted_capacity - 1; j++) {
+      if (spaces > 0 &&
+          !ensure_format_buffer_capacity(&formatted, &formatted_capacity, out_pos,
+                                         (size_t)spaces)) {
+        free(formatted);
+        send_response(id, "null");
+        return;
+      }
+      for (int j = 0; j < spaces; j++) {
         formatted[out_pos++] = ' ';
       }
       at_line_start = false;
@@ -250,6 +287,12 @@ void handle_formatting(const char *id,
 
     // Handle indentation changes
     if (c == ':' && i + 1 < text_len && text[i + 1] == '\n') {
+      if (!ensure_format_buffer_capacity(&formatted, &formatted_capacity, out_pos,
+                                         1)) {
+        free(formatted);
+        send_response(id, "null");
+        return;
+      }
       formatted[out_pos++] = c;
       indent_level++;
       if (block_depth < sizeof(block_stack) / sizeof(block_stack[0])) {
@@ -264,6 +307,12 @@ void handle_formatting(const char *id,
     // Normalize whitespace
     if (isspace((unsigned char)c)) {
       if (!last_was_space && c == ' ') {
+        if (!ensure_format_buffer_capacity(&formatted, &formatted_capacity,
+                                           out_pos, 1)) {
+          free(formatted);
+          send_response(id, "null");
+          return;
+        }
         formatted[out_pos++] = ' ';
         last_was_space = true;
       }
@@ -271,6 +320,12 @@ void handle_formatting(const char *id,
     }
 
     last_was_space = false;
+    if (!ensure_format_buffer_capacity(&formatted, &formatted_capacity, out_pos,
+                                       1)) {
+      free(formatted);
+      send_response(id, "null");
+      return;
+    }
     formatted[out_pos++] = c;
 
     // Check for dedent keywords
