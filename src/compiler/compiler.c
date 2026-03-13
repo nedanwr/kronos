@@ -3864,7 +3864,10 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_CALL_FUNC: {
-      if (offset + 3 >= bytecode->count) {
+      // Layout:
+      //   [OP_CALL_FUNC][name_idx:2][arg_count:1][named_count:1]
+      //   [arg_pos:1][name_idx:2] x named_count
+      if (offset + 4 >= bytecode->count) {
         printf("CALL_FUNC <invalid: out of bounds>\n");
         offset = bytecode->count;
         break;
@@ -3872,8 +3875,35 @@ void bytecode_print(Bytecode *bytecode) {
       uint16_t name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                      bytecode->code[offset + 2]);
       uint8_t arg_count = bytecode->code[offset + 3];
-      printf("CALL_FUNC %u (arg_count=%u)\n", name_idx, arg_count);
-      offset += 4;
+      uint8_t named_count = bytecode->code[offset + 4];
+      size_t cursor = offset + 5;
+      bool truncated = false;
+
+      printf("CALL_FUNC %u (arg_count=%u named_count=%u", name_idx, arg_count,
+             named_count);
+      for (uint8_t i = 0; i < named_count; i++) {
+        if (cursor >= bytecode->count) {
+          printf(" <named_args truncated>");
+          truncated = true;
+          break;
+        }
+        uint8_t arg_pos = bytecode->code[cursor++];
+        if (cursor + 1 >= bytecode->count) {
+          printf(" <named_args truncated>");
+          truncated = true;
+          break;
+        }
+        uint16_t param_name_idx = (uint16_t)(bytecode->code[cursor] << 8 |
+                                             bytecode->code[cursor + 1]);
+        cursor += 2;
+        printf(" name%u=(arg_pos=%u const=%u)", i, arg_pos, param_name_idx);
+      }
+      printf(")\n");
+      if (truncated) {
+        offset = bytecode->count;
+        break;
+      }
+      offset = cursor;
       break;
     }
     case OP_RETURN_VAL:
