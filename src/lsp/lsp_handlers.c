@@ -2093,12 +2093,39 @@ void handle_folding_range(const char *id,
   bool first = true;
 
   const char *text = g_doc->text;
-  const char *line_starts[4096];
-  size_t line_lengths[4096];
+  const char **line_starts = NULL;
+  size_t *line_lengths = NULL;
   size_t line_count = 0;
+  size_t line_capacity = 0;
 
   const char *line_start = text;
-  while (line_start && *line_start != '\0' && line_count < 4096) {
+  while (line_start && *line_start != '\0') {
+    if (line_count >= line_capacity) {
+      size_t new_capacity = line_capacity == 0 ? 256 : line_capacity * 2;
+      const char **new_starts =
+          realloc(line_starts, new_capacity * sizeof(*line_starts));
+      if (!new_starts) {
+        free(line_starts);
+        free(line_lengths);
+        free(json);
+        send_response(id, "[]");
+        return;
+      }
+      line_starts = new_starts;
+
+      size_t *new_lengths =
+          realloc(line_lengths, new_capacity * sizeof(*line_lengths));
+      if (!new_lengths) {
+        free(line_starts);
+        free(line_lengths);
+        free(json);
+        send_response(id, "[]");
+        return;
+      }
+      line_lengths = new_lengths;
+      line_capacity = new_capacity;
+    }
+
     const char *line_end = line_start;
     while (*line_end && *line_end != '\n') {
       line_end++;
@@ -2180,11 +2207,15 @@ void handle_folding_range(const char *id,
   ok = ok && append_jsonf(&json, &capacity, &len, "]");
 
   if (!ok || !json) {
+    free(line_starts);
+    free(line_lengths);
     free(json);
     send_response(id, "[]");
     return;
   }
 
   send_response(id, json);
+  free(line_starts);
+  free(line_lengths);
   free(json);
 }
