@@ -1037,8 +1037,23 @@ int builtin_contains(KronosVM *vm, uint8_t arg_count) {
     return err;
   }
 
-  // Use strstr to check if substring exists
-  bool found = (strstr(str->as.string.data, substring->as.string.data) != NULL);
+  size_t str_len = str->as.string.length;
+  size_t sub_len = substring->as.string.length;
+  bool found = false;
+
+  if (sub_len == 0) {
+    found = true;
+  } else if (sub_len <= str_len) {
+    size_t last_start = str_len - sub_len;
+    for (size_t i = 0; i <= last_start; i++) {
+      if (memcmp(str->as.string.data + i, substring->as.string.data, sub_len) ==
+          0) {
+        found = true;
+        break;
+      }
+    }
+  }
+
   KronosValue *result = value_new_bool(found);
   PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
                               value_release(str); value_release(substring););
