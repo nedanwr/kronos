@@ -629,6 +629,16 @@ static void gc_mark_reachable(KronosValue *val, bool *marked, size_t capacity,
       }
     }
     break;
+  case VAL_TUPLE:
+    // Mark all items in the tuple
+    if (val->as.tuple.items) {
+      for (size_t i = 0; i < val->as.tuple.count; i++) {
+        if (val->as.tuple.items[i]) {
+          gc_mark_reachable(val->as.tuple.items[i], marked, capacity, entries);
+        }
+      }
+    }
+    break;
   case VAL_MAP: {
     // Mark all keys and values in the map
     MapEntry *map_entries = (MapEntry *)val->as.map.entries;
