@@ -107,7 +107,8 @@ extern DocumentState *g_doc;
 // Message handling (lsp_messages.c)
 bool read_lsp_message(char **out_body, size_t *out_length);
 void json_escape(const char *input, char *output, size_t output_size);
-void json_escape_markdown(const char *input, char *output, size_t output_size);
+size_t json_escape_markdown(const char *input, char *output,
+                            size_t output_size);
 void send_response(const char *id, const char *result);
 void send_notification(const char *method, const char *params);
 const char *skip_ws(const char *s);

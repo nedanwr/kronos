@@ -4,11 +4,129 @@
  */
 
 #include "lsp.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 extern DocumentState *g_doc;
+
+#define LSP_HOVER_INITIAL_CAPACITY 256
+#define LSP_HOVER_MAX_MARKDOWN_SIZE (64 * 1024)
+#define LSP_HOVER_MAX_JSON_SIZE (128 * 1024)
+
+static bool hover_appendf(char **buffer, size_t *length, size_t *capacity,
+                          size_t max_length, const char *fmt, ...) {
+  if (!buffer || !length || !capacity || !fmt) {
+    return false;
+  }
+
+  va_list args;
+  va_start(args, fmt);
+  int needed = vsnprintf(NULL, 0, fmt, args);
+  va_end(args);
+  if (needed < 0) {
+    return false;
+  }
+
+  size_t append_len = (size_t)needed;
+  if (*length > max_length || append_len > max_length - *length) {
+    return false;
+  }
+
+  size_t required_size = *length + append_len + 1;
+  if (*capacity < required_size) {
+    size_t new_capacity =
+        *capacity > 0 ? *capacity : LSP_HOVER_INITIAL_CAPACITY;
+    size_t max_capacity = max_length + 1;
+
+    while (new_capacity < required_size) {
+      if (new_capacity >= max_capacity / 2) {
+        new_capacity = max_capacity;
+      } else {
+        new_capacity *= 2;
+      }
+      if (new_capacity == max_capacity) {
+        break;
+      }
+    }
+
+    if (new_capacity < required_size || new_capacity > max_capacity) {
+      return false;
+    }
+
+    char *grown = realloc(*buffer, new_capacity);
+    if (!grown) {
+      return false;
+    }
+    *buffer = grown;
+    *capacity = new_capacity;
+  }
+
+  va_start(args, fmt);
+  int written =
+      vsnprintf(*buffer + *length, *capacity - *length, fmt, args);
+  va_end(args);
+  if (written < 0 || (size_t)written != append_len) {
+    return false;
+  }
+
+  *length += append_len;
+  return true;
+}
+
+static bool send_markdown_hover_response(const char *id,
+                                         const char *markdown_text) {
+  if (!id || !markdown_text) {
+    return false;
+  }
+
+  size_t escaped_len = json_escape_markdown(markdown_text, NULL, 0);
+  if (escaped_len > LSP_HOVER_MAX_JSON_SIZE) {
+    return false;
+  }
+
+  char *escaped_hover = malloc(escaped_len + 1);
+  if (!escaped_hover) {
+    return false;
+  }
+
+  size_t escaped_written =
+      json_escape_markdown(markdown_text, escaped_hover, escaped_len + 1);
+  if (escaped_written != escaped_len) {
+    free(escaped_hover);
+    return false;
+  }
+
+  int result_len = snprintf(
+      NULL, 0, "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
+      escaped_hover);
+  if (result_len < 0 || (size_t)result_len > LSP_HOVER_MAX_JSON_SIZE) {
+    free(escaped_hover);
+    return false;
+  }
+
+  char *result = malloc((size_t)result_len + 1);
+  if (!result) {
+    free(escaped_hover);
+    return false;
+  }
+
+  int result_written =
+      snprintf(result, (size_t)result_len + 1,
+               "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
+               escaped_hover);
+  free(escaped_hover);
+
+  if (result_written != result_len) {
+    free(result);
+    return false;
+  }
+
+  send_response(id, result);
+  free(result);
+  return true;
+}
 
 void handle_hover(const char *id, const char *body) {
   if (!g_doc || !g_doc->text) {
@@ -80,24 +198,22 @@ void handle_hover(const char *id, const char *body) {
             if (func_sym->type == SYMBOL_FUNCTION &&
                 strcmp(func_sym->name, func_name) == 0) {
               // Build hover info for the function
-              char hover_text[1024];
-              size_t pos = 0;
-              int ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                       "**function** `%s.%s`\n\n**Module:** `%s`\n\n",
-                       module_name, func_name, module_name);
-              if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-                pos += (size_t)ret;
-              }
+              char *hover_text = NULL;
+              size_t hover_len = 0;
+              size_t hover_capacity = 0;
+              bool hover_ok = hover_appendf(
+                  &hover_text, &hover_len, &hover_capacity,
+                  LSP_HOVER_MAX_MARKDOWN_SIZE,
+                  "**function** `%s.%s`\n\n**Module:** `%s`\n\n", module_name,
+                  func_name, module_name);
 
               // Show parameter information
-              if (func_sym->param_count > 0 && func_sym->param_names) {
-                ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                               "**Parameters:**\n");
-                if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-                  pos += (size_t)ret;
-                }
+              if (hover_ok && func_sym->param_count > 0 && func_sym->param_names) {
+                hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                         LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                         "**Parameters:**\n");
 
-                for (size_t i = 0; i < func_sym->param_count && pos < sizeof(hover_text) - 1; i++) {
+                for (size_t i = 0; i < func_sym->param_count && hover_ok; i++) {
                   const char *param_name = func_sym->param_names[i]
                                                ? func_sym->param_names[i]
                                                : "?";
@@ -105,38 +221,37 @@ void handle_hover(const char *id, const char *body) {
                   bool is_variadic = func_sym->has_variadic && i == func_sym->param_count - 1;
 
                   if (is_variadic) {
-                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                                   "- `...%s` (variadic)\n", param_name);
+                    hover_ok = hover_appendf(
+                        &hover_text, &hover_len, &hover_capacity,
+                        LSP_HOVER_MAX_MARKDOWN_SIZE, "- `...%s` (variadic)\n",
+                        param_name);
                   } else if (!is_required) {
-                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                                   "- `%s` (optional)\n", param_name);
+                    hover_ok = hover_appendf(
+                        &hover_text, &hover_len, &hover_capacity,
+                        LSP_HOVER_MAX_MARKDOWN_SIZE, "- `%s` (optional)\n",
+                        param_name);
                   } else {
-                    ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                                   "- `%s` (required)\n", param_name);
-                  }
-                  if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-                    pos += (size_t)ret;
+                    hover_ok = hover_appendf(
+                        &hover_text, &hover_len, &hover_capacity,
+                        LSP_HOVER_MAX_MARKDOWN_SIZE, "- `%s` (required)\n",
+                        param_name);
                   }
                 }
-              } else {
-                ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                               "**Parameters:** %zu\n", func_sym->param_count);
-                if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-                  pos += (size_t)ret;
-                }
+              } else if (hover_ok) {
+                hover_ok = hover_appendf(
+                    &hover_text, &hover_len, &hover_capacity,
+                    LSP_HOVER_MAX_MARKDOWN_SIZE, "**Parameters:** %zu\n",
+                    func_sym->param_count);
               }
 
-              char escaped_hover[2048];
-              json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
-
-              char result[2048];
-              snprintf(
-                  result, sizeof(result),
-                  "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
-                  escaped_hover);
+              bool sent = hover_ok &&
+                          send_markdown_hover_response(id, hover_text ? hover_text : "");
+              free(hover_text);
               free(module_name);
               free(word);
-              send_response(id, result);
+              if (!sent) {
+                send_response(id, "null");
+              }
               return;
             }
             func_sym = func_sym->next;
@@ -169,23 +284,22 @@ void handle_hover(const char *id, const char *body) {
     }
     json_escape(word, escaped_name, strlen(word) * 2 + 1);
 
-    // For markdown, we need to escape special characters but preserve newlines
-    // Build the hover text with proper escaping
-    char hover_text[2048];
-    snprintf(hover_text, sizeof(hover_text), "**module** `%s`\n\n%s",
-             escaped_name, module_desc);
+    char *hover_text = NULL;
+    size_t hover_len = 0;
+    size_t hover_capacity = 0;
+    bool hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                  LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                  "**module** `%s`\n\n%s", escaped_name,
+                                  module_desc);
+    bool sent = hover_ok &&
+                send_markdown_hover_response(id, hover_text ? hover_text : "");
 
-    // Escape for JSON but preserve newlines as \n (not \\n)
-    char escaped_hover[4096];
-    json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
-
-    char result[4096];
-    snprintf(result, sizeof(result),
-             "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
-             escaped_hover);
+    free(hover_text);
     free(escaped_name);
     free(word);
-    send_response(id, result);
+    if (!sent) {
+      send_response(id, "null");
+    }
     return;
   }
 
@@ -197,16 +311,12 @@ void handle_hover(const char *id, const char *body) {
         // Get module hover info
         char *module_info = get_module_hover_info(mod);
         if (module_info) {
-          char escaped_hover[4096];
-          json_escape_markdown(module_info, escaped_hover, sizeof(escaped_hover));
-
-          char result[4096];
-          snprintf(result, sizeof(result),
-                   "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
-                   escaped_hover);
+          bool sent = send_markdown_hover_response(id, module_info);
           free(module_info);
           free(word);
-          send_response(id, result);
+          if (!sent) {
+            send_response(id, "null");
+          }
           return;
         }
         break;
@@ -225,7 +335,10 @@ void handle_hover(const char *id, const char *body) {
   }
 
   // Build hover info
-  char hover_text[1024];
+  char *hover_text = NULL;
+  size_t hover_len = 0;
+  size_t hover_capacity = 0;
+  bool hover_ok = true;
   const char *type_str = "variable";
   if (sym->type == SYMBOL_FUNCTION)
     type_str = "function";
@@ -243,22 +356,17 @@ void handle_hover(const char *id, const char *body) {
 
   if (sym->type == SYMBOL_FUNCTION) {
     // Build function signature with parameter info
-    size_t pos = 0;
-    int ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                       "**function** `%s`\n\n", escaped_name);
-    if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-      pos += (size_t)ret;
-    }
+    hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                             LSP_HOVER_MAX_MARKDOWN_SIZE,
+                             "**function** `%s`\n\n", escaped_name);
 
     // Show parameter information
-    if (sym->param_count > 0) {
-      ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                     "**Parameters:**\n");
-      if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-        pos += (size_t)ret;
-      }
+    if (hover_ok && sym->param_count > 0) {
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "**Parameters:**\n");
 
-      for (size_t i = 0; i < sym->param_count && pos < sizeof(hover_text) - 1; i++) {
+      for (size_t i = 0; i < sym->param_count && hover_ok; i++) {
         const char *param_name = (sym->param_names && sym->param_names[i])
                                      ? sym->param_names[i]
                                      : "?";
@@ -266,38 +374,39 @@ void handle_hover(const char *id, const char *body) {
         bool is_variadic = sym->has_variadic && i == sym->param_count - 1;
 
         if (is_variadic) {
-          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                         "- `...%s` (variadic)\n", param_name);
+          hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                   LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                   "- `...%s` (variadic)\n", param_name);
         } else if (!is_required) {
-          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                         "- `%s` (optional, has default)\n", param_name);
+          hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                   LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                   "- `%s` (optional, has default)\n",
+                                   param_name);
         } else {
-          ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                         "- `%s` (required)\n", param_name);
-        }
-        if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-          pos += (size_t)ret;
+          hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                   LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                   "- `%s` (required)\n", param_name);
         }
       }
-    } else {
-      ret = snprintf(hover_text + pos, sizeof(hover_text) - pos,
-                     "No parameters\n");
-      if (ret > 0 && (size_t)ret < sizeof(hover_text) - pos) {
-        pos += (size_t)ret;
-      }
+    } else if (hover_ok) {
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "No parameters\n");
     }
 
     // Show summary
-    if (sym->has_variadic) {
-      snprintf(hover_text + pos, sizeof(hover_text) - pos,
-               "\n*Accepts %zu or more argument%s*",
-               sym->required_param_count,
-               sym->required_param_count == 1 ? "" : "s");
-    } else if (sym->required_param_count < sym->param_count) {
-      snprintf(hover_text + pos, sizeof(hover_text) - pos,
-               "\n*Accepts %zu to %zu argument%s*",
-               sym->required_param_count, sym->param_count,
-               sym->param_count == 1 ? "" : "s");
+    if (hover_ok && sym->has_variadic) {
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "\n*Accepts %zu or more argument%s*",
+                               sym->required_param_count,
+                               sym->required_param_count == 1 ? "" : "s");
+    } else if (hover_ok && sym->required_param_count < sym->param_count) {
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "\n*Accepts %zu to %zu argument%s*",
+                               sym->required_param_count, sym->param_count,
+                               sym->param_count == 1 ? "" : "s");
     }
   } else if (sym->type == SYMBOL_TYPE_ALIAS) {
     if (sym->type_name) {
@@ -305,42 +414,48 @@ void handle_hover(const char *id, const char *body) {
       if (escaped_type) {
         json_escape(sym->type_name, escaped_type,
                     strlen(sym->type_name) * 2 + 1);
-        snprintf(hover_text, sizeof(hover_text),
-                 "**type alias** `%s`\n\nResolves to: `%s`", escaped_name,
-                 escaped_type);
+        hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                 LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                 "**type alias** `%s`\n\nResolves to: `%s`",
+                                 escaped_name, escaped_type);
         free(escaped_type);
       } else {
-        snprintf(hover_text, sizeof(hover_text), "**type alias** `%s`",
-                 escaped_name);
+        hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                                 LSP_HOVER_MAX_MARKDOWN_SIZE,
+                                 "**type alias** `%s`", escaped_name);
       }
     } else {
-      snprintf(hover_text, sizeof(hover_text), "**type alias** `%s`",
-               escaped_name);
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "**type alias** `%s`", escaped_name);
     }
   } else if (sym->type_name) {
     char *escaped_type = malloc(strlen(sym->type_name) * 2 + 1);
     if (escaped_type) {
       json_escape(sym->type_name, escaped_type, strlen(sym->type_name) * 2 + 1);
-      snprintf(hover_text, sizeof(hover_text), "**%s** `%s`\n\nType: `%s`\n%s",
-               type_str, escaped_name, escaped_type,
-               sym->is_mutable ? "Mutable" : "Immutable");
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE,
+                               "**%s** `%s`\n\nType: `%s`\n%s", type_str,
+                               escaped_name, escaped_type,
+                               sym->is_mutable ? "Mutable" : "Immutable");
       free(escaped_type);
     } else {
-      snprintf(hover_text, sizeof(hover_text), "**%s** `%s`", type_str,
-               escaped_name);
+      hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                               LSP_HOVER_MAX_MARKDOWN_SIZE, "**%s** `%s`",
+                               type_str, escaped_name);
     }
   } else {
-    snprintf(hover_text, sizeof(hover_text), "**%s** `%s`\n%s", type_str,
-             escaped_name, sym->is_mutable ? "Mutable" : "Immutable");
+    hover_ok = hover_appendf(&hover_text, &hover_len, &hover_capacity,
+                             LSP_HOVER_MAX_MARKDOWN_SIZE, "**%s** `%s`\n%s",
+                             type_str, escaped_name,
+                             sym->is_mutable ? "Mutable" : "Immutable");
   }
   free(escaped_name);
+  if (hover_ok && send_markdown_hover_response(id, hover_text ? hover_text : "")) {
+    free(hover_text);
+    return;
+  }
 
-  char escaped_hover[2048];
-  json_escape_markdown(hover_text, escaped_hover, sizeof(escaped_hover));
-
-  char result[2048];
-  snprintf(result, sizeof(result),
-           "{\"contents\":{\"kind\":\"markdown\",\"value\":\"%s\"}}",
-           escaped_hover);
-  send_response(id, result);
+  free(hover_text);
+  send_response(id, "null");
 }

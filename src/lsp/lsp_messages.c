@@ -454,9 +454,34 @@ bool read_lsp_message(char **out_body, size_t *out_length) {
  * @brief Escape a string for JSON, preserving newlines as \n for markdown
  * This is used for markdown content where newlines should be preserved
  */
-void json_escape_markdown(const char *input, char *output, size_t output_size) {
-  if (!input || !output || output_size == 0)
-    return;
+size_t json_escape_markdown(const char *input, char *output,
+                            size_t output_size) {
+  if (!input) {
+    if (output && output_size > 0) {
+      output[0] = '\0';
+    }
+    return 0;
+  }
+
+  size_t needed = 0;
+  for (size_t i = 0; input[i] != '\0'; i++) {
+    switch (input[i]) {
+    case '\\':
+    case '"':
+    case '\n':
+    case '\r':
+    case '\t':
+      needed += 2;
+      break;
+    default:
+      needed += 1;
+      break;
+    }
+  }
+
+  if (!output || output_size == 0) {
+    return needed;
+  }
 
   size_t out_pos = 0;
   for (size_t i = 0; input[i] != '\0' && out_pos < output_size - 1; i++) {
@@ -500,6 +525,7 @@ void json_escape_markdown(const char *input, char *output, size_t output_size) {
     }
   }
   output[out_pos] = '\0';
+  return needed;
 }
 
 void json_escape(const char *input, char *output, size_t output_size) {
