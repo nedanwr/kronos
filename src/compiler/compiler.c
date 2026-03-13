@@ -1460,6 +1460,26 @@ static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
     compiler_set_error(c, "Lambda has too many parameters (max 255)");
     return;
   }
+  if (node->as.lambda.required_param_count > 255) {
+    compiler_set_error(c, "Lambda required parameter count exceeds limit (255)");
+    return;
+  }
+
+  size_t variadic_slot = node->as.lambda.has_variadic ? 1u : 0u;
+  if (variadic_slot > node->as.lambda.param_count) {
+    compiler_set_error(c,
+                       "Lambda parameter metadata is invalid (variadic parameter "
+                       "missing)");
+    return;
+  }
+  size_t regular_param_count = node->as.lambda.param_count - variadic_slot;
+  if (node->as.lambda.required_param_count > regular_param_count) {
+    compiler_set_error(
+        c,
+        "Lambda parameter metadata is invalid (required parameters exceed "
+        "non-variadic parameters)");
+    return;
+  }
 
   // Emit OP_MAKE_FUNCTION opcode
   emit_byte(c, OP_MAKE_FUNCTION);
@@ -1483,9 +1503,7 @@ static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
   }
 
   // Calculate number of default values
-  size_t num_defaults = node->as.lambda.param_count -
-                        node->as.lambda.required_param_count -
-                        (node->as.lambda.has_variadic ? 1 : 0);
+  size_t num_defaults = regular_param_count - node->as.lambda.required_param_count;
 
   // Emit default value constants
   for (size_t i = 0; i < num_defaults; i++) {
@@ -3055,6 +3073,32 @@ static KronosValue *compile_default_value_to_constant(Compiler *c,
  *   [OP_RETURN_VAL]
  */
 static void compile_function_statement(Compiler *c, const ASTNode *node) {
+  // Validate parameter metadata up front.
+  if (node->as.function.param_count > 255) {
+    compiler_set_error(c, "Function parameter count exceeds limit (255)");
+    return;
+  }
+  if (node->as.function.required_param_count > 255) {
+    compiler_set_error(c,
+                       "Function required parameter count exceeds limit (255)");
+    return;
+  }
+  size_t variadic_slot = node->as.function.has_variadic ? 1u : 0u;
+  if (variadic_slot > node->as.function.param_count) {
+    compiler_set_error(c,
+                       "Function parameter metadata is invalid (variadic "
+                       "parameter missing)");
+    return;
+  }
+  size_t regular_param_count = node->as.function.param_count - variadic_slot;
+  if (node->as.function.required_param_count > regular_param_count) {
+    compiler_set_error(
+        c,
+        "Function parameter metadata is invalid (required parameters exceed "
+        "non-variadic parameters)");
+    return;
+  }
+
   // Store function name
   KronosValue *func_name =
       value_new_string(node->as.function.name, strlen(node->as.function.name));
@@ -3065,22 +3109,13 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
   if (compiler_has_error(c)) {
     return;
   }
-  // Validate parameter count limit (uint8_t max is 255)
-  if (node->as.function.param_count > 255) {
-    compiler_set_error(c, "Function parameter count exceeds limit (255)");
-    return;
-  }
+
   emit_byte(c, (uint8_t)node->as.function.param_count);
   if (compiler_has_error(c)) {
     return;
   }
 
   // Emit required_param_count (for default parameters support)
-  if (node->as.function.required_param_count > 255) {
-    compiler_set_error(c,
-                       "Function required parameter count exceeds limit (255)");
-    return;
-  }
   emit_byte(c, (uint8_t)node->as.function.required_param_count);
   if (compiler_has_error(c)) {
     return;
@@ -3106,9 +3141,8 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
 
   // Calculate number of default values to emit
   // defaults = param_count - required_param_count - (has_variadic ? 1 : 0)
-  size_t num_defaults = node->as.function.param_count -
-                        node->as.function.required_param_count -
-                        (node->as.function.has_variadic ? 1 : 0);
+  size_t num_defaults =
+      regular_param_count - node->as.function.required_param_count;
 
   // Emit default value constants
   // Default values correspond to parameters starting at index required_param_count
