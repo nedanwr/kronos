@@ -826,6 +826,7 @@ void handle_rename(const char *id, const char *body) {
   size_t current_col = 0;
   bool in_string = false;
   bool in_comment = false;
+  char string_delim = '\0';
 
   for (size_t i = 0; i < text_len && remaining > 200; i++) {
     if (text[i] == '\n') {
@@ -837,8 +838,16 @@ void handle_rename(const char *id, const char *body) {
     if (text[i] == '#') {
       in_comment = true;
     }
-    if (text[i] == '"' && (i == 0 || text[i - 1] != '\\')) {
-      in_string = !in_string;
+    bool is_unescaped_quote =
+        (text[i] == '"' || text[i] == '\'') && (i == 0 || text[i - 1] != '\\');
+    if (!in_comment && is_unescaped_quote) {
+      if (!in_string) {
+        in_string = true;
+        string_delim = text[i];
+      } else if (text[i] == string_delim) {
+        in_string = false;
+        string_delim = '\0';
+      }
     }
     if (in_string || in_comment) {
       current_col++;
