@@ -1765,6 +1765,11 @@ void check_function_calls(AST *ast, const char *text, Symbol *symbols,
                              remaining, has_diagnostics, capacity);
       }
     } else if (node->type == AST_MATCH) {
+      if (node->as.match_stmt.value) {
+        check_expression(node->as.match_stmt.value, text, symbols, ast,
+                         diagnostics, pos, remaining, has_diagnostics, NULL, 0,
+                         capacity);
+      }
       for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
         if (node->as.match_stmt.case_patterns[j]) {
           check_expression(node->as.match_stmt.case_patterns[j], text, symbols,
@@ -2814,8 +2819,8 @@ void check_undefined_variables(AST *ast, const char *text, Symbol *symbols,
           if (strcmp(seen_vars[k].name, var_name) == 0) {
             found = true;
             was_immutable = !seen_vars[k].is_mutable;
-            occurrence = seen_vars[k].assignment_count;
             seen_vars[k].assignment_count++;
+            occurrence = seen_vars[k].assignment_count;
             break;
           }
         }
