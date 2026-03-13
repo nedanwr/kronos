@@ -3843,7 +3843,11 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
     case OP_DEFINE_FUNC: {
-      if (offset + 3 >= bytecode->count) {
+      // Layout:
+      // [OP_DEFINE_FUNC][name_idx:2][param_count:1][required_param_count:1]
+      // [has_variadic:1][param_name_idx:2*N][default_const:2*M]
+      // [body_start:2][OP_JUMP][skip_offset:2][body:skip_offset]
+      if (offset + 5 >= bytecode->count) {
         printf("DEFINE_FUNC <invalid: out of bounds>\n");
         offset = bytecode->count;
         break;
@@ -3851,16 +3855,100 @@ void bytecode_print(Bytecode *bytecode) {
       uint16_t name_idx = (uint16_t)(bytecode->code[offset + 1] << 8 |
                                      bytecode->code[offset + 2]);
       uint8_t param_count = bytecode->code[offset + 3];
-      size_t skip = 4 + (size_t)param_count * 2 + 2 + 2;
-      if (offset + skip > bytecode->count) {
-        printf("DEFINE_FUNC %u (param_count=%u) <invalid: parameters out of "
-               "bounds>\n",
-               name_idx, param_count);
+      uint8_t required_param_count = bytecode->code[offset + 4];
+      uint8_t has_variadic = bytecode->code[offset + 5];
+      printf("DEFINE_FUNC %u params=%u required=%u variadic=%u", name_idx,
+             param_count, required_param_count, has_variadic);
+
+      if (has_variadic > 1 || (has_variadic && param_count == 0)) {
+        printf(" <invalid metadata>\n");
         offset = bytecode->count;
         break;
       }
-      printf("DEFINE_FUNC %u (param_count=%u)\n", name_idx, param_count);
-      offset += skip;
+
+      size_t regular_param_count =
+          (size_t)param_count - (has_variadic ? 1u : 0u);
+      if ((size_t)required_param_count > regular_param_count) {
+        printf(" <invalid metadata>\n");
+        offset = bytecode->count;
+        break;
+      }
+
+      size_t num_defaults = regular_param_count - (size_t)required_param_count;
+      size_t cursor = offset + 6;
+      bool truncated = false;
+
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (cursor + 1 >= bytecode->count) {
+          printf(" <param_names truncated>\n");
+          offset = bytecode->count;
+          truncated = true;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[cursor] << 8 |
+                                   bytecode->code[cursor + 1]);
+        printf(" name%zu=%u", i, idx);
+        cursor += 2;
+      }
+      if (truncated) {
+        break;
+      }
+
+      for (size_t i = 0; i < num_defaults; i++) {
+        if (cursor + 1 >= bytecode->count) {
+          printf(" <defaults truncated>\n");
+          offset = bytecode->count;
+          truncated = true;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[cursor] << 8 |
+                                   bytecode->code[cursor + 1]);
+        printf(" default%zu=%u", (size_t)required_param_count + i, idx);
+        cursor += 2;
+      }
+      if (truncated) {
+        break;
+      }
+
+      if (cursor + 1 >= bytecode->count) {
+        printf(" <body_start truncated>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t body_start = (uint16_t)(bytecode->code[cursor] << 8 |
+                                       bytecode->code[cursor + 1]);
+      cursor += 2;
+
+      if (cursor >= bytecode->count) {
+        printf(" <jump truncated>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t jump_opcode = bytecode->code[cursor++];
+      if (jump_opcode != OP_JUMP) {
+        printf(" <invalid jump opcode=%u>\n", jump_opcode);
+        offset = bytecode->count;
+        break;
+      }
+
+      if (cursor + 1 >= bytecode->count) {
+        printf(" <skip offset truncated>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t skip_offset = (uint16_t)(bytecode->code[cursor] << 8 |
+                                        bytecode->code[cursor + 1]);
+      cursor += 2;
+
+      if ((size_t)skip_offset > bytecode->count - cursor) {
+        printf(" body_start=%u skip=%u <body truncated>\n", body_start,
+               skip_offset);
+        offset = bytecode->count;
+        break;
+      }
+
+      printf(" body_start=%u skip=%u\n", body_start, skip_offset);
+      offset = cursor + (size_t)skip_offset;
       break;
     }
     case OP_CALL_FUNC: {
