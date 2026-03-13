@@ -466,6 +466,12 @@ void gc_track(KronosValue *val) {
       gc_state.allocated_bytes += val->as.list.capacity * sizeof(KronosValue *);
     }
     break;
+  case VAL_TUPLE:
+    // Track tuple item array: count * sizeof(KronosValue*)
+    if (val->as.tuple.items && val->as.tuple.count > 0) {
+      gc_state.allocated_bytes += val->as.tuple.count * sizeof(KronosValue *);
+    }
+    break;
   case VAL_MAP: {
     // Track map entries array: capacity * sizeof(MapEntry)
     // MapEntry contains: KronosValue* key, KronosValue* value, bool
@@ -529,6 +535,12 @@ void gc_untrack(KronosValue *val) {
     // Subtract list item array size
     if (val->as.list.capacity > 0) {
       gc_state.allocated_bytes -= val->as.list.capacity * sizeof(KronosValue *);
+    }
+    break;
+  case VAL_TUPLE:
+    // Subtract tuple item array size
+    if (val->as.tuple.items && val->as.tuple.count > 0) {
+      gc_state.allocated_bytes -= val->as.tuple.count * sizeof(KronosValue *);
     }
     break;
   case VAL_MAP: {
@@ -738,6 +750,12 @@ void gc_collect_cycles(void) {
             if (obj->as.list.capacity > 0) {
               gc_state.allocated_bytes -=
                   obj->as.list.capacity * sizeof(KronosValue *);
+            }
+            break;
+          case VAL_TUPLE:
+            if (obj->as.tuple.items && obj->as.tuple.count > 0) {
+              gc_state.allocated_bytes -=
+                  obj->as.tuple.count * sizeof(KronosValue *);
             }
             break;
           case VAL_MAP:
