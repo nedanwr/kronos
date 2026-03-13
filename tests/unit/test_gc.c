@@ -55,6 +55,29 @@ TEST(gc_get_allocated_bytes) {
   gc_cleanup();
 }
 
+TEST(gc_tuple_allocated_bytes_accounting) {
+  gc_init();
+
+  KronosValue *item = value_new_number(42);
+  ASSERT_PTR_NOT_NULL(item);
+
+  size_t before_tuple = gc_get_allocated_bytes();
+
+  KronosValue *items[] = {item};
+  KronosValue *tuple = value_new_tuple(items, 1);
+  ASSERT_PTR_NOT_NULL(tuple);
+
+  size_t after_tuple = gc_get_allocated_bytes();
+  size_t expected_tuple_bytes = sizeof(KronosValue) + sizeof(KronosValue *);
+  ASSERT_EQ(after_tuple - before_tuple, expected_tuple_bytes);
+
+  value_release(tuple);
+  ASSERT_EQ(gc_get_allocated_bytes(), before_tuple);
+
+  value_release(item);
+  gc_cleanup();
+}
+
 TEST(gc_get_object_count) {
   gc_init();
 
