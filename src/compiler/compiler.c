@@ -3026,18 +3026,45 @@ static void compile_while_statement(Compiler *c, const ASTNode *node) {
  */
 static KronosValue *compile_default_value_to_constant(Compiler *c,
                                                        const ASTNode *expr) {
+  const char *oom_msg = "Out of memory allocating default parameter value";
+
   if (!expr) {
     return NULL;
   }
   switch (expr->type) {
-  case AST_NUMBER:
-    return value_new_number(expr->as.number);
-  case AST_STRING:
-    return value_new_string(expr->as.string.value, expr->as.string.length);
-  case AST_BOOL:
-    return value_new_bool(expr->as.boolean);
-  case AST_NULL:
-    return value_new_nil();
+  case AST_NUMBER: {
+    KronosValue *val = value_new_number(expr->as.number);
+    if (!val) {
+      compiler_set_error(c, oom_msg);
+      return NULL;
+    }
+    return val;
+  }
+  case AST_STRING: {
+    KronosValue *val =
+        value_new_string(expr->as.string.value, expr->as.string.length);
+    if (!val) {
+      compiler_set_error(c, oom_msg);
+      return NULL;
+    }
+    return val;
+  }
+  case AST_BOOL: {
+    KronosValue *val = value_new_bool(expr->as.boolean);
+    if (!val) {
+      compiler_set_error(c, oom_msg);
+      return NULL;
+    }
+    return val;
+  }
+  case AST_NULL: {
+    KronosValue *val = value_new_nil();
+    if (!val) {
+      compiler_set_error(c, oom_msg);
+      return NULL;
+    }
+    return val;
+  }
   case AST_BINOP:
     if (expr->as.binop.op == BINOP_NEG) {
       // Unary negation may be stored in left (current parser) or right
@@ -3045,7 +3072,12 @@ static KronosValue *compile_default_value_to_constant(Compiler *c,
       const ASTNode *operand =
           expr->as.binop.left ? expr->as.binop.left : expr->as.binop.right;
       if (operand && operand->type == AST_NUMBER) {
-        return value_new_number(-operand->as.number);
+        KronosValue *val = value_new_number(-operand->as.number);
+        if (!val) {
+          compiler_set_error(c, oom_msg);
+          return NULL;
+        }
+        return val;
       }
     }
     compiler_set_error(c, "Default parameter value must be a literal constant");
