@@ -273,6 +273,13 @@ static int run_function_callback(KronosVM *vm, const char *callback_name,
       }
       vm->call_stack_size--;
     }
+    while (vm->stack_top > saved_stack_top) {
+      KronosValue *cleanup_val = pop(vm);
+      if (!cleanup_val) {
+        break;
+      }
+      value_release(cleanup_val);
+    }
     vm->current_frame = saved_call_stack_size > 0
                             ? &vm->call_stack[saved_call_stack_size - 1]
                             : NULL;
@@ -291,6 +298,13 @@ static int run_function_callback(KronosVM *vm, const char *callback_name,
         callback_frame->owned_bytecode = NULL;
       }
       vm->call_stack_size--;
+    }
+    while (vm->stack_top > saved_stack_top) {
+      KronosValue *cleanup_val = pop(vm);
+      if (!cleanup_val) {
+        break;
+      }
+      value_release(cleanup_val);
     }
     vm->current_frame = saved_call_stack_size > 0
                             ? &vm->call_stack[saved_call_stack_size - 1]
