@@ -44,6 +44,30 @@ typedef struct {
   size_t count;
 } LSPImportStack;
 
+typedef enum {
+  LSP_MODULE_CACHE_STATE_UNKNOWN = 0,
+  LSP_MODULE_CACHE_STATE_READY,
+  LSP_MODULE_CACHE_STATE_MISSING,
+  LSP_MODULE_CACHE_STATE_PARSE_ERROR,
+} LSPModuleCacheState;
+
+typedef enum {
+  LSP_MODULE_LOAD_OK = 0,
+  LSP_MODULE_LOAD_PENDING,
+  LSP_MODULE_LOAD_MISSING,
+  LSP_MODULE_LOAD_PARSE_ERROR,
+} LSPModuleLoadResult;
+
+typedef struct LSPModuleCacheEntry {
+  char *path;
+  char *source;
+  AST *ast;
+  LSPModuleCacheState state;
+  struct LSPModuleCacheEntry *next;
+} LSPModuleCacheEntry;
+
+static LSPModuleCacheEntry *g_module_cache = NULL;
+
 static int lsp_hex_value(char c) {
   if (c >= '0' && c <= '9') {
     return c - '0';
@@ -88,6 +112,155 @@ static char *lsp_uri_to_path(const char *uri) {
   }
   decoded[out] = '\0';
   return decoded;
+}
+
+static void lsp_module_cache_entry_clear_ast(LSPModuleCacheEntry *entry) {
+  if (!entry || !entry->ast) {
+    return;
+  }
+  ast_free(entry->ast);
+  entry->ast = NULL;
+}
+
+static LSPModuleCacheEntry *lsp_module_cache_find(const char *file_path) {
+  if (!file_path) {
+    return NULL;
+  }
+  for (LSPModuleCacheEntry *entry = g_module_cache; entry;
+       entry = entry->next) {
+    if (entry->path && strcmp(entry->path, file_path) == 0) {
+      return entry;
+    }
+  }
+  return NULL;
+}
+
+static LSPModuleCacheEntry *lsp_module_cache_get_or_create(
+    const char *file_path) {
+  if (!file_path) {
+    return NULL;
+  }
+
+  LSPModuleCacheEntry *entry = lsp_module_cache_find(file_path);
+  if (entry) {
+    return entry;
+  }
+
+  entry = calloc(1, sizeof(*entry));
+  if (!entry) {
+    return NULL;
+  }
+  entry->path = strdup(file_path);
+  if (!entry->path) {
+    free(entry);
+    return NULL;
+  }
+  entry->state = LSP_MODULE_CACHE_STATE_UNKNOWN;
+  entry->next = g_module_cache;
+  g_module_cache = entry;
+  return entry;
+}
+
+static bool lsp_module_cache_set_source_text(LSPModuleCacheEntry *entry,
+                                             const char *source_text) {
+  if (!entry || !source_text) {
+    return false;
+  }
+
+  char *source_copy = strdup(source_text);
+  if (!source_copy) {
+    return false;
+  }
+
+  free(entry->source);
+  entry->source = source_copy;
+  lsp_module_cache_entry_clear_ast(entry);
+  entry->state = LSP_MODULE_CACHE_STATE_UNKNOWN;
+  return true;
+}
+
+static void lsp_module_cache_store_ast(LSPModuleCacheEntry *entry, AST *ast) {
+  if (!entry) {
+    if (ast) {
+      ast_free(ast);
+    }
+    return;
+  }
+
+  lsp_module_cache_entry_clear_ast(entry);
+  entry->ast = ast;
+  entry->state =
+      ast ? LSP_MODULE_CACHE_STATE_READY : LSP_MODULE_CACHE_STATE_PARSE_ERROR;
+}
+
+static void lsp_module_cache_mark_missing(LSPModuleCacheEntry *entry) {
+  if (!entry) {
+    return;
+  }
+
+  free(entry->source);
+  entry->source = NULL;
+  lsp_module_cache_entry_clear_ast(entry);
+  entry->state = LSP_MODULE_CACHE_STATE_MISSING;
+}
+
+static void lsp_module_cache_mark_parse_error(LSPModuleCacheEntry *entry) {
+  if (!entry) {
+    return;
+  }
+
+  lsp_module_cache_entry_clear_ast(entry);
+  entry->state = LSP_MODULE_CACHE_STATE_PARSE_ERROR;
+}
+
+static void lsp_module_cache_clear_all(void) {
+  LSPModuleCacheEntry *entry = g_module_cache;
+  while (entry) {
+    LSPModuleCacheEntry *next = entry->next;
+    free(entry->path);
+    free(entry->source);
+    if (entry->ast) {
+      ast_free(entry->ast);
+    }
+    free(entry);
+    entry = next;
+  }
+  g_module_cache = NULL;
+}
+
+void lsp_clear_diagnostics_cache(void) { lsp_module_cache_clear_all(); }
+
+static void lsp_module_cache_update_document_source(const char *uri,
+                                                    const char *text) {
+  if (!uri || !text) {
+    return;
+  }
+
+  char *path = lsp_uri_to_path(uri);
+  if (!path) {
+    return;
+  }
+
+  LSPModuleCacheEntry *entry = lsp_module_cache_get_or_create(path);
+  if (entry) {
+    (void)lsp_module_cache_set_source_text(entry, text);
+  }
+  free(path);
+}
+
+static AST *lsp_parse_ast_from_source(const char *source) {
+  if (!source) {
+    return NULL;
+  }
+
+  TokenArray *tokens = tokenize(source, NULL);
+  if (!tokens) {
+    return NULL;
+  }
+
+  AST *ast = parse(tokens, NULL);
+  token_array_free(tokens);
+  return ast;
 }
 
 static char *lsp_resolve_module_path(const char *base_path,
@@ -190,7 +363,7 @@ static void lsp_import_stack_clear(LSPImportStack *stack) {
   }
 }
 
-static AST *lsp_parse_ast_from_file(const char *file_path) {
+static char *lsp_read_source_from_file(const char *file_path) {
   if (!file_path) {
     return NULL;
   }
@@ -230,21 +403,81 @@ static AST *lsp_parse_ast_from_file(const char *file_path) {
   source[read_size] = '\0';
   fclose(file);
 
-  TokenArray *tokens = tokenize(source, NULL);
-  free(source);
-  if (!tokens) {
-    return NULL;
+  return source;
+}
+
+static LSPModuleLoadResult lsp_parse_ast_from_file(const char *file_path,
+                                                   bool allow_disk_io,
+                                                   AST **out_ast) {
+  if (!out_ast) {
+    return LSP_MODULE_LOAD_PARSE_ERROR;
+  }
+  *out_ast = NULL;
+
+  if (!file_path) {
+    return LSP_MODULE_LOAD_PARSE_ERROR;
   }
 
-  AST *ast = parse(tokens, NULL);
-  token_array_free(tokens);
-  return ast;
+  LSPModuleCacheEntry *entry = lsp_module_cache_find(file_path);
+  if (entry && entry->state == LSP_MODULE_CACHE_STATE_READY && entry->ast) {
+    *out_ast = entry->ast;
+    return LSP_MODULE_LOAD_OK;
+  }
+
+  if (entry && entry->source) {
+    AST *parsed = lsp_parse_ast_from_source(entry->source);
+    if (!parsed) {
+      lsp_module_cache_mark_parse_error(entry);
+      return LSP_MODULE_LOAD_PARSE_ERROR;
+    }
+    lsp_module_cache_store_ast(entry, parsed);
+    *out_ast = entry->ast;
+    return LSP_MODULE_LOAD_OK;
+  }
+
+  if (entry && entry->state == LSP_MODULE_CACHE_STATE_MISSING) {
+    return LSP_MODULE_LOAD_MISSING;
+  }
+
+  if (!allow_disk_io) {
+    return LSP_MODULE_LOAD_PENDING;
+  }
+
+  if (!entry) {
+    entry = lsp_module_cache_get_or_create(file_path);
+    if (!entry) {
+      return LSP_MODULE_LOAD_PARSE_ERROR;
+    }
+  }
+
+  char *source = lsp_read_source_from_file(file_path);
+  if (!source) {
+    lsp_module_cache_mark_missing(entry);
+    return LSP_MODULE_LOAD_MISSING;
+  }
+
+  if (!lsp_module_cache_set_source_text(entry, source)) {
+    free(source);
+    return LSP_MODULE_LOAD_PARSE_ERROR;
+  }
+
+  AST *parsed = lsp_parse_ast_from_source(source);
+  free(source);
+  if (!parsed) {
+    lsp_module_cache_mark_parse_error(entry);
+    return LSP_MODULE_LOAD_PARSE_ERROR;
+  }
+
+  lsp_module_cache_store_ast(entry, parsed);
+  *out_ast = entry->ast;
+  return LSP_MODULE_LOAD_OK;
 }
 
 static bool lsp_check_import_chain_recursive(const char *module_name,
                                              const char *import_path,
                                              const char *resolved_path,
                                              LSPImportStack *stack,
+                                             bool allow_disk_io,
                                              char *error_msg,
                                              size_t error_msg_size) {
   if (!module_name || !resolved_path || !stack || !error_msg ||
@@ -259,20 +492,24 @@ static bool lsp_check_import_chain_recursive(const char *module_name,
     return true;
   }
 
-  FILE *probe = fopen(resolved_path, "r");
-  if (!probe) {
-    snprintf(error_msg, error_msg_size, "Failed to open module file: %s",
-             import_path ? import_path : resolved_path);
-    return true;
-  }
-  fclose(probe);
-
   if (!lsp_import_stack_push(stack, resolved_path)) {
     return false;
   }
 
-  AST *module_ast = lsp_parse_ast_from_file(resolved_path);
-  if (!module_ast) {
+  AST *module_ast = NULL;
+  LSPModuleLoadResult load_result =
+      lsp_parse_ast_from_file(resolved_path, allow_disk_io, &module_ast);
+  if (load_result == LSP_MODULE_LOAD_MISSING) {
+    snprintf(error_msg, error_msg_size, "Failed to open module file: %s",
+             import_path ? import_path : resolved_path);
+    lsp_import_stack_pop(stack);
+    return true;
+  }
+  if (load_result == LSP_MODULE_LOAD_PENDING) {
+    lsp_import_stack_pop(stack);
+    return false;
+  }
+  if (load_result != LSP_MODULE_LOAD_OK || !module_ast) {
     lsp_import_stack_pop(stack);
     return false;
   }
@@ -292,17 +529,15 @@ static bool lsp_check_import_chain_recursive(const char *module_name,
 
     bool has_issue = lsp_check_import_chain_recursive(
         node->as.import.module_name, node->as.import.file_path, child_resolved,
-        stack, error_msg, error_msg_size);
+        stack, allow_disk_io, error_msg, error_msg_size);
     free(child_resolved);
 
     if (has_issue) {
-      ast_free(module_ast);
       lsp_import_stack_pop(stack);
       return true;
     }
   }
 
-  ast_free(module_ast);
   lsp_import_stack_pop(stack);
   return false;
 }
@@ -2086,6 +2321,7 @@ void check_expression(ASTNode *node, const char *text, Symbol *symbols,
 }
 
 static void check_import_diagnostics(AST *ast, const char *text,
+                                     const char *uri, bool allow_disk_io,
                                      char **diagnostics, size_t *pos,
                                      size_t *remaining, bool *has_diagnostics,
                                      size_t *capacity) {
@@ -2093,7 +2329,7 @@ static void check_import_diagnostics(AST *ast, const char *text,
     return;
   }
 
-  char *current_file_path = lsp_uri_to_path(g_doc ? g_doc->uri : NULL);
+  char *current_file_path = lsp_uri_to_path(uri);
 
   for (size_t i = 0; i < ast->count; i++) {
     ASTNode *node = ast->statements[i];
@@ -2112,7 +2348,7 @@ static void check_import_diagnostics(AST *ast, const char *text,
     LSPImportStack stack = {0};
     bool has_import_error = lsp_check_import_chain_recursive(
         node->as.import.module_name, node->as.import.file_path, resolved_path,
-        &stack, error_msg, sizeof(error_msg));
+        &stack, allow_disk_io, error_msg, sizeof(error_msg));
 
     lsp_import_stack_clear(&stack);
     free(resolved_path);
@@ -3695,7 +3931,10 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
   }
 }
 
-void check_diagnostics(const char *uri, const char *text) {
+void check_diagnostics(const char *uri, const char *text,
+                       bool allow_blocking_import_io) {
+  lsp_module_cache_update_document_source(uri, text);
+
   TokenizeError *tokenize_err = NULL;
   TokenArray *tokens = tokenize(text, &tokenize_err);
 
@@ -3817,8 +4056,9 @@ void check_diagnostics(const char *uri, const char *text) {
       size_t *capacity_ptr = &diagnostics_capacity;
 
       // Check import-related diagnostics (missing files, circular imports)
-      check_import_diagnostics(ast, text, &diagnostics, &pos, &remaining,
-                               &has_diagnostics, capacity_ptr);
+      check_import_diagnostics(ast, text, uri, allow_blocking_import_io,
+                               &diagnostics, &pos, &remaining, &has_diagnostics,
+                               capacity_ptr);
 
       check_function_calls(ast, text, symbols, &diagnostics, &pos, &remaining,
                            &has_diagnostics, capacity_ptr);

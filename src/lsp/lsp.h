@@ -183,7 +183,9 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
                           char **diagnostics, size_t *pos,
                           size_t *remaining, bool *has_diagnostics,
                           size_t *capacity);
-void check_diagnostics(const char *uri, const char *text);
+void check_diagnostics(const char *uri, const char *text,
+                       bool allow_blocking_import_io);
+void lsp_clear_diagnostics_cache(void);
 
 // Handlers (lsp_handlers.c)
 void handle_initialize(const char *id);

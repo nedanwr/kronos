@@ -181,6 +181,7 @@ int main(void) {
     body = NULL;
   }
 
+  lsp_clear_diagnostics_cache();
   free_document_state(g_doc);
   free(body);
   return 0;

@@ -98,7 +98,7 @@ void handle_did_open(const char *uri, const char *text) {
   g_doc->ast = NULL;
   g_doc->imported_modules = NULL;
 
-  check_diagnostics(uri, text);
+  check_diagnostics(uri, text, true);
 }
 
 void handle_did_change(const char *uri, const char *text) {
@@ -108,12 +108,12 @@ void handle_did_change(const char *uri, const char *text) {
     if (!text_copy) {
       fprintf(stderr, "LSP server: failed to allocate text string for did_change\n");
       // Use existing g_doc->text as fallback for diagnostics
-      check_diagnostics(uri, g_doc->text);
+      check_diagnostics(uri, g_doc->text, false);
       return;
     }
     free(g_doc->text);
     g_doc->text = text_copy;
-    check_diagnostics(uri, text);
+    check_diagnostics(uri, text, false);
   }
 }
 
