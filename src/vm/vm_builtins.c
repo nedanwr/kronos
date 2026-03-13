@@ -2219,6 +2219,8 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
   const char *path = path_arg->as.string.data;
   size_t path_len = path_arg->as.string.length;
   size_t end = path_len;
+  int has_drive_root = path_len >= 2 && isalpha((unsigned char)path[0]) &&
+                       path[1] == ':';
 
   // Trim trailing separators.
   while (end > 0 && is_path_separator(path[end - 1])) {
@@ -2248,6 +2250,18 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
 
   // If no separator found, return "."
   if (last_sep == end) {
+    if (has_drive_root && end == 2 && path_len > end &&
+        is_path_separator(path[end])) {
+      KronosValue *result = value_new_string(path, end + 1);
+      value_release(path_arg);
+      if (!result) {
+        return vm_error(vm, KRONOS_ERR_INTERNAL,
+                        "Failed to create string value");
+      }
+      PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+      value_release(result);
+      return 0;
+    }
     KronosValue *result = value_new_string(".", 1);
     value_release(path_arg);
     if (!result) {
@@ -2261,6 +2275,11 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
   size_t dir_len = last_sep;
   while (dir_len > 0 && is_path_separator(path[dir_len - 1])) {
     dir_len--;
+  }
+  size_t dir_result_len = dir_len;
+  if (has_drive_root && dir_len == 2 && path_len > dir_len &&
+      is_path_separator(path[dir_len])) {
+    dir_result_len++;
   }
 
   // If separator is at start, return root separator.
@@ -2277,7 +2296,7 @@ int builtin_dirname(KronosVM *vm, uint8_t arg_count) {
   }
 
   // Return path up to (but not including) last separator
-  KronosValue *result = value_new_string(path, dir_len);
+  KronosValue *result = value_new_string(path, dir_result_len);
   value_release(path_arg);
   if (!result) {
     return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
@@ -2306,6 +2325,8 @@ int builtin_basename(KronosVM *vm, uint8_t arg_count) {
   const char *path = path_arg->as.string.data;
   size_t path_len = path_arg->as.string.length;
   size_t end = path_len;
+  int has_drive_root = path_len >= 2 && isalpha((unsigned char)path[0]) &&
+                       path[1] == ':';
 
   // Trim trailing separators.
   while (end > 0 && is_path_separator(path[end - 1])) {
@@ -2335,13 +2356,18 @@ int builtin_basename(KronosVM *vm, uint8_t arg_count) {
 
   // If no separator found, return entire path
   if (last_sep == end) {
-    if (end == path_len) {
+    size_t base_len = end;
+    if (has_drive_root && end == 2 && path_len > end &&
+        is_path_separator(path[end])) {
+      base_len++;
+    }
+    if (base_len == path_len) {
       value_retain(path_arg);
       PUSH_OR_RETURN_WITH_CLEANUP(vm, path_arg, value_release(path_arg););
       value_release(path_arg);
       return 0;
     }
-    KronosValue *result = value_new_string(path, end);
+    KronosValue *result = value_new_string(path, base_len);
     value_release(path_arg);
     if (!result) {
       return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to create string value");
