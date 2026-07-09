@@ -71,6 +71,90 @@ set text to "Hello"
 set info to f"'{text}' has {call len with text} characters"
 ```
 
+### Format Specifiers
+
+F-strings support format specifiers for precise control over value formatting. Add a colon followed by a format specification after the expression: `{expression:format_spec}`.
+
+#### Precision (Decimal Places)
+
+```kronos
+set price to 19.99
+print f"Price: {price:.2f}"   # Price: 19.99
+
+set pi to 3.14159265
+print f"Pi: {pi:.4f}"         # Pi: 3.1416
+print f"Pi: {pi:.0f}"         # Pi: 3
+```
+
+#### Width and Alignment
+
+Control the minimum width and alignment of the output:
+
+```kronos
+set x to 42
+print f"|{x:10}|"    # |        42|  (right-aligned by default)
+print f"|{x:<10}|"   # |42        |  (left-aligned)
+print f"|{x:>10}|"   # |        42|  (right-aligned)
+print f"|{x:^10}|"   # |    42    |  (centered)
+```
+
+#### Fill Characters
+
+Specify a fill character before the alignment:
+
+```kronos
+set num to 7
+print f"{num:0>5}"    # 00007 (zero-padded)
+print f"{num:->5}"    # ----7 (dash-padded)
+print f"{num:*^9}"    # ****7**** (centered with stars)
+```
+
+#### Type Specifiers
+
+Explicitly specify the output type:
+
+```kronos
+set value to 123.456
+print f"As integer: {value:d}"    # As integer: 123
+print f"As float: {value:.1f}"    # As float: 123.5
+print f"As string: {value:s}"     # As string: 123.456
+```
+
+#### Complete Format Syntax
+
+The full format specifier syntax is:
+
+```
+{expression:[[fill]align][width][.precision][type]}
+```
+
+| Component | Options | Description |
+|-----------|---------|-------------|
+| `fill` | Any character | Character used for padding (default: space) |
+| `align` | `<` `>` `^` | Left, right, or center alignment |
+| `width` | Integer | Minimum field width |
+| `.precision` | `.` + integer | Decimal places for floats, max length for strings |
+| `type` | `d` `f` `s` | Integer, float, or string format |
+
+#### Practical Examples
+
+```kronos
+# Currency formatting
+set price to 9.5
+print f"Total: ${price:>7.2f}"   # Total: $   9.50
+
+# Table formatting
+set name to "Item"
+set qty to 5
+set unit_price to 19.99
+print f"{name:<10} x {qty:>3d} @ ${unit_price:>7.2f}"
+# Output: Item       x   5 @ $  19.99
+
+# ID formatting
+set id to 42
+print f"ID: {id:0>6}"            # ID: 000042
+```
+
 ## String Functions
 
 Kronos provides many built-in string functions. See the [String Functions API](/docs/api/string-functions) for the complete reference.

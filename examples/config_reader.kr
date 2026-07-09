@@ -14,31 +14,23 @@ set line_count to call len with lines
 print "Parsed configuration:"
 for i in range 0 to line_count minus 1:
     let line to lines at i
-    set trimmed_line to call trim with line
+    let trimmed_line to call trim with line
 
     # Skip empty lines
-    set trimmed_len to call len with trimmed_line
+    let trimmed_len to call len with trimmed_line
     if trimmed_len is greater than 0:
         # Split key=value pairs
-        set parts to call split with trimmed_line, "="
-        set parts_count to call len with parts
+        let parts to call split with trimmed_line, "="
+        let parts_count to call len with parts
         if parts_count is equal 2:
             # Extract key and value
-            set key to call trim with parts at 0
-            set val_str to call trim with parts at 1
+            let key to call trim with parts at 0
+            let val_str to call trim with parts at 1
 
-            # Try to convert to number if possible
-            set parsed_val to val_str
-            try:
-                set num_val to call to_number with val_str
-                if num_val is not equal 0 or val_str is equal "0":
-                    set parsed_val to num_val
-                else:
-                    set bool_val to call to_bool with val_str
-                    if val_str is equal "true" or val_str is equal "false":
-                        set parsed_val to bool_val
-            catch err:
-                pass
+            # Parse booleans; keep other values as strings
+            let parsed_val to val_str
+            if val_str is equal "true" or val_str is equal "false":
+                set parsed_val to call to_bool with val_str
 
             # Display parsed config entry
             print f"   {key} = {parsed_val}"

@@ -171,16 +171,18 @@ static bool can_continue_identifier(const char *line, size_t col, size_t len) {
  * Must match TokenType enum order exactly
  */
 static const char *token_type_names[] = {
-    "NUMBER",  "STRING",   "FSTRING", "SET",      "LET",   "TO",
-    "AS",      "IF",       "ELSE",    "ELSE_IF",  "FOR",   "WHILE",
-    "BREAK",   "CONTINUE", "IN",      "RANGE",    "LIST",  "MAP",
-    "AT",      "FROM",     "END",     "FUNCTION", "WITH",  "CALL",
-    "RETURN",  "IMPORT",   "TRUE",    "FALSE",    "NULL",  "UNDEFINED",
-    "IS",      "EQUAL",    "NOT",     "GREATER",  "LESS",  "THAN",
-    "AND",     "OR",       "PRINT",   "PLUS",     "MINUS", "TIMES",
-    "DIVIDED", "BY",       "MOD",     "DELETE",   "TRY",   "CATCH",
-    "FINALLY", "RAISE",    "NAME",    "COLON",    "COMMA", "LPAREN",
-    "RPAREN",  "NEWLINE",  "INDENT",  "EOF"};
+    "NUMBER",  "STRING",   "FSTRING",  "SET",      "LET",      "TO",
+    "AS",      "IF",       "ELSE",     "ELSE_IF",  "FOR",      "WHILE",
+    "BREAK",   "CONTINUE", "IN",       "RANGE",    "LIST",     "MAP",
+    "AT",      "FROM",     "END",      "FUNCTION", "WITH",     "CALL",
+    "RETURN",  "IMPORT",   "TRUE",     "FALSE",    "NULL",     "UNDEFINED",
+    "IS",      "EQUAL",    "NOT",      "GREATER",  "LESS",     "THAN",
+    "AND",     "OR",       "PRINT",    "DEBUG",    "PLUS",     "MINUS",
+    "TIMES",
+    "DIVIDED", "BY",       "MOD",      "DELETE",   "TRY",      "CATCH",
+    "FINALLY", "RAISE",    "MATCH",    "CASE",     "DEFAULT",  "NAME",
+    "COLON",   "COMMA",    "ELLIPSIS", "LPAREN",   "RPAREN",   "LBRACKET",
+    "RBRACKET", "LANGLE",  "RANGLE",   "NEWLINE", "INDENT",   "EOF"};
 
 // Compile-time check to ensure array matches enum count
 // This will cause a compilation error if they don't match
@@ -196,9 +198,15 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
 // These are never freed, so we can use them directly without strdup()
 static const char TOKEN_TEXT_COLON[] = ":";
 static const char TOKEN_TEXT_COMMA[] = ",";
+static const char TOKEN_TEXT_ELLIPSIS[] = "...";
+static const char TOKEN_TEXT_EQUALS[] = "=";
 static const char TOKEN_TEXT_MINUS[] = "minus";
 static const char TOKEN_TEXT_LPAREN[] = "(";
 static const char TOKEN_TEXT_RPAREN[] = ")";
+static const char TOKEN_TEXT_LBRACKET[] = "[";
+static const char TOKEN_TEXT_RBRACKET[] = "]";
+static const char TOKEN_TEXT_LANGLE[] = "<";
+static const char TOKEN_TEXT_RANGLE[] = ">";
 static const char TOKEN_TEXT_NEWLINE[] = "\n";
 
 // Token array initial capacity - starts small and grows as needed
@@ -212,8 +220,11 @@ static const char TOKEN_TEXT_NEWLINE[] = "\n";
  */
 static bool is_static_token_text(const char *text) {
   return text == TOKEN_TEXT_COLON || text == TOKEN_TEXT_COMMA ||
+         text == TOKEN_TEXT_ELLIPSIS || text == TOKEN_TEXT_EQUALS ||
          text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE ||
-         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN;
+         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN ||
+         text == TOKEN_TEXT_LBRACKET || text == TOKEN_TEXT_RBRACKET ||
+         text == TOKEN_TEXT_LANGLE || text == TOKEN_TEXT_RANGLE;
 }
 
 /**
@@ -730,6 +741,19 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
       continue;
     }
 
+    // Handle ellipsis (...) for variadic parameters
+    if (line[col] == '.' && col + 2 < len && line[col + 1] == '.' &&
+        line[col + 2] == '.') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_ELLIPSIS, TOKEN_TEXT_ELLIPSIS, 3, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col += 3;
+      continue;
+    }
+
     // Handle '-' as operator token when not part of a number
     // (for unary negation support)
     if (line[col] == '-') {
@@ -756,6 +780,61 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     if (line[col] == ')') {
       size_t token_col = indent + col + 1;
       Token tok = {TOK_RPAREN, TOKEN_TEXT_RPAREN, 1, 0, line_number, token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == '[') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_LBRACKET, TOKEN_TEXT_LBRACKET, 1, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == ']') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_RBRACKET, TOKEN_TEXT_RBRACKET, 1, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == '<') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_LANGLE, TOKEN_TEXT_LANGLE, 1, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    if (line[col] == '>') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_RANGLE, TOKEN_TEXT_RANGLE, 1, 0, line_number,
+                   token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
+      continue;
+    }
+
+    // Handle '=' for default parameter values (e.g., function foo with x = 5:)
+    if (line[col] == '=') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_EQUAL, TOKEN_TEXT_EQUALS, 1, 0, line_number, token_col};
       if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
         return false;
       }

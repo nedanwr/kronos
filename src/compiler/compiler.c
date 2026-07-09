@@ -41,6 +41,7 @@
 #include "compiler.h"
 #include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,6 +100,7 @@ typedef struct {
   size_t to_string_const_idx; /**< Cache for "to_string" constant (SIZE_MAX if
                not created) */
   size_t loop_counter;        /**< Counter for unique iterator variable names */
+  size_t match_counter;       /**< Counter for unique hidden match variables */
 } Compiler;
 
 static inline bool compiler_has_error(const Compiler *c) {
@@ -653,6 +655,11 @@ static void compile_index_expression(Compiler *c, const ASTNode *node);
 static void compile_slice_expression(Compiler *c, const ASTNode *node);
 static void compile_call_expression(Compiler *c, const ASTNode *node);
 static void compile_fstring_expression(Compiler *c, const ASTNode *node);
+static void compile_lambda_expression(Compiler *c, const ASTNode *node);
+static void compile_tuple_expression(Compiler *c, const ASTNode *node);
+static void compile_unpack_assign_statement(Compiler *c, const ASTNode *node);
+static KronosValue *compile_default_value_to_constant(Compiler *c,
+                                                       const ASTNode *expr);
 
 // Forward declarations for statement compilation helpers
 static void compile_statement(Compiler *c, const ASTNode *node);
@@ -660,6 +667,7 @@ static void compile_assign_statement(Compiler *c, const ASTNode *node);
 static void compile_assign_index_statement(Compiler *c, const ASTNode *node);
 static void compile_delete_statement(Compiler *c, const ASTNode *node);
 static void compile_print_statement(Compiler *c, const ASTNode *node);
+static void compile_debug_statement(Compiler *c, const ASTNode *node);
 static void compile_return_statement(Compiler *c, const ASTNode *node);
 static void compile_break_statement(Compiler *c, const ASTNode *node);
 static void compile_continue_statement(Compiler *c, const ASTNode *node);
@@ -667,6 +675,7 @@ static void compile_raise_statement(Compiler *c, const ASTNode *node);
 static void compile_call_statement(Compiler *c, const ASTNode *node);
 static void compile_import_statement(Compiler *c, const ASTNode *node);
 static void compile_if_statement(Compiler *c, const ASTNode *node);
+static void compile_match_statement(Compiler *c, const ASTNode *node);
 static void compile_while_statement(Compiler *c, const ASTNode *node);
 static void compile_for_statement(Compiler *c, const ASTNode *node);
 static void compile_function_statement(Compiler *c, const ASTNode *node);
@@ -751,6 +760,218 @@ static void compile_list_expression(Compiler *c, const ASTNode *node) {
       return;
     }
   }
+}
+
+/**
+ * @brief Compile a list comprehension expression
+ */
+static void compile_list_comprehension_expression(Compiler *c,
+                                                  const ASTNode *node) {
+  KronosValue *var_name =
+      value_new_string(node->as.list_comprehension.var,
+                       strlen(node->as.list_comprehension.var));
+  size_t var_idx = add_constant(c, var_name);
+  if (var_idx == SIZE_MAX) {
+    return;
+  }
+  if (var_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  // Result list stays on the VM stack for the full comprehension.
+  emit_byte(c, OP_LIST_NEW);
+  emit_uint16(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  compile_expression(c, node->as.list_comprehension.iterable);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_LIST_ITER);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t temp_id = ++c->loop_counter;
+  char iter_name[64];
+  char state_name[64];
+  snprintf(iter_name, sizeof(iter_name), "__comp_iter_%zu_%zu", var_idx,
+           temp_id);
+  snprintf(state_name, sizeof(state_name), "__comp_state_%zu_%zu", var_idx,
+           temp_id);
+
+  KronosValue *state_name_val = value_new_string(state_name, strlen(state_name));
+  size_t state_idx = add_constant(c, state_name_val);
+  if (state_idx == SIZE_MAX) {
+    return;
+  }
+  if (state_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  KronosValue *iter_name_val = value_new_string(iter_name, strlen(iter_name));
+  size_t iter_idx = add_constant(c, iter_name_val);
+  if (iter_idx == SIZE_MAX) {
+    return;
+  }
+  if (iter_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  // OP_LIST_ITER leaves [result, iterable, state]. Persist iterable/state
+  // across the loop, while result remains on the stack.
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t loop_start = c->bytecode->count;
+
+  emit_byte(c, OP_LOAD_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, OP_LOAD_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_LIST_NEXT);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t exit_jump_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)var_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  if (node->as.list_comprehension.condition) {
+    compile_expression(c, node->as.list_comprehension.condition);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    size_t skip_append_pos = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    compile_expression(c, node->as.list_comprehension.element_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_LIST_APPEND);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    size_t skip_target = c->bytecode->count;
+    ptrdiff_t skip_offset = (ptrdiff_t)skip_target -
+                            (ptrdiff_t)(skip_append_pos + 2);
+    if (skip_offset < 0 || skip_offset > UINT16_MAX) {
+      compiler_set_error(c, "Comprehension jump offset too large");
+      return;
+    }
+    patch_jump_offset_unsigned(c, skip_append_pos, (uint16_t)skip_offset);
+  } else {
+    compile_expression(c, node->as.list_comprehension.element_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_LIST_APPEND);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  size_t jump_back_pos = emit_jump_with_offset(c, OP_JUMP);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  ptrdiff_t back_offset =
+      (ptrdiff_t)loop_start - (ptrdiff_t)(jump_back_pos + 2);
+  if (back_offset < INT16_MIN || back_offset > INT16_MAX) {
+    compiler_set_error(c, "Comprehension loop jump offset too large");
+    return;
+  }
+  patch_jump_offset(c, jump_back_pos, (int16_t)back_offset);
+
+  size_t exit_target = c->bytecode->count;
+  ptrdiff_t exit_offset =
+      (ptrdiff_t)exit_target - (ptrdiff_t)(exit_jump_pos + 2);
+  if (exit_offset < 0 || exit_offset > UINT16_MAX) {
+    compiler_set_error(c, "Comprehension exit jump offset too large");
+    return;
+  }
+  patch_jump_offset_unsigned(c, exit_jump_pos, (uint16_t)exit_offset);
+
+  // False iteration path leaves [result, iterable, state] on the stack.
+  emit_byte(c, OP_POP);
+  emit_byte(c, OP_POP);
+
+  KronosValue *nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)iter_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)state_idx);
+  emit_byte(c, 1);
+  emit_byte(c, 0);
 }
 
 /**
@@ -888,6 +1109,48 @@ static void compile_slice_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Emit code to convert expression to string, with optional formatting
+ *
+ * If format_spec is non-NULL, emits OP_FORMAT_VALUE with the spec.
+ * Otherwise, calls to_string to convert the value.
+ */
+static void emit_expr_to_string(Compiler *c, const char *format_spec) {
+  if (format_spec) {
+    // Emit format specifier as constant and use OP_FORMAT_VALUE
+    KronosValue *spec_val = value_new_string(format_spec, strlen(format_spec));
+    if (!spec_val) {
+      compiler_set_error(c, "Failed to allocate format specifier constant");
+      return;
+    }
+    size_t spec_idx = add_constant(c, spec_val);
+    if (spec_idx == SIZE_MAX) {
+      return;
+    }
+    emit_byte(c, OP_FORMAT_VALUE);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)spec_idx);
+  } else {
+    // Call to_string to convert expression result to string
+    size_t to_string_idx = get_to_string_constant(c);
+    if (to_string_idx == SIZE_MAX) {
+      return;
+    }
+    emit_byte(c, OP_CALL_FUNC);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_uint16(c, (uint16_t)to_string_idx);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, 1); // 1 argument
+    emit_byte(c, 0); // 0 named arguments
+  }
+}
+
+/**
  * @brief Compile an f-string expression
  */
 static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
@@ -907,6 +1170,10 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
 
   // Compile first part
   ASTNode *first_part = node->as.fstring.parts[0];
+  const char *first_format_spec = node->as.fstring.format_specs
+                                      ? node->as.fstring.format_specs[0]
+                                      : NULL;
+
   if (first_part->type == AST_STRING) {
     // First part is a string - emit it
     compile_expression(c, first_part);
@@ -930,20 +1197,8 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
       return;
     }
 
-    // Call to_string to convert expression result to string
-    size_t to_string_idx = get_to_string_constant(c);
-    if (to_string_idx == SIZE_MAX) {
-      return;
-    }
-    emit_byte(c, OP_CALL_FUNC);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_uint16(c, (uint16_t)to_string_idx);
-    if (compiler_has_error(c)) {
-      return;
-    }
-    emit_byte(c, 1); // 1 argument
+    // Convert to string (with optional format specifier)
+    emit_expr_to_string(c, first_format_spec);
     if (compiler_has_error(c)) {
       return;
     }
@@ -957,6 +1212,9 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
   // Process remaining parts (pairs of expr, string)
   for (size_t i = 1; i < node->as.fstring.part_count; i++) {
     ASTNode *part = node->as.fstring.parts[i];
+    const char *format_spec = node->as.fstring.format_specs
+                                  ? node->as.fstring.format_specs[i]
+                                  : NULL;
 
     if (part->type == AST_STRING) {
       // String literal - just compile it
@@ -971,14 +1229,8 @@ static void compile_fstring_expression(Compiler *c, const ASTNode *node) {
         return;
       }
 
-      // Call to_string to convert expression result to string
-      size_t to_string_idx = get_to_string_constant(c);
-      if (to_string_idx == SIZE_MAX) {
-        return;
-      }
-      emit_byte(c, OP_CALL_FUNC);
-      emit_uint16(c, (uint16_t)to_string_idx);
-      emit_byte(c, 1); // 1 argument
+      // Convert to string (with optional format specifier)
+      emit_expr_to_string(c, format_spec);
       if (compiler_has_error(c)) {
         return;
       }
@@ -1019,6 +1271,37 @@ static void compile_call_expression(Compiler *c, const ASTNode *node) {
   emit_byte(c, (uint8_t)node->as.call.arg_count);
   if (compiler_has_error(c)) {
     return;
+  }
+
+  // Count named arguments
+  size_t named_count = 0;
+  if (node->as.call.arg_names) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        named_count++;
+      }
+    }
+  }
+
+  // Emit named argument count
+  if (named_count > 255) {
+    compiler_set_error(c, "Named argument count exceeds limit (255)");
+    return;
+  }
+  emit_byte(c, (uint8_t)named_count);
+
+  // Emit named argument info: for each named arg, emit position + name index
+  if (named_count > 0) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        emit_byte(c, (uint8_t)i); // Position in args array
+        KronosValue *name_val = value_new_string(node->as.call.arg_names[i],
+                                                 strlen(node->as.call.arg_names[i]));
+        if (!emit_constant_index(c, name_val)) {
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -1141,6 +1424,194 @@ static void compile_binop_expression(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a lambda (anonymous function) expression
+ *
+ * Compiles the lambda body and emits OP_MAKE_FUNCTION to create a function
+ * value on the stack. The function value contains the bytecode for the body
+ * and parameter names for argument binding.
+ *
+ * Bytecode format:
+ *   OP_MAKE_FUNCTION [param_count:1] [param_name_idx:2*N] [body_len:2] [body:N]
+ *
+ * @param c Compiler state
+ * @param node Lambda AST node (AST_LAMBDA)
+ */
+/**
+ * @brief Compile a lambda expression
+ *
+ * Bytecode format:
+ *   [OP_MAKE_FUNCTION]
+ *   [param_count:1]
+ *   [required_param_count:1]
+ *   [has_variadic:1]
+ *   [param_name:2] × N
+ *   [default_const:2] × M     - default values for optional params
+ *   [body_len:2]
+ *   [function_body...]
+ *   [OP_RETURN_VAL]
+ */
+static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Validate parameter count fits in 1 byte
+  if (node->as.lambda.param_count > 255) {
+    compiler_set_error(c, "Lambda has too many parameters (max 255)");
+    return;
+  }
+  if (node->as.lambda.required_param_count > 255) {
+    compiler_set_error(c, "Lambda required parameter count exceeds limit (255)");
+    return;
+  }
+
+  size_t variadic_slot = node->as.lambda.has_variadic ? 1u : 0u;
+  if (variadic_slot > node->as.lambda.param_count) {
+    compiler_set_error(c,
+                       "Lambda parameter metadata is invalid (variadic parameter "
+                       "missing)");
+    return;
+  }
+  size_t regular_param_count = node->as.lambda.param_count - variadic_slot;
+  if (node->as.lambda.required_param_count > regular_param_count) {
+    compiler_set_error(
+        c,
+        "Lambda parameter metadata is invalid (required parameters exceed "
+        "non-variadic parameters)");
+    return;
+  }
+
+  // Emit OP_MAKE_FUNCTION opcode
+  emit_byte(c, OP_MAKE_FUNCTION);
+
+  // Emit parameter count (1 byte)
+  emit_byte(c, (uint8_t)node->as.lambda.param_count);
+
+  // Emit required_param_count (for default parameters support)
+  emit_byte(c, (uint8_t)node->as.lambda.required_param_count);
+
+  // Emit has_variadic flag
+  emit_byte(c, node->as.lambda.has_variadic ? 1 : 0);
+
+  // Emit parameter names as constant indices (2 bytes each)
+  for (size_t i = 0; i < node->as.lambda.param_count; i++) {
+    KronosValue *param_name = value_new_string(node->as.lambda.params[i],
+                                                strlen(node->as.lambda.params[i]));
+    if (!emit_constant_index(c, param_name)) {
+      return;
+    }
+  }
+
+  // Calculate number of default values
+  size_t num_defaults = regular_param_count - node->as.lambda.required_param_count;
+
+  // Emit default value constants
+  for (size_t i = 0; i < num_defaults; i++) {
+    size_t param_idx = node->as.lambda.required_param_count + i;
+    ASTNode *default_expr = node->as.lambda.param_defaults
+                                ? node->as.lambda.param_defaults[param_idx]
+                                : NULL;
+    if (!default_expr) {
+      KronosValue *nil_val = value_new_nil();
+      if (!emit_constant_index(c, nil_val)) {
+        return;
+      }
+    } else {
+      KronosValue *default_val =
+          compile_default_value_to_constant(c, default_expr);
+      if (!default_val || compiler_has_error(c)) {
+        return;
+      }
+      if (!emit_constant_index(c, default_val)) {
+        return;
+      }
+    }
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  // Reserve space for body length (2 bytes, will be patched)
+  size_t body_len_pos = c->bytecode->count;
+  emit_byte(c, 0); // Placeholder high byte
+  emit_byte(c, 0); // Placeholder low byte
+
+  // Record start of function body
+  size_t body_start = c->bytecode->count;
+
+  // Compile function body
+  if (node->as.lambda.is_single_line) {
+    // Single-line: compile expression and emit return
+    compile_expression(c, node->as.lambda.body_expr);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_RETURN_VAL);
+  } else {
+    // Multi-line: compile block statements
+    for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+      compile_statement(c, node->as.lambda.block[i]);
+      if (compiler_has_error(c)) {
+        return;
+      }
+    }
+    // Implicit return nil if no explicit return
+    KronosValue *nil_val = value_new_nil();
+    emit_constant(c, nil_val);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, OP_RETURN_VAL);
+  }
+
+  // Calculate and patch body length
+  size_t body_len = c->bytecode->count - body_start;
+  if (body_len > 65535) {
+    compiler_set_error(c, "Lambda body too large (max 65535 bytes)");
+    return;
+  }
+  c->bytecode->code[body_len_pos] = (uint8_t)(body_len >> 8);
+  c->bytecode->code[body_len_pos + 1] = (uint8_t)(body_len & 0xFF);
+}
+
+/**
+ * @brief Compile a tuple expression
+ *
+ * Creates a tuple from the elements on the stack.
+ *
+ * @param c Compiler state
+ * @param node Tuple AST node (AST_TUPLE)
+ */
+static void compile_tuple_expression(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t element_count = node->as.tuple.element_count;
+
+  // Validate element count fits in 1 byte
+  if (element_count > 255) {
+    compiler_set_error(c, "Tuple has too many elements (max 255)");
+    return;
+  }
+
+  // Compile each element (pushes onto stack)
+  for (size_t i = 0; i < element_count; i++) {
+    compile_expression(c, node->as.tuple.elements[i]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  // Emit OP_TUPLE_NEW with element count
+  emit_byte(c, OP_TUPLE_NEW);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, (uint8_t)element_count);
+}
+
+/**
  * @brief Compile an expression AST node to bytecode
  *
  * Recursively compiles expressions, emitting instructions that leave
@@ -1187,6 +1658,10 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
     compile_list_expression(c, node);
     break;
 
+  case AST_LIST_COMPREHENSION:
+    compile_list_comprehension_expression(c, node);
+    break;
+
   case AST_RANGE:
     compile_range_expression(c, node);
     break;
@@ -1205,6 +1680,14 @@ static void compile_expression(Compiler *c, const ASTNode *node) {
 
   case AST_CALL:
     compile_call_expression(c, node);
+    break;
+
+  case AST_LAMBDA:
+    compile_lambda_expression(c, node);
+    break;
+
+  case AST_TUPLE:
+    compile_tuple_expression(c, node);
     break;
 
   default:
@@ -1253,6 +1736,71 @@ static void compile_assign_statement(Compiler *c, const ASTNode *node) {
   }
   if (compiler_has_error(c)) {
     return;
+  }
+}
+
+/**
+ * @brief Compile an unpacking assignment statement
+ *
+ * Handles destructuring like: set x, y to call func with args
+ * Or swap: set x, y to y, x
+ *
+ * @param c Compiler state
+ * @param node Unpack assign AST node (AST_UNPACK_ASSIGN)
+ */
+static void compile_unpack_assign_statement(Compiler *c, const ASTNode *node) {
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t name_count = node->as.unpack_assign.name_count;
+
+  // Validate name count fits in 1 byte
+  if (name_count > 255) {
+    compiler_set_error(c, "Unpacking assignment has too many targets (max 255)");
+    return;
+  }
+
+  // Compile the value expression (should evaluate to tuple or list)
+  compile_expression(c, node->as.unpack_assign.value);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Emit OP_UNPACK with the number of values to unpack
+  emit_byte(c, OP_UNPACK);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, (uint8_t)name_count);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Store each value in its corresponding variable (in reverse order since
+  // OP_UNPACK pushes values in order, so last name gets first popped value)
+  for (size_t i = name_count; i > 0; i--) {
+    KronosValue *name = value_new_string(node->as.unpack_assign.names[i - 1],
+                                         strlen(node->as.unpack_assign.names[i - 1]));
+    emit_byte(c, OP_STORE_VAR);
+    if (!emit_constant_index(c, name)) {
+      return;
+    }
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    // Emit mutability flag
+    emit_byte(c, node->as.unpack_assign.is_mutable ? 1 : 0);
+    if (compiler_has_error(c)) {
+      return;
+    }
+
+    // No type annotation for unpacking
+    emit_byte(c, 0);
+    if (compiler_has_error(c)) {
+      return;
+    }
   }
 }
 
@@ -1326,14 +1874,70 @@ static void compile_print_statement(Compiler *c, const ASTNode *node) {
 }
 
 /**
- * @brief Compile a return statement
+ * @brief Compile a debug statement
  */
-static void compile_return_statement(Compiler *c, const ASTNode *node) {
-  // Compile return value
-  compile_expression(c, node->as.return_stmt.value);
+static void compile_debug_statement(Compiler *c, const ASTNode *node) {
+  if (node->as.debug_stmt.value_count > UINT8_MAX) {
+    compiler_set_error(c, "Debug statement supports at most 255 values");
+    return;
+  }
+
+  for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+    compile_expression(c, node->as.debug_stmt.values[i]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  emit_byte(c, OP_DEBUG);
   if (compiler_has_error(c)) {
     return;
   }
+  emit_byte(c, (uint8_t)node->as.debug_stmt.value_count);
+  if (compiler_has_error(c)) {
+    return;
+  }
+}
+
+/**
+ * @brief Compile a return statement
+ *
+ * Supports single and multiple return values. Multiple return values
+ * are packaged into a tuple before returning.
+ */
+static void compile_return_statement(Compiler *c, const ASTNode *node) {
+  size_t value_count = node->as.return_stmt.value_count;
+
+  if (value_count == 1) {
+    // Single return value - compile directly
+    compile_expression(c, node->as.return_stmt.values[0]);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  } else {
+    // Multiple return values - compile each and create a tuple
+    if (value_count > UINT8_MAX) {
+      compiler_set_error(c, "Return tuple too large (max 255 values)");
+      return;
+    }
+
+    for (size_t i = 0; i < value_count; i++) {
+      compile_expression(c, node->as.return_stmt.values[i]);
+      if (compiler_has_error(c)) {
+        return;
+      }
+    }
+    // Create tuple from the values on the stack
+    emit_byte(c, OP_TUPLE_NEW);
+    if (compiler_has_error(c)) {
+      return;
+    }
+    emit_byte(c, (uint8_t)value_count);
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
   emit_byte(c, OP_RETURN_VAL);
   if (compiler_has_error(c)) {
     return;
@@ -1430,6 +2034,37 @@ static void compile_call_statement(Compiler *c, const ASTNode *node) {
   emit_byte(c, (uint8_t)node->as.call.arg_count);
   if (compiler_has_error(c)) {
     return;
+  }
+
+  // Count named arguments
+  size_t named_count = 0;
+  if (node->as.call.arg_names) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        named_count++;
+      }
+    }
+  }
+
+  // Emit named argument count
+  if (named_count > 255) {
+    compiler_set_error(c, "Named argument count exceeds limit (255)");
+    return;
+  }
+  emit_byte(c, (uint8_t)named_count);
+
+  // Emit named argument info: for each named arg, emit position + name index
+  if (named_count > 0) {
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node->as.call.arg_names[i]) {
+        emit_byte(c, (uint8_t)i); // Position in args array
+        KronosValue *name_val = value_new_string(node->as.call.arg_names[i],
+                                                 strlen(node->as.call.arg_names[i]));
+        if (!emit_constant_index(c, name_val)) {
+          return;
+        }
+      }
+    }
   }
 
   // For built-in functions, print the result instead of discarding it
@@ -1722,6 +2357,160 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
 
   free(jump_positions);
   free(skip_jumps);
+}
+
+static void compile_match_statement(Compiler *c, const ASTNode *node) {
+  char temp_name[64];
+  int name_len = snprintf(temp_name, sizeof(temp_name), "__match_tmp_%zu",
+                          c->match_counter++);
+  if (name_len < 0 || (size_t)name_len >= sizeof(temp_name)) {
+    compiler_set_error(c, "Failed to create hidden match variable name");
+    return;
+  }
+
+  compile_expression(c, node->as.match_stmt.value);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  KronosValue *hidden_name = value_new_string(temp_name, (size_t)name_len);
+  size_t hidden_name_idx = add_constant(c, hidden_name);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  if (hidden_name_idx == SIZE_MAX) {
+    compiler_set_error(c, "Failed to add hidden match variable name");
+    return;
+  }
+  if (hidden_name_idx > UINT16_MAX) {
+    compiler_set_error(c, "Too many constants (limit 65535)");
+    return;
+  }
+
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)hidden_name_idx);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, 1); // mutable hidden variable for repeated execution
+  emit_byte(c, 0); // no type annotation
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  size_t *skip_jumps = NULL;
+  size_t skip_count = 0;
+  size_t skip_capacity = 0;
+  size_t pending_false_jump = SIZE_MAX;
+
+  for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+    size_t case_start = c->bytecode->count;
+    if (pending_false_jump != SIZE_MAX) {
+      int16_t offset = (int16_t)(case_start - (pending_false_jump + 2));
+      if (offset < INT16_MIN || offset > INT16_MAX) {
+        compiler_set_error(c, "Jump offset too large in match statement");
+        free(skip_jumps);
+        return;
+      }
+      patch_jump_offset(c, pending_false_jump, offset);
+    }
+
+    emit_byte(c, OP_LOAD_VAR);
+    emit_uint16(c, (uint16_t)hidden_name_idx);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+    compile_expression(c, node->as.match_stmt.case_patterns[i]);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+    emit_byte(c, OP_EQ);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    pending_false_jump = emit_jump_with_offset(c, OP_JUMP_IF_FALSE);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+      compile_statement(c, node->as.match_stmt.case_blocks[i][j]);
+      if (compiler_has_error(c)) {
+        free(skip_jumps);
+        return;
+      }
+    }
+
+    size_t skip_jump = emit_jump_with_offset(c, OP_JUMP);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
+    }
+
+    if (skip_count >= skip_capacity) {
+      size_t new_capacity =
+          skip_capacity == 0 ? JUMP_ARRAY_INITIAL_CAPACITY : skip_capacity * 2;
+      size_t *new_skips = realloc(skip_jumps, sizeof(size_t) * new_capacity);
+      if (!new_skips) {
+        compiler_set_error(c, "Failed to allocate match skip jumps array");
+        free(skip_jumps);
+        return;
+      }
+      skip_jumps = new_skips;
+      skip_capacity = new_capacity;
+    }
+    skip_jumps[skip_count++] = skip_jump;
+  }
+
+  size_t default_start = c->bytecode->count;
+  if (pending_false_jump != SIZE_MAX) {
+    int16_t offset = (int16_t)(default_start - (pending_false_jump + 2));
+    if (offset < INT16_MIN || offset > INT16_MAX) {
+      compiler_set_error(c, "Jump offset too large in match statement");
+      free(skip_jumps);
+      return;
+    }
+    patch_jump_offset(c, pending_false_jump, offset);
+  }
+
+  if (node->as.match_stmt.default_block) {
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      compile_statement(c, node->as.match_stmt.default_block[i]);
+      if (compiler_has_error(c)) {
+        free(skip_jumps);
+        return;
+      }
+    }
+  }
+
+  size_t end_pos = c->bytecode->count;
+  for (size_t i = 0; i < skip_count; i++) {
+    int16_t offset = (int16_t)(end_pos - (skip_jumps[i] + 2));
+    if (offset < INT16_MIN || offset > INT16_MAX) {
+      compiler_set_error(c, "Jump offset too large in match statement");
+      free(skip_jumps);
+      return;
+    }
+    patch_jump_offset(c, skip_jumps[i], offset);
+  }
+
+  free(skip_jumps);
+
+  // Clear the hidden match variable to release any retained reference.
+  KronosValue *nil_val = value_new_nil();
+  emit_constant(c, nil_val);
+  if (compiler_has_error(c)) {
+    return;
+  }
+  emit_byte(c, OP_STORE_VAR);
+  emit_uint16(c, (uint16_t)hidden_name_idx);
+  emit_byte(c, 1); // mutable hidden variable
+  emit_byte(c, 0); // no type annotation
 }
 
 /**
@@ -2230,9 +3019,86 @@ static void compile_while_statement(Compiler *c, const ASTNode *node) {
 }
 
 /**
+ * @brief Compile a default value expression to a constant
+ *
+ * Evaluates simple literal expressions at compile time.
+ * Returns the constant KronosValue, or NULL if not a compile-time constant.
+ */
+static KronosValue *compile_default_value_to_constant(Compiler *c,
+                                                       const ASTNode *expr) {
+  if (!expr) {
+    return NULL;
+  }
+  switch (expr->type) {
+  case AST_NUMBER:
+    return value_new_number(expr->as.number);
+  case AST_STRING:
+    return value_new_string(expr->as.string.value, expr->as.string.length);
+  case AST_BOOL:
+    return value_new_bool(expr->as.boolean);
+  case AST_NULL:
+    return value_new_nil();
+  case AST_BINOP:
+    if (expr->as.binop.op == BINOP_NEG) {
+      // Unary negation may be stored in left (current parser) or right
+      // (compatibility with older AST shapes).
+      const ASTNode *operand =
+          expr->as.binop.left ? expr->as.binop.left : expr->as.binop.right;
+      if (operand && operand->type == AST_NUMBER) {
+        return value_new_number(-operand->as.number);
+      }
+    }
+    compiler_set_error(c, "Default parameter value must be a literal constant");
+    return NULL;
+  default:
+    compiler_set_error(c, "Default parameter value must be a literal constant");
+    return NULL;
+  }
+}
+
+/**
  * @brief Compile a function definition statement
+ *
+ * Bytecode format:
+ *   [OP_DEFINE_FUNC]
+ *   [function_name:2]         - constant index
+ *   [param_count:1]           - uint8_t
+ *   [required_param_count:1]  - uint8_t (params without defaults)
+ *   [has_variadic:1]          - uint8_t (0 or 1)
+ *   [param_name:2] × N        - constant indices for param names
+ *   [default_const:2] × M     - constant indices for default values
+ *   [body_start:2]            - uint16_t position
+ *   [OP_JUMP][skip:2]
+ *   [function_body...]
+ *   [OP_RETURN_VAL]
  */
 static void compile_function_statement(Compiler *c, const ASTNode *node) {
+  // Validate parameter metadata up front.
+  if (node->as.function.param_count > 255) {
+    compiler_set_error(c, "Function parameter count exceeds limit (255)");
+    return;
+  }
+  if (node->as.function.required_param_count > 255) {
+    compiler_set_error(c,
+                       "Function required parameter count exceeds limit (255)");
+    return;
+  }
+  size_t variadic_slot = node->as.function.has_variadic ? 1u : 0u;
+  if (variadic_slot > node->as.function.param_count) {
+    compiler_set_error(c,
+                       "Function parameter metadata is invalid (variadic "
+                       "parameter missing)");
+    return;
+  }
+  size_t regular_param_count = node->as.function.param_count - variadic_slot;
+  if (node->as.function.required_param_count > regular_param_count) {
+    compiler_set_error(
+        c,
+        "Function parameter metadata is invalid (required parameters exceed "
+        "non-variadic parameters)");
+    return;
+  }
+
   // Store function name
   KronosValue *func_name =
       value_new_string(node->as.function.name, strlen(node->as.function.name));
@@ -2243,12 +3109,20 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
   if (compiler_has_error(c)) {
     return;
   }
-  // Validate parameter count limit (uint8_t max is 255)
-  if (node->as.function.param_count > 255) {
-    compiler_set_error(c, "Function parameter count exceeds limit (255)");
+
+  emit_byte(c, (uint8_t)node->as.function.param_count);
+  if (compiler_has_error(c)) {
     return;
   }
-  emit_byte(c, (uint8_t)node->as.function.param_count);
+
+  // Emit required_param_count (for default parameters support)
+  emit_byte(c, (uint8_t)node->as.function.required_param_count);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  // Emit has_variadic flag
+  emit_byte(c, node->as.function.has_variadic ? 1 : 0);
   if (compiler_has_error(c)) {
     return;
   }
@@ -2259,6 +3133,39 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
         node->as.function.params[i], strlen(node->as.function.params[i]));
     if (!emit_constant_index(c, param_name)) {
       return;
+    }
+    if (compiler_has_error(c)) {
+      return;
+    }
+  }
+
+  // Calculate number of default values to emit
+  // defaults = param_count - required_param_count - (has_variadic ? 1 : 0)
+  size_t num_defaults =
+      regular_param_count - node->as.function.required_param_count;
+
+  // Emit default value constants
+  // Default values correspond to parameters starting at index required_param_count
+  for (size_t i = 0; i < num_defaults; i++) {
+    size_t param_idx = node->as.function.required_param_count + i;
+    ASTNode *default_expr = node->as.function.param_defaults
+                                ? node->as.function.param_defaults[param_idx]
+                                : NULL;
+    if (!default_expr) {
+      // This shouldn't happen if parser is correct, but handle gracefully
+      KronosValue *nil_val = value_new_nil();
+      if (!emit_constant_index(c, nil_val)) {
+        return;
+      }
+    } else {
+      KronosValue *default_val =
+          compile_default_value_to_constant(c, default_expr);
+      if (!default_val || compiler_has_error(c)) {
+        return;
+      }
+      if (!emit_constant_index(c, default_val)) {
+        return;
+      }
     }
     if (compiler_has_error(c)) {
       return;
@@ -2505,6 +3412,10 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_assign_index_statement(c, node);
     break;
 
+  case AST_UNPACK_ASSIGN:
+    compile_unpack_assign_statement(c, node);
+    break;
+
   case AST_DELETE:
     compile_delete_statement(c, node);
     break;
@@ -2517,12 +3428,20 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_print_statement(c, node);
     break;
 
+  case AST_DEBUG:
+    compile_debug_statement(c, node);
+    break;
+
   case AST_RAISE:
     compile_raise_statement(c, node);
     break;
 
   case AST_IF:
     compile_if_statement(c, node);
+    break;
+
+  case AST_MATCH:
+    compile_match_statement(c, node);
     break;
 
   case AST_FOR:
@@ -2557,6 +3476,11 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
     compile_return_statement(c, node);
     break;
 
+  case AST_TYPE_ALIAS:
+    // Type aliases are compile-time metadata used for annotations only.
+    // They do not produce runtime bytecode.
+    break;
+
   // Expression nodes can be used as statements (for REPL expression evaluation)
   // Compile the expression and leave the value on the stack
   case AST_NUMBER:
@@ -2567,10 +3491,13 @@ static void compile_statement(Compiler *c, const ASTNode *node) {
   case AST_VAR:
   case AST_BINOP:
   case AST_LIST:
+  case AST_LIST_COMPREHENSION:
   case AST_RANGE:
   case AST_MAP:
   case AST_INDEX:
   case AST_SLICE:
+  case AST_LAMBDA:
+  case AST_TUPLE:
     compile_expression(c, node);
     break;
 
@@ -2789,6 +3716,15 @@ void bytecode_print(Bytecode *bytecode) {
     case OP_PRINT:
       printf("PRINT\n");
       offset++;
+      break;
+    case OP_DEBUG:
+      if (offset + 1 >= bytecode->count) {
+        printf("DEBUG <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      printf("DEBUG %u\n", bytecode->code[offset + 1]);
+      offset += 2;
       break;
     case OP_ADD:
       printf("ADD\n");
@@ -3073,6 +4009,135 @@ void bytecode_print(Bytecode *bytecode) {
       break;
     }
 
+    case OP_FORMAT_VALUE: {
+      if (offset + 2 >= bytecode->count) {
+        printf("FORMAT_VALUE <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t spec_idx =
+          (uint16_t)(bytecode->code[offset + 1] << 8 | bytecode->code[offset + 2]);
+      printf("FORMAT_VALUE spec=%u\n", spec_idx);
+      offset += 3;
+      break;
+    }
+    case OP_MAKE_FUNCTION: {
+      if (offset + 3 >= bytecode->count) {
+        printf("MAKE_FUNCTION <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t param_count = bytecode->code[offset + 1];
+      uint8_t required_param_count = bytecode->code[offset + 2];
+      uint8_t has_variadic = bytecode->code[offset + 3];
+      printf("MAKE_FUNCTION params=%u required=%u variadic=%u", param_count,
+             required_param_count, has_variadic);
+
+      if (has_variadic > 1 ||
+          (has_variadic && param_count == 0)) {
+        printf(" <invalid metadata>\n");
+        offset = bytecode->count;
+        break;
+      }
+
+      size_t regular_param_count =
+          (size_t)param_count - (has_variadic ? 1u : 0u);
+      if ((size_t)required_param_count > regular_param_count) {
+        printf(" <invalid metadata>\n");
+        offset = bytecode->count;
+        break;
+      }
+
+      size_t num_defaults = regular_param_count - (size_t)required_param_count;
+      offset += 4;
+      bool truncated = false;
+
+      // Skip param name indices
+      for (size_t i = 0; i < (size_t)param_count; i++) {
+        if (offset + 1 >= bytecode->count) {
+          printf(" <param_names truncated>\n");
+          offset = bytecode->count;
+          truncated = true;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[offset] << 8 |
+                                   bytecode->code[offset + 1]);
+        printf(" name%zu=%u", i, idx);
+        offset += 2;
+      }
+      if (truncated) {
+        break;
+      }
+
+      // Skip default value constant indices
+      for (size_t i = 0; i < num_defaults; i++) {
+        if (offset + 1 >= bytecode->count) {
+          printf(" <defaults truncated>\n");
+          offset = bytecode->count;
+          truncated = true;
+          break;
+        }
+        uint16_t idx = (uint16_t)(bytecode->code[offset] << 8 |
+                                   bytecode->code[offset + 1]);
+        printf(" default%zu=%u", (size_t)required_param_count + i, idx);
+        offset += 2;
+      }
+      if (truncated) {
+        break;
+      }
+
+      if (offset + 1 >= bytecode->count) {
+        printf(" <body_len truncated>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint16_t body_len = (uint16_t)(bytecode->code[offset] << 8 |
+                                      bytecode->code[offset + 1]);
+      offset += 2;
+      if ((size_t)body_len > bytecode->count - offset) {
+        printf(" body_len=%u <body truncated>\n", body_len);
+        offset = bytecode->count;
+        break;
+      }
+
+      printf(" body_len=%u\n", body_len);
+      // Skip over inline body bytecode
+      offset += body_len;
+      break;
+    }
+    case OP_CALL_VALUE: {
+      if (offset + 1 >= bytecode->count) {
+        printf("CALL_VALUE <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t arg_count = bytecode->code[offset + 1];
+      printf("CALL_VALUE args=%u\n", arg_count);
+      offset += 2;
+      break;
+    }
+    case OP_TUPLE_NEW: {
+      if (offset + 1 >= bytecode->count) {
+        printf("TUPLE_NEW <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t count = bytecode->code[offset + 1];
+      printf("TUPLE_NEW %d\n", count);
+      offset += 2;
+      break;
+    }
+    case OP_UNPACK: {
+      if (offset + 1 >= bytecode->count) {
+        printf("UNPACK <invalid: out of bounds>\n");
+        offset = bytecode->count;
+        break;
+      }
+      uint8_t count = bytecode->code[offset + 1];
+      printf("UNPACK %d\n", count);
+      offset += 2;
+      break;
+    }
     case OP_HALT:
       printf("HALT\n");
       offset++;

@@ -1,0 +1,14 @@
+# Test: Basic lambda assignment and call
+# Expected: Pass
+
+# Simple lambda that doubles a number
+set double to function with x: return x times 2
+
+# Call the lambda
+set result to call double with 5
+print result
+
+# Lambda with no return keyword (implicit)
+set triple to function with x: x times 3
+set r2 to call triple with 4
+print r2

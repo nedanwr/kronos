@@ -29,8 +29,8 @@ print rounded
 
 set down to call floor with 3.9
 set up to call ceil with 3.1
-print "Floor of 3.9 is", down
-print "Ceiling of 3.1 is", up
+print f"Floor of 3.9 is {down}"
+print f"Ceiling of 3.1 is {up}"
 
 # Min and Max
 set smallest to call min with 7, 2, 9, 1, 5
@@ -41,8 +41,8 @@ print "Max of [7, 2, 9, 1, 5] is"
 print largest
 
 # Random number
-set random_val to call rand with
-print "Random number:", random_val
+set random_val to call rand
+print f"Random number: {random_val}"
 
 print ""
 print "=== Type Conversion ==="
@@ -86,20 +86,26 @@ print "=== List Utilities ==="
 # Reverse a list
 set original to list 1, 2, 3, 4, 5
 set reversed to call reverse with original
-print "Original list:", original
-print "Reversed list:", reversed
+print "Original list:"
+print original
+print "Reversed list:"
+print reversed
 
 # Sort a list of numbers
 set unsorted_nums to list 5, 2, 8, 1, 9, 3
 set sorted_nums to call sort with unsorted_nums
-print "Unsorted:", unsorted_nums
-print "Sorted:", sorted_nums
+print "Unsorted:"
+print unsorted_nums
+print "Sorted:"
+print sorted_nums
 
 # Sort a list of strings
 set unsorted_words to list "zebra", "apple", "banana", "cherry"
 set sorted_words to call sort with unsorted_words
-print "Unsorted words:", unsorted_words
-print "Sorted words:", sorted_words
+print "Unsorted words:"
+print unsorted_words
+print "Sorted words:"
+print sorted_words
 
 print ""
 print "=== Combining Functions ==="
@@ -125,4 +131,3 @@ for val in values:
     let abs_val to call abs with val
     print "Absolute value:"
     print abs_val
-

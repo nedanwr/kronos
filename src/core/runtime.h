@@ -19,6 +19,7 @@ typedef enum {
   VAL_CHANNEL,
   VAL_RANGE,
   VAL_MAP,
+  VAL_TUPLE, // Immutable fixed-size container for multiple return values
 } ValueType;
 
 // Reference-counted value
@@ -36,7 +37,11 @@ typedef struct KronosValue {
     struct {
       uint8_t *bytecode;
       size_t length;
-      int arity;
+      int arity;                        // Total parameter count
+      int required_arity;               // Required parameters (without defaults)
+      bool has_variadic;                // true if last param is variadic (...param)
+      char **param_names;               // Parameter names for argument binding (may be NULL)
+      struct KronosValue **param_defaults; // Default values (NULL slots for required params)
     } function;
     struct {
       struct KronosValue **items;
@@ -59,6 +64,10 @@ typedef struct KronosValue {
       size_t count;      // Number of active entries
       size_t capacity;   // Total capacity of hash table
     } map;
+    struct {
+      struct KronosValue **items; // Fixed-size array of values
+      size_t count;               // Number of items (immutable after creation)
+    } tuple;
   } as;
 } KronosValue;
 
@@ -78,11 +87,15 @@ KronosValue *value_new_number(double num);
 KronosValue *value_new_string(const char *str, size_t len);
 KronosValue *value_new_bool(bool val);
 KronosValue *value_new_nil(void);
-KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity);
+KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
+                                int required_arity, bool has_variadic,
+                                char **param_names,
+                                struct KronosValue **param_defaults);
 KronosValue *value_new_list(size_t initial_capacity);
 KronosValue *value_new_channel(Channel *channel);
 KronosValue *value_new_range(double start, double end, double step);
 KronosValue *value_new_map(size_t initial_capacity);
+KronosValue *value_new_tuple(KronosValue **items, size_t count);
 
 // Reference counting
 // Both helpers treat NULL inputs as no-ops for convenience.
@@ -104,6 +117,10 @@ bool map_delete(KronosValue *map, KronosValue *key);
 
 // String interning
 KronosValue *string_intern(const char *str, size_t len);
+
+// Internal runtime/GC coordination hook. Releases intern table references
+// before external GC shutdown/reset paths.
+void runtime_release_interned_strings(void);
 
 // Cleanup
 void runtime_init(void);

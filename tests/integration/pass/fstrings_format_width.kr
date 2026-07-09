@@ -1,0 +1,22 @@
+# Test: F-strings with width and alignment format specifiers
+# Expected: Pass
+
+set x to 42
+
+# Default alignment (right)
+print f"|{x:10}|"
+
+# Explicit alignments
+print f"|{x:<10}|"
+print f"|{x:>10}|"
+print f"|{x:^10}|"
+
+# With strings
+set name to "Alice"
+print f"|{name:<10}|"
+print f"|{name:>10}|"
+print f"|{name:^10}|"
+
+# Narrow width (no padding needed)
+print f"|{x:2}|"
+print f"|{name:3}|"

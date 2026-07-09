@@ -32,6 +32,117 @@ set greeting to call greet with "Alice"
 print greeting  # Prints: Hello, Alice!
 ```
 
+## Default Parameter Values
+
+Functions can have parameters with default values. Parameters with defaults are optional when calling the function:
+
+**Syntax:**
+```kronos
+function <name> with <required_param>, <optional_param> = <default_value>:
+    <function_body>
+```
+
+**Example:**
+```kronos
+function greet with name, greeting = "Hello":
+    return f"{greeting}, {name}!"
+
+print call greet with "Alice"           # Prints: Hello, Alice!
+print call greet with "Bob", "Hi"       # Prints: Hi, Bob!
+```
+
+### Multiple Default Parameters
+
+You can have multiple parameters with defaults:
+
+```kronos
+function create_user with username, role = "user", active = true:
+    return f"{username} ({role}) - Active: {active}"
+
+print call create_user with "alice"                    # alice (user) - Active: true
+print call create_user with "bob", "admin"             # bob (admin) - Active: true
+print call create_user with "charlie", "mod", false    # charlie (mod) - Active: false
+```
+
+**Note:** Required parameters must come before parameters with default values.
+
+## Variadic Parameters
+
+Functions can accept a variable number of arguments using variadic parameters. A variadic parameter is denoted with `...` before the parameter name:
+
+**Syntax:**
+```kronos
+function <name> with ...<param_name>:
+    # param_name is a list of all provided arguments
+```
+
+**Example:**
+```kronos
+function sum with ...numbers:
+    let total to 0
+    for n in numbers:
+        let total to total plus n
+    return total
+
+print call sum with 1, 2, 3        # Prints: 6
+print call sum with 10, 20, 30, 40 # Prints: 100
+print call sum                      # Prints: 0 (empty list)
+```
+
+### Variadic with Regular Parameters
+
+You can combine regular parameters with a variadic parameter:
+
+```kronos
+function log_message with level, ...messages:
+    for msg in messages:
+        print f"[{level}] {msg}"
+
+call log_message with "INFO", "Starting", "Loading", "Ready"
+# Prints:
+# [INFO] Starting
+# [INFO] Loading
+# [INFO] Ready
+```
+
+**Note:** The variadic parameter must be the last parameter.
+
+## Named Arguments
+
+When calling functions, you can specify arguments by name to make the code more readable and to pass arguments in any order:
+
+**Syntax:**
+```kronos
+call <function> with <param_name>: <value>, <param_name>: <value>
+```
+
+**Example:**
+```kronos
+function create_point with x, y, z:
+    return f"Point({x}, {y}, {z})"
+
+# Using named arguments in any order
+print call create_point with z: 3, x: 1, y: 2
+# Prints: Point(1, 2, 3)
+```
+
+### Mixing Positional and Named Arguments
+
+You can mix positional arguments with named arguments, but positional arguments must come first:
+
+```kronos
+function greet with name, greeting = "Hello", punctuation = "!":
+    return f"{greeting}, {name}{punctuation}"
+
+# Positional for first arg, named for specific optional arg
+print call greet with "Alice", punctuation: "?"
+# Prints: Hello, Alice?
+
+# Skip middle parameter using named argument
+print call greet with "Bob", punctuation: "..."
+# Prints: Hello, Bob...
+```
+
 ## Return Values
 
 Functions can return values using the `return` statement:
@@ -45,6 +156,128 @@ print result  # Prints: 8
 ```
 
 If no return statement is provided, the function returns `null`.
+
+## Multiple Return Values
+
+Functions can return multiple values using comma-separated expressions:
+
+```kronos
+function divide_with_remainder with a, b:
+    let quotient to a divided by b
+    let quotient to call floor with quotient
+    set remainder to a mod b
+    return quotient, remainder
+
+set q, r to call divide_with_remainder with 10, 3
+print q  # Prints: 3
+print r  # Prints: 1
+```
+
+### Unpacking Multiple Values
+
+Use comma-separated variable names to unpack multiple return values:
+
+```kronos
+function get_point:
+    return 10, 20
+
+set x, y to call get_point
+print x  # Prints: 10
+print y  # Prints: 20
+```
+
+### Variable Swapping
+
+Multiple assignment also enables elegant variable swapping:
+
+```kronos
+let x to 10
+let y to 20
+let x, y to y, x  # Swap values
+print x  # Prints: 20
+print y  # Prints: 10
+```
+
+### Practical Example
+
+```kronos
+function get_min_max with nums:
+    let min_val to nums at 0
+    let max_val to nums at 0
+    for n in nums:
+        if n is less than min_val:
+            let min_val to n
+        if n is greater than max_val:
+            let max_val to n
+    return min_val, max_val
+
+set numbers to list 5, 2, 8, 1, 9, 3
+set lo, hi to call get_min_max with numbers
+print lo  # Prints: 1
+print hi  # Prints: 9
+```
+
+## Anonymous Functions (Lambdas)
+
+Anonymous functions (also called lambdas) are functions that can be assigned to variables and passed around as values. They are defined using the `function with` syntax without a function name.
+
+### Single-Line Lambdas
+
+For simple expressions, use the single-line syntax:
+
+```kronos
+set double to function with x: return x times 2
+set result to call double with 5
+print result  # Prints: 10
+```
+
+The `return` keyword is optional for single-line lambdas:
+
+```kronos
+set triple to function with x: x times 3
+print call triple with 4  # Prints: 12
+```
+
+### Multi-Line Lambdas
+
+For more complex logic, use the multi-line block syntax:
+
+```kronos
+set calculate to function with a, b:
+    set sum to a plus b
+    print f"Sum: {sum}"
+    return sum
+
+set result to call calculate with 3, 4
+print result  # Prints: 7
+```
+
+### Multiple Parameters
+
+Lambdas can take any number of parameters:
+
+```kronos
+set add to function with a, b: a plus b
+set multiply to function with x, y: x times y
+
+print call add with 2, 3       # Prints: 5
+print call multiply with 4, 5  # Prints: 20
+```
+
+### Use Cases
+
+Lambdas are useful when you need a quick, reusable function without defining a named function:
+
+```kronos
+# Absolute value function
+set abs_value to function with n:
+    if n is less than 0:
+        return n times -1
+    return n
+
+print call abs_value with -5  # Prints: 5
+print call abs_value with 5   # Prints: 5
+```
 
 ## Multiple Parameters
 

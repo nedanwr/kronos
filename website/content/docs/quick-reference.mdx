@@ -48,6 +48,13 @@ let age to 25 as number  # With type annotation
 if condition:
     statement
 
+# Pattern matching
+match value:
+    case 1:
+        print "one"
+    default:
+        print "other"
+
 # For loop
 for i in range 1 to 10:
     print i
@@ -68,6 +75,34 @@ function greet with name:
     print f"Hello, {name}!"
 
 call greet with "Alice"
+
+# Default parameters
+function greet with name, greeting = "Hello":
+    return f"{greeting}, {name}!"
+
+call greet with "Alice"         # Uses default
+call greet with "Bob", "Hi"     # Override default
+
+# Variadic parameters
+function sum with ...numbers:
+    let total to 0
+    for n in numbers:
+        let total to total plus n
+    return total
+
+call sum with 1, 2, 3, 4, 5     # Accepts any number of args
+
+# Named arguments
+call create_point with z: 3, x: 1, y: 2
+
+# Multiple return values
+function divide with a, b:
+    return a divided by b, a mod b
+
+set q, r to call divide with 10, 3
+
+# Variable swapping
+let x, y to y, x
 ```
 
 ## Strings
@@ -76,12 +111,15 @@ call greet with "Alice"
 set char to text at 0           # Indexing
 set slice to text from 0 to 5   # Slicing
 set msg to f"Hello, {name}!"    # F-strings
+set fmt to f"{price:.2f}"       # Format specifiers
 ```
 
 ## Lists
 
 ```kronos
 set nums to list 1, 2, 3
+set nums2 to [1, 2, 3]
+set squares to [x times x for x in range 1 to 6]
 print nums at 0                 # Access: 1
 let nums at 0 to 10             # Modify
 ```

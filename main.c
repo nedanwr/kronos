@@ -286,11 +286,23 @@ int kronos_run_string(KronosVM *vm, const char *source) {
   }
 
   // Step 2: Parse - Build Abstract Syntax Tree from tokens
-  AST *ast = parse(tokens, NULL);
+  ParseError *parse_err = NULL;
+  AST *ast = parse(tokens, &parse_err);
   token_array_free(tokens);
 
   if (!ast) {
-    return vm_error(vm, KRONOS_ERR_PARSE, "Parsing failed");
+    const char *err_msg = parse_err ? parse_err->message : "Parsing failed";
+    int result = vm_error(vm, KRONOS_ERR_PARSE, err_msg);
+    parse_error_free(parse_err);
+    return result;
+  }
+
+  // Check for parse errors even if AST was returned (may be partial)
+  if (parse_err) {
+    ast_free(ast);
+    int result = vm_error(vm, KRONOS_ERR_PARSE, parse_err->message);
+    parse_error_free(parse_err);
+    return result;
   }
 
   // Step 3: Compile - Generate bytecode from AST
@@ -853,9 +865,15 @@ int main(int argc, char **argv) {
     switch (opt) {
     case 'h':
       print_usage(argv[0]);
+      if (execute_args) {
+        free(execute_args);
+      }
       return 0;
     case 'v':
       print_version();
+      if (execute_args) {
+        free(execute_args);
+      }
       return 0;
     case 'd':
       debug_mode = true;

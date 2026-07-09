@@ -83,6 +83,31 @@ TEST(compile_print) {
   ast_free(ast);
 }
 
+TEST(compile_debug_statement) {
+  AST *ast = parse_string("debug \"x:\", 42");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_debug = false;
+  bool has_arg_count = false;
+  for (size_t i = 0; i + 1 < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_DEBUG) {
+      has_debug = true;
+      has_arg_count = (bytecode->code[i + 1] == 2);
+      break;
+    }
+  }
+  ASSERT_TRUE(has_debug);
+  ASSERT_TRUE(has_arg_count);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
 TEST(compile_if_statement) {
   AST *ast = parse_string("if true:\n    print 1");
   ASSERT_PTR_NOT_NULL(ast);
@@ -101,6 +126,38 @@ TEST(compile_if_statement) {
     }
   }
   ASSERT_TRUE(has_jump);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
+TEST(compile_match_statement) {
+  AST *ast = parse_string(
+      "match value:\n"
+      "    case 1:\n"
+      "        print \"one\"\n"
+      "    default:\n"
+      "        print \"other\"");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_eq = false;
+  bool has_jump_if_false = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_EQ) {
+      has_eq = true;
+    }
+    if (bytecode->code[i] == OP_JUMP_IF_FALSE) {
+      has_jump_if_false = true;
+    }
+  }
+
+  ASSERT_TRUE(has_eq);
+  ASSERT_TRUE(has_jump_if_false);
 
   bytecode_free(bytecode);
   ast_free(ast);
@@ -147,6 +204,33 @@ TEST(compile_list_literal) {
     }
   }
   ASSERT_TRUE(has_list_new);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
+TEST(compile_list_comprehension) {
+  AST *ast = parse_string("set squares to [x times x for x in range 1 to 6]");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_iter = false;
+  bool has_append = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_LIST_ITER) {
+      has_iter = true;
+    }
+    if (bytecode->code[i] == OP_LIST_APPEND) {
+      has_append = true;
+    }
+  }
+
+  ASSERT_TRUE(has_iter);
+  ASSERT_TRUE(has_append);
 
   bytecode_free(bytecode);
   ast_free(ast);

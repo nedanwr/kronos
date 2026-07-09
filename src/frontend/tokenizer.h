@@ -48,6 +48,7 @@ typedef enum {
   TOK_AND,
   TOK_OR,
   TOK_PRINT,
+  TOK_DEBUG,
   TOK_PLUS,
   TOK_MINUS,
   TOK_TIMES,
@@ -59,11 +60,19 @@ typedef enum {
   TOK_CATCH,
   TOK_FINALLY,
   TOK_RAISE,
+  TOK_MATCH,
+  TOK_CASE,
+  TOK_DEFAULT,
   TOK_NAME,
   TOK_COLON,
   TOK_COMMA,
+  TOK_ELLIPSIS,  // ... for variadic parameters
   TOK_LPAREN,
   TOK_RPAREN,
+  TOK_LBRACKET,
+  TOK_RBRACKET,
+  TOK_LANGLE,    // < for generic type annotations
+  TOK_RANGLE,    // > for generic type annotations
   TOK_NEWLINE,
   TOK_INDENT,
   TOK_EOF,

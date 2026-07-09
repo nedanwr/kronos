@@ -40,6 +40,9 @@ bool lsp_did_change(LSPTestContext *ctx, const char *uri, const char *text);
 // Send hover request
 char *lsp_hover(LSPTestContext *ctx, int line, int character);
 
+// Send definition request
+char *lsp_definition(LSPTestContext *ctx, int line, int character);
+
 // Send references request
 char *lsp_references(LSPTestContext *ctx, int line, int character);
 
@@ -62,6 +65,26 @@ char *lsp_workspace_symbol(LSPTestContext *ctx, const char *query);
 // Send codeLens request
 char *lsp_code_lens(LSPTestContext *ctx);
 
+// Send completion request
+char *lsp_completion(LSPTestContext *ctx, int line, int character);
+
+// Send signatureHelp request
+char *lsp_signature_help(LSPTestContext *ctx, int line, int character);
+
+// Send semanticTokens/full request
+char *lsp_semantic_tokens(LSPTestContext *ctx);
+
+// Send inlayHint request for a line range
+char *lsp_inlay_hints(LSPTestContext *ctx, int start_line, int end_line);
+
+// Send call hierarchy requests
+char *lsp_prepare_call_hierarchy(LSPTestContext *ctx, int line, int character);
+char *lsp_call_hierarchy_incoming(LSPTestContext *ctx, const char *name);
+char *lsp_call_hierarchy_outgoing(LSPTestContext *ctx, const char *name);
+
+// Send foldingRange request
+char *lsp_folding_range(LSPTestContext *ctx);
+
 // Helper to extract JSON value from response
 char *lsp_extract_json_value(const char *json, const char *key);
 
@@ -72,4 +95,3 @@ bool lsp_response_contains(const char *response, const char *substring);
 bool lsp_is_valid_json(const char *response);
 
 #endif // TEST_LSP_FRAMEWORK_H
-

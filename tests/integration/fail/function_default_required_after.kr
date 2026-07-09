@@ -1,0 +1,5 @@
+# Test: Required parameter after default parameter should fail
+# Expected: Error - Required parameter cannot follow parameter with default value
+
+function invalid with a = 1, b:
+    return a plus b

@@ -1,0 +1,9 @@
+# Test: Debugging support statement
+# Expected: Pass
+
+set x to 10
+set y to 20
+
+debug "x:", x
+debug "x + y =", x plus y
+debug "types:", true, null, "done"

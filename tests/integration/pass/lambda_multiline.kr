@@ -1,0 +1,20 @@
+# Test: Multi-line lambda with block body
+# Expected: Pass
+
+# Multi-line lambda that adds and prints
+set add_and_print to function with a, b:
+    set sum to a plus b
+    print sum
+    return sum
+
+set result to call add_and_print with 3, 4
+print result
+
+# Another multi-line lambda with conditional
+set abs_value to function with n:
+    if n is less than 0:
+        return n times -1
+    return n
+
+print call abs_value with -5
+print call abs_value with 5

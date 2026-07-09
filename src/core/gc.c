@@ -127,12 +127,16 @@ static size_t gc_find_slot_locked(KronosValue *object, bool insert) {
     GCHashEntry *entry = &gc_state.entries[idx];
 
     if (entry->object == NULL) {
-      // Empty slot found
-      if (insert) {
-        // Return first tombstone if found, otherwise this empty slot
-        return (first_tombstone != SIZE_MAX) ? first_tombstone : idx;
+      if (entry->is_tombstone) {
+        // Deleted slot: keep probing for lookups; remember for reuse on insert.
+        if (first_tombstone == SIZE_MAX) {
+          first_tombstone = idx;
+        }
       } else {
-        // Not found
+        // Never-used empty slot: lookup can stop; insert can reuse tombstone.
+        if (insert) {
+          return (first_tombstone != SIZE_MAX) ? first_tombstone : idx;
+        }
         return SIZE_MAX;
       }
     }
@@ -270,17 +274,15 @@ static void gc_shrink_if_needed_locked(void) {
 /**
  * @brief Initialize the garbage collector
  *
- * DESIGN DECISION: Idempotent - cleans up previous state before reinitializing
- * (finalizes objects with refcount == 1). Allows reinitialization without
- * explicit cleanup.
+ * DESIGN DECISION: Idempotent - repeated calls while initialized are no-ops.
+ * Reinitialization is only performed after gc_cleanup().
  *
- * EDGE CASES: Mutex init fatal if fails, allocation failure aborts, only
- * finalizes refcount == 1 objects, not thread-safe (call from main thread).
+ * EDGE CASES: Mutex init fatal if fails, allocation failure aborts, not
+ * thread-safe (call from main thread).
  *
  * THREAD-SAFETY: This function must be called from the main thread before any
- * other threads start calling gc_track(). The mutex is kept locked during
- * cleanup to prevent race conditions where another thread could call gc_track()
- * and corrupt the hash table state during reinitialization.
+ * other threads start calling gc_track(). Repeated calls are guarded by the
+ * mutex so they remain safe no-ops.
  */
 void gc_init(void) {
   // Initialize mutex if not already initialized
@@ -293,62 +295,10 @@ void gc_init(void) {
   }
 
   pthread_mutex_lock(&gc_mutex);
-  // Free any previously allocated memory if gc_init is called multiple times
-  if (gc_state.entries && gc_state.count > 0) {
-    // Save entries and capacity before clearing state
-    GCHashEntry *entries = gc_state.entries;
-    size_t capacity = gc_state.capacity;
-    gc_state.entries = NULL;
-    gc_state.count = 0;
-    gc_state.capacity = 0;
-    gc_state.allocated_bytes = 0;
-
-    // Finalize all tracked objects (similar to gc_cleanup)
-    // Only finalize objects with refcount == 1 (only GC tracking reference)
-    // NOTE: We keep the mutex locked during finalization to prevent race
-    // conditions. Another thread calling gc_track() during this window could
-    // allocate a new hash table while we're still iterating over the old one.
-    // We manually finalize objects (inline value_finalize logic) to avoid
-    // deadlock since value_finalize() -> gc_untrack() would try to lock the
-    // mutex again. Since gc_state.entries is NULL, untracking is not needed.
-    for (size_t i = 0; i < capacity; i++) {
-      if (entries[i].object && !entries[i].is_tombstone) {
-        KronosValue *obj = entries[i].object;
-        if (obj->refcount == 1) {
-          // Manually finalize without calling value_finalize() to avoid
-          // deadlock (value_finalize() -> gc_untrack() would try to lock mutex)
-          // Free type-specific data
-          switch (obj->type) {
-          case VAL_STRING:
-            free(obj->as.string.data);
-            break;
-          case VAL_FUNCTION:
-            free(obj->as.function.bytecode);
-            break;
-          case VAL_LIST:
-            free(obj->as.list.items);
-            break;
-          case VAL_MAP:
-            free(obj->as.map.entries);
-            break;
-          case VAL_CHANNEL:
-            // Channels are currently managed externally
-            break;
-          case VAL_RANGE:
-            // Ranges don't own other values
-            break;
-          default:
-            break;
-          }
-          free(obj);
-        }
-      }
-    }
-    free(entries);
-  } else if (gc_state.entries) {
-    // Hash table exists but is empty, just free it
-    free(gc_state.entries);
-    // Note: No need to set gc_state.entries = NULL here since memset follows
+  if (gc_state.entries) {
+    // Already initialized
+    pthread_mutex_unlock(&gc_mutex);
+    return;
   }
 
   memset(&gc_state, 0, sizeof(GCState));
@@ -369,14 +319,24 @@ void gc_init(void) {
  * (prevents double-free). Only finalizes refcount == 1 objects (external refs
  * cleaned up naturally).
  *
- * EDGE CASES: Destroys mutex, idempotent after first call, not thread-safe
- * (call from main thread).
+ * EDGE CASES: Idempotent after first call, not thread-safe (call from main
+ * thread).
  *
  * THREAD-SAFETY: This function must be called from the main thread. The mutex
  * is kept locked during cleanup to prevent race conditions where another thread
  * could call gc_track() and corrupt the hash table state during shutdown.
  */
 void gc_cleanup(void) {
+  if (!gc_mutex_initialized) {
+    return;
+  }
+
+  // Runtime intern table owns references to interned strings. Release those
+  // references first so GC finalization never leaves stale pointers behind.
+  // This call can invoke gc_untrack(), so it must happen before taking gc_mutex
+  // to avoid lock-order deadlocks.
+  runtime_release_interned_strings();
+
   pthread_mutex_lock(&gc_mutex);
   GCHashEntry *entries = gc_state.entries;
   size_t capacity = gc_state.capacity;
@@ -387,11 +347,6 @@ void gc_cleanup(void) {
 
   if (!entries) {
     pthread_mutex_unlock(&gc_mutex);
-    // Destroy the mutex to prevent resource leak
-    if (gc_mutex_initialized) {
-      pthread_mutex_destroy(&gc_mutex);
-      gc_mutex_initialized = false;
-    }
     return;
   }
 
@@ -426,6 +381,9 @@ void gc_cleanup(void) {
         case VAL_LIST:
           free(obj->as.list.items);
           break;
+        case VAL_TUPLE:
+          free(obj->as.tuple.items);
+          break;
         case VAL_MAP:
           free(obj->as.map.entries);
           break;
@@ -445,12 +403,6 @@ void gc_cleanup(void) {
   free(entries);
 
   pthread_mutex_unlock(&gc_mutex);
-
-  // Destroy the mutex to prevent resource leak
-  if (gc_mutex_initialized) {
-    pthread_mutex_destroy(&gc_mutex);
-    gc_mutex_initialized = false;
-  }
 }
 
 /**
@@ -512,6 +464,12 @@ void gc_track(KronosValue *val) {
     // Track list item array: capacity * sizeof(KronosValue*)
     if (val->as.list.capacity > 0) {
       gc_state.allocated_bytes += val->as.list.capacity * sizeof(KronosValue *);
+    }
+    break;
+  case VAL_TUPLE:
+    // Track tuple item array: count * sizeof(KronosValue*)
+    if (val->as.tuple.items && val->as.tuple.count > 0) {
+      gc_state.allocated_bytes += val->as.tuple.count * sizeof(KronosValue *);
     }
     break;
   case VAL_MAP: {
@@ -577,6 +535,12 @@ void gc_untrack(KronosValue *val) {
     // Subtract list item array size
     if (val->as.list.capacity > 0) {
       gc_state.allocated_bytes -= val->as.list.capacity * sizeof(KronosValue *);
+    }
+    break;
+  case VAL_TUPLE:
+    // Subtract tuple item array size
+    if (val->as.tuple.items && val->as.tuple.count > 0) {
+      gc_state.allocated_bytes -= val->as.tuple.count * sizeof(KronosValue *);
     }
     break;
   case VAL_MAP: {
@@ -788,6 +752,12 @@ void gc_collect_cycles(void) {
                   obj->as.list.capacity * sizeof(KronosValue *);
             }
             break;
+          case VAL_TUPLE:
+            if (obj->as.tuple.items && obj->as.tuple.count > 0) {
+              gc_state.allocated_bytes -=
+                  obj->as.tuple.count * sizeof(KronosValue *);
+            }
+            break;
           case VAL_MAP:
             if (obj->as.map.capacity > 0) {
               gc_state.allocated_bytes -=
@@ -828,6 +798,9 @@ void gc_collect_cycles(void) {
       break;
     case VAL_LIST:
       free(obj->as.list.items);
+      break;
+    case VAL_TUPLE:
+      free(obj->as.tuple.items);
       break;
     case VAL_MAP:
       free(obj->as.map.entries);

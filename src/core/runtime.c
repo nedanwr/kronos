@@ -10,8 +10,12 @@
  * - Value printing and formatting
  */
 
+// Enable POSIX functions like strdup on Linux
+#define _POSIX_C_SOURCE 200809L
+
 #include "runtime.h"
 #include "gc.h"
+#include <ctype.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -144,6 +148,38 @@ void runtime_init(void) {
 }
 
 /**
+ * @brief Release intern table references while holding intern_mutex
+ *
+ * @param count_external_refs Whether to count entries with refcount > 1
+ * @return Number of entries that had references beyond the intern table
+ */
+static size_t runtime_release_interned_strings_locked(bool count_external_refs) {
+  size_t active_refs = 0;
+  for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
+    KronosValue *entry = intern_table[i];
+    if (!entry) {
+      continue;
+    }
+
+    if (count_external_refs && entry->refcount > 1) {
+      active_refs++;
+    }
+
+    // Release the intern table's owning reference.
+    value_release(entry);
+    intern_table[i] = NULL;
+  }
+
+  return active_refs;
+}
+
+void runtime_release_interned_strings(void) {
+  pthread_mutex_lock(&intern_mutex);
+  (void)runtime_release_interned_strings_locked(false);
+  pthread_mutex_unlock(&intern_mutex);
+}
+
+/**
  * @brief Cleanup the runtime system
  *
  * Releases all interned strings and shuts down the garbage collector.
@@ -169,19 +205,7 @@ void runtime_cleanup(void) {
   }
 
   // Last reference - perform actual cleanup
-  // Free interned strings
-  size_t active_refs = 0;
-  for (size_t i = 0; i < INTERN_TABLE_SIZE; i++) {
-    if (intern_table[i] != NULL) {
-      // Check if there are active references beyond the intern table's
-      // reference
-      if (intern_table[i]->refcount > 1) {
-        active_refs++;
-      }
-      value_release(intern_table[i]); // Release intern table's reference
-      intern_table[i] = NULL;
-    }
-  }
+  size_t active_refs = runtime_release_interned_strings_locked(true);
   pthread_mutex_unlock(&intern_mutex);
 
   if (active_refs > 0) {
@@ -299,14 +323,18 @@ KronosValue *value_new_nil(void) {
  * @brief Create a new function value
  *
  * Stores compiled bytecode for a user-defined function. The bytecode
- * is copied into the value.
+ * and parameter names are copied into the value.
  *
  * @param bytecode Function bytecode (will be copied)
  * @param length Length of bytecode in bytes
  * @param arity Number of parameters the function expects
+ * @param param_names Array of parameter name strings (will be copied), or NULL
  * @return New function value, or NULL on allocation failure
  */
-KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
+KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity,
+                                int required_arity, bool has_variadic,
+                                char **param_names,
+                                KronosValue **param_defaults) {
   if (!bytecode || length == 0)
     return NULL;
 
@@ -321,11 +349,64 @@ KronosValue *value_new_function(uint8_t *bytecode, size_t length, int arity) {
   }
   memcpy(buffer, bytecode, length);
 
+  // Copy parameter names if provided
+  char **names_copy = NULL;
+  if (param_names && arity > 0) {
+    names_copy = malloc(sizeof(char *) * arity);
+    if (!names_copy) {
+      free(buffer);
+      free(val);
+      return NULL;
+    }
+    for (int i = 0; i < arity; i++) {
+      names_copy[i] = strdup(param_names[i]);
+      if (!names_copy[i]) {
+        // Cleanup on allocation failure
+        for (int j = 0; j < i; j++) {
+          free(names_copy[j]);
+        }
+        free(names_copy);
+        free(buffer);
+        free(val);
+        return NULL;
+      }
+    }
+  }
+
+  // Copy default values if provided
+  KronosValue **defaults_copy = NULL;
+  if (param_defaults && arity > 0) {
+    defaults_copy = malloc(sizeof(KronosValue *) * arity);
+    if (!defaults_copy) {
+      if (names_copy) {
+        for (int i = 0; i < arity; i++) {
+          free(names_copy[i]);
+        }
+        free(names_copy);
+      }
+      free(buffer);
+      free(val);
+      return NULL;
+    }
+    for (int i = 0; i < arity; i++) {
+      if (param_defaults[i]) {
+        value_retain(param_defaults[i]);
+        defaults_copy[i] = param_defaults[i];
+      } else {
+        defaults_copy[i] = NULL;
+      }
+    }
+  }
+
   val->type = VAL_FUNCTION;
   val->refcount = 1;
   val->as.function.bytecode = buffer;
   val->as.function.length = length;
   val->as.function.arity = arity;
+  val->as.function.required_arity = required_arity;
+  val->as.function.has_variadic = has_variadic;
+  val->as.function.param_names = names_copy;
+  val->as.function.param_defaults = defaults_copy;
 
   gc_track(val);
   return val;
@@ -443,6 +524,57 @@ KronosValue *value_new_range(double start, double end, double step) {
 }
 
 /**
+ * @brief Create a new tuple value
+ *
+ * Creates an immutable fixed-size container for multiple values. Tuples are
+ * used for multiple return values and destructuring assignments. The items
+ * array is copied and each item is retained.
+ *
+ * DESIGN DECISION: Tuples are immutable (no append, set operations). This
+ * distinguishes them from lists and makes their semantics clearer for
+ * multiple return values.
+ *
+ * EDGE CASES:
+ * - count of 0: Creates empty tuple (valid but rarely useful)
+ * - count of 1: Creates single-element tuple (distinct from the value itself)
+ * - NULL items: Returns NULL (invalid input)
+ * - NULL item in array: Stored as-is (caller's responsibility)
+ *
+ * @param items Array of values to include (will be copied and retained)
+ * @param count Number of items
+ * @return New tuple value, or NULL on allocation failure or NULL items
+ */
+KronosValue *value_new_tuple(KronosValue **items, size_t count) {
+  if (!items && count > 0)
+    return NULL;
+
+  KronosValue *val = malloc(sizeof(KronosValue));
+  if (!val)
+    return NULL;
+
+  KronosValue **tuple_items = NULL;
+  if (count > 0) {
+    tuple_items = malloc(count * sizeof(KronosValue *));
+    if (!tuple_items) {
+      free(val);
+      return NULL;
+    }
+    for (size_t i = 0; i < count; i++) {
+      tuple_items[i] = items[i];
+      value_retain(items[i]);
+    }
+  }
+
+  val->type = VAL_TUPLE;
+  val->refcount = 1;
+  val->as.tuple.items = tuple_items;
+  val->as.tuple.count = count;
+
+  gc_track(val);
+  return val;
+}
+
+/**
  * @brief Hash function for map keys
  *
  * DESIGN DECISIONS: Strings use pre-computed hash, numbers hash bit
@@ -515,6 +647,15 @@ static uint32_t hash_value(KronosValue *key) {
           h *= 16777619;
         }
       }
+    }
+    return h;
+  }
+  case VAL_TUPLE: {
+    // Hash tuple by hashing each element (content-based, order-dependent)
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < key->as.tuple.count; i++) {
+      h ^= hash_value(key->as.tuple.items[i]);
+      h *= 16777619;
     }
     return h;
   }
@@ -628,6 +769,100 @@ static bool release_stack_push(KronosValue ***stack, size_t *count,
 }
 
 /**
+ * @brief Recursive fallback for value release when stack growth fails
+ *
+ * Uses recursion instead of the iterative release stack. This is only used
+ * when release_stack_push() fails due to memory pressure.
+ *
+ * @param val Value to release (safe to pass NULL)
+ */
+static void value_release_recursive_fallback(KronosValue *val) {
+  if (!val) {
+    return;
+  }
+
+  if (val->refcount == 0) {
+    fprintf(stderr, "KronosValue refcount underflow\n");
+    return;
+  }
+
+  val->refcount--;
+  if (val->refcount > 0) {
+    return;
+  }
+
+  gc_untrack(val);
+
+  switch (val->type) {
+  case VAL_STRING:
+    free(val->as.string.data);
+    break;
+  case VAL_FUNCTION:
+    free(val->as.function.bytecode);
+    if (val->as.function.param_names) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        free(val->as.function.param_names[i]);
+      }
+      free(val->as.function.param_names);
+    }
+    if (val->as.function.param_defaults) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        if (val->as.function.param_defaults[i]) {
+          value_release_recursive_fallback(val->as.function.param_defaults[i]);
+        }
+      }
+      free(val->as.function.param_defaults);
+    }
+    break;
+  case VAL_LIST:
+    if (val->as.list.items) {
+      for (size_t i = 0; i < val->as.list.count; i++) {
+        if (val->as.list.items[i]) {
+          value_release_recursive_fallback(val->as.list.items[i]);
+        }
+      }
+    }
+    free(val->as.list.items);
+    break;
+  case VAL_MAP: {
+    MapEntry *entries = (MapEntry *)val->as.map.entries;
+    if (entries) {
+      for (size_t i = 0; i < val->as.map.capacity; i++) {
+        if (entries[i].key && !entries[i].is_tombstone) {
+          value_release_recursive_fallback(entries[i].key);
+          if (entries[i].value) {
+            value_release_recursive_fallback(entries[i].value);
+          }
+        }
+      }
+    }
+    free(entries);
+    break;
+  }
+  case VAL_TUPLE:
+    if (val->as.tuple.items) {
+      for (size_t i = 0; i < val->as.tuple.count; i++) {
+        if (val->as.tuple.items[i]) {
+          value_release_recursive_fallback(val->as.tuple.items[i]);
+        }
+      }
+    }
+    free(val->as.tuple.items);
+    break;
+  case VAL_CHANNEL:
+    // Channels are currently managed externally.
+    break;
+  case VAL_RANGE:
+    // Ranges don't own other values, just store numbers.
+    break;
+  default:
+    break;
+  }
+
+  free(val);
+}
+
+/**
  * @brief Finalize an object without releasing children
  *
  * Used during gc_cleanup to avoid use-after-free issues. This function
@@ -650,6 +885,17 @@ void value_finalize(KronosValue *val) {
     break;
   case VAL_FUNCTION:
     free(val->as.function.bytecode);
+    // Free parameter names if present
+    if (val->as.function.param_names) {
+      for (int i = 0; i < val->as.function.arity; i++) {
+        free(val->as.function.param_names[i]);
+      }
+      free(val->as.function.param_names);
+    }
+    // Free param_defaults array (don't release values - gc_cleanup handles them)
+    if (val->as.function.param_defaults) {
+      free(val->as.function.param_defaults);
+    }
     break;
   case VAL_LIST:
     // Free the items array, but don't release the child values
@@ -662,6 +908,11 @@ void value_finalize(KronosValue *val) {
     free(val->as.map.entries);
     break;
   }
+  case VAL_TUPLE:
+    // Free the items array, but don't release the child values
+    // (they will be freed separately by gc_cleanup)
+    free(val->as.tuple.items);
+    break;
   case VAL_CHANNEL:
     // Channels are currently managed externally.
     break;
@@ -699,7 +950,12 @@ void value_release(KronosValue *val) {
   KronosValue **stack = NULL;
   size_t stack_count = 0;
   size_t stack_capacity = 0;
-  release_stack_push(&stack, &stack_count, &stack_capacity, val);
+  if (!release_stack_push(&stack, &stack_count, &stack_capacity, val)) {
+    // Initial stack push failed; use recursive fallback so release still
+    // happens under memory pressure.
+    value_release_recursive_fallback(val);
+    return;
+  }
 
   while (stack_count > 0) {
     KronosValue *current = stack[--stack_count];
@@ -724,6 +980,26 @@ void value_release(KronosValue *val) {
       break;
     case VAL_FUNCTION:
       free(current->as.function.bytecode);
+      // Free parameter names if present
+      if (current->as.function.param_names) {
+        for (int i = 0; i < current->as.function.arity; i++) {
+          free(current->as.function.param_names[i]);
+        }
+        free(current->as.function.param_names);
+      }
+      // Release default values and free array
+      if (current->as.function.param_defaults) {
+        for (int i = 0; i < current->as.function.arity; i++) {
+          if (current->as.function.param_defaults[i]) {
+            if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                    current->as.function.param_defaults[i])) {
+              value_release_recursive_fallback(
+                  current->as.function.param_defaults[i]);
+            }
+          }
+        }
+        free(current->as.function.param_defaults);
+      }
       break;
     case VAL_LIST:
       for (size_t i = 0; i < current->as.list.count; i++) {
@@ -732,7 +1008,7 @@ void value_release(KronosValue *val) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                   child)) {
             // Stack push failed - release directly (recursive fallback)
-            value_release(child);
+            value_release_recursive_fallback(child);
           }
         }
       }
@@ -745,13 +1021,13 @@ void value_release(KronosValue *val) {
           if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                   entries[i].key)) {
             // Stack push failed - release directly (recursive fallback)
-            value_release(entries[i].key);
+            value_release_recursive_fallback(entries[i].key);
           }
           if (entries[i].value) {
             if (!release_stack_push(&stack, &stack_count, &stack_capacity,
                                     entries[i].value)) {
               // Stack push failed - release directly (recursive fallback)
-              value_release(entries[i].value);
+              value_release_recursive_fallback(entries[i].value);
             }
           }
         }
@@ -759,6 +1035,19 @@ void value_release(KronosValue *val) {
       free(entries);
       break;
     }
+    case VAL_TUPLE:
+      for (size_t i = 0; i < current->as.tuple.count; i++) {
+        KronosValue *child = current->as.tuple.items[i];
+        if (child) {
+          if (!release_stack_push(&stack, &stack_count, &stack_capacity,
+                                  child)) {
+            // Stack push failed - release directly (recursive fallback)
+            value_release_recursive_fallback(child);
+          }
+        }
+      }
+      free(current->as.tuple.items);
+      break;
     case VAL_CHANNEL:
       // Channels are currently managed externally.
       break;
@@ -879,6 +1168,19 @@ static void value_fprint_recursive(FILE *out, KronosValue *val, int depth) {
     fprintf(out, "}");
     break;
   }
+  case VAL_TUPLE:
+    if (depth >= VALUE_PRINT_MAX_DEPTH) {
+      fprintf(out, "(<max depth exceeded>)");
+      break;
+    }
+    fprintf(out, "(");
+    for (size_t i = 0; i < val->as.tuple.count; i++) {
+      if (i > 0)
+        fprintf(out, ", ");
+      value_fprint_recursive(out, val->as.tuple.items[i], depth + 1);
+    }
+    fprintf(out, ")");
+    break;
   default:
     fprintf(out, "<unknown>");
     break;
@@ -990,16 +1292,33 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
 
   // Add to visited set
   if (*visited_count >= *visited_capacity) {
-    size_t new_capacity =
-        (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
-    KronosValue **new_visited_a =
-        realloc(*visited_a, new_capacity * sizeof(KronosValue *));
-    KronosValue **new_visited_b =
-        realloc(*visited_b, new_capacity * sizeof(KronosValue *));
+    size_t new_capacity = (*visited_capacity == 0) ? 8 : (*visited_capacity * 2);
+    KronosValue **new_visited_a = NULL;
+    KronosValue **new_visited_b = NULL;
+
+    if (new_capacity > SIZE_MAX / sizeof(KronosValue *)) {
+      new_capacity = 0;
+    }
+    if (new_capacity > 0) {
+      new_visited_a = malloc(new_capacity * sizeof(KronosValue *));
+      new_visited_b = malloc(new_capacity * sizeof(KronosValue *));
+    }
+
     if (new_visited_a && new_visited_b) {
+      if (*visited_count > 0) {
+        memcpy(new_visited_a, *visited_a,
+               *visited_count * sizeof(KronosValue *));
+        memcpy(new_visited_b, *visited_b,
+               *visited_count * sizeof(KronosValue *));
+      }
+      free(*visited_a);
+      free(*visited_b);
       *visited_a = new_visited_a;
       *visited_b = new_visited_b;
       *visited_capacity = new_capacity;
+    } else {
+      free(new_visited_a);
+      free(new_visited_b);
     }
   }
   if (*visited_count < *visited_capacity) {
@@ -1063,6 +1382,16 @@ static bool value_equals_recursive(KronosValue *a, KronosValue *b, int depth,
     }
     return true;
   }
+  case VAL_TUPLE:
+    if (a->as.tuple.count != b->as.tuple.count)
+      return false;
+    for (size_t i = 0; i < a->as.tuple.count; i++) {
+      if (!value_equals_recursive(a->as.tuple.items[i], b->as.tuple.items[i],
+                                  depth + 1, visited_a, visited_b,
+                                  visited_count, visited_capacity))
+        return false;
+    }
+    return true;
   default:
     return a == b; // Pointer equality for complex types
   }
@@ -1349,9 +1678,9 @@ KronosValue *string_intern(const char *str, size_t len) {
       KronosValue *val = value_new_string(str, len);
       if (val) {
         intern_table[probe] = val;
-        value_retain(val); // Extra ref for intern table (refcount now 2)
-        // Release one ref before returning so caller gets refcount 1
-        value_release(val);
+        // Keep one strong reference owned by intern table.
+        // The initial ref from value_new_string() is returned to caller.
+        value_retain(val);
       }
       pthread_mutex_unlock(&intern_mutex);
       return val;
@@ -1378,65 +1707,413 @@ KronosValue *string_intern(const char *str, size_t len) {
   return value_new_string(str, len);
 }
 
-/**
- * @brief Check if a value matches a type name
- *
- * Used for type annotations and type checking. Supports:
- * - "number" for VAL_NUMBER
- * - "string" for VAL_STRING
- * - "boolean" for VAL_BOOL
- * - "null" for VAL_NIL
- *
- * @param val Value to check
- * @param type_name Type name string (e.g., "number", "string")
- * @return true if value matches the type, false otherwise
- */
-bool value_is_type(KronosValue *val, const char *type_name) {
-  if (!val || !type_name)
-    return false;
+#define TYPE_MATCH_MAX_DEPTH 64
 
-  // Optimize by checking first character and length before strcmp
-  // This eliminates most comparisons quickly without needing full string
-  // comparison
-  char first = type_name[0];
-  size_t len = strlen(type_name);
-
-  switch (first) {
-  case 'b':
-    if (len == 7 && strcmp(type_name, "boolean") == 0)
-      return val->type == VAL_BOOL;
-    break;
-  case 'c':
-    if (len == 7 && strcmp(type_name, "channel") == 0)
-      return val->type == VAL_CHANNEL;
-    break;
-  case 'f':
-    if (len == 8 && strcmp(type_name, "function") == 0)
-      return val->type == VAL_FUNCTION;
-    break;
-  case 'l':
-    if (len == 4 && strcmp(type_name, "list") == 0)
-      return val->type == VAL_LIST;
-    break;
-  case 'm':
-    if (len == 3 && strcmp(type_name, "map") == 0)
-      return val->type == VAL_MAP;
-    break;
-  case 'n':
-    if (len == 6 && strcmp(type_name, "number") == 0)
-      return val->type == VAL_NUMBER;
-    else if (len == 4 && strcmp(type_name, "null") == 0)
-      return val->type == VAL_NIL;
-    break;
-  case 'r':
-    if (len == 5 && strcmp(type_name, "range") == 0)
-      return val->type == VAL_RANGE;
-    break;
-  case 's':
-    if (len == 6 && strcmp(type_name, "string") == 0)
-      return val->type == VAL_STRING;
-    break;
+static char *type_trim_dup(const char *s, size_t len) {
+  if (!s) {
+    return NULL;
   }
 
+  size_t start = 0;
+  while (start < len && isspace((unsigned char)s[start])) {
+    start++;
+  }
+
+  size_t end = len;
+  while (end > start && isspace((unsigned char)s[end - 1])) {
+    end--;
+  }
+
+  size_t out_len = end - start;
+  char *out = malloc(out_len + 1);
+  if (!out) {
+    return NULL;
+  }
+  memcpy(out, s + start, out_len);
+  out[out_len] = '\0';
+  return out;
+}
+
+static bool parse_generic_inner(const char *type_name, const char *base,
+                                char **inner_out) {
+  if (!type_name || !base || !inner_out) {
+    return false;
+  }
+  *inner_out = NULL;
+
+  size_t base_len = strlen(base);
+  size_t type_len = strlen(type_name);
+  if (type_len <= base_len + 2) {
+    return false;
+  }
+  if (strncmp(type_name, base, base_len) != 0 || type_name[base_len] != '<') {
+    return false;
+  }
+
+  int depth = 1;
+  size_t close_idx = SIZE_MAX;
+  for (size_t i = base_len + 1; i < type_len; i++) {
+    char c = type_name[i];
+    if (c == '<') {
+      depth++;
+    } else if (c == '>') {
+      depth--;
+      if (depth == 0) {
+        close_idx = i;
+        break;
+      }
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+
+  if (close_idx == SIZE_MAX || close_idx != type_len - 1) {
+    return false;
+  }
+
+  *inner_out =
+      type_trim_dup(type_name + base_len + 1, close_idx - (base_len + 1));
+  return *inner_out != NULL;
+}
+
+static bool find_top_level_char(const char *s, char target, size_t *idx_out) {
+  if (!s) {
+    return false;
+  }
+
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t len = strlen(s);
+  for (size_t i = 0; i < len; i++) {
+    char c = s[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+    if (c == target && angle_depth == 0 && brace_depth == 0) {
+      if (idx_out) {
+        *idx_out = i;
+      }
+      return true;
+    }
+  }
   return false;
+}
+
+static bool value_is_base_type(KronosValue *val, const char *type_name) {
+  if (!val || !type_name) {
+    return false;
+  }
+
+  if (strcmp(type_name, "number") == 0) {
+    return val->type == VAL_NUMBER;
+  }
+  if (strcmp(type_name, "string") == 0) {
+    return val->type == VAL_STRING;
+  }
+  if (strcmp(type_name, "boolean") == 0 || strcmp(type_name, "bool") == 0) {
+    return val->type == VAL_BOOL;
+  }
+  if (strcmp(type_name, "null") == 0) {
+    return val->type == VAL_NIL;
+  }
+  if (strcmp(type_name, "list") == 0) {
+    return val->type == VAL_LIST;
+  }
+  if (strcmp(type_name, "map") == 0) {
+    return val->type == VAL_MAP;
+  }
+  if (strcmp(type_name, "range") == 0) {
+    return val->type == VAL_RANGE;
+  }
+  if (strcmp(type_name, "tuple") == 0) {
+    return val->type == VAL_TUPLE;
+  }
+  if (strcmp(type_name, "function") == 0) {
+    return val->type == VAL_FUNCTION;
+  }
+  if (strcmp(type_name, "channel") == 0) {
+    return val->type == VAL_CHANNEL;
+  }
+  return false;
+}
+
+static bool value_is_type_expr(KronosValue *val, const char *type_name,
+                               int depth) {
+  if (!val || !type_name || depth > TYPE_MATCH_MAX_DEPTH) {
+    return false;
+  }
+
+  char *trimmed = type_trim_dup(type_name, strlen(type_name));
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed[0] == '\0') {
+    free(trimmed);
+    return false;
+  }
+
+  // Top-level union support: "number or string".
+  int angle_depth = 0;
+  int brace_depth = 0;
+  size_t segment_start = 0;
+  bool saw_union = false;
+  size_t len = strlen(trimmed);
+  for (size_t i = 0; i < len; i++) {
+    char c = trimmed[i];
+    if (c == '<') {
+      angle_depth++;
+      continue;
+    }
+    if (c == '>') {
+      angle_depth--;
+      continue;
+    }
+    if (c == '{') {
+      brace_depth++;
+      continue;
+    }
+    if (c == '}') {
+      brace_depth--;
+      continue;
+    }
+
+    if (angle_depth == 0 && brace_depth == 0 && c == 'o' && i + 1 < len &&
+        trimmed[i + 1] == 'r' &&
+        (i == 0 || isspace((unsigned char)trimmed[i - 1])) &&
+        (i + 2 >= len || isspace((unsigned char)trimmed[i + 2]))) {
+      saw_union = true;
+      char *segment = type_trim_dup(trimmed + segment_start, i - segment_start);
+      if (!segment) {
+        free(trimmed);
+        return false;
+      }
+      bool matches = value_is_type_expr(val, segment, depth + 1);
+      free(segment);
+      if (matches) {
+        free(trimmed);
+        return true;
+      }
+
+      // Skip to next non-whitespace after "or"
+      i += 2;
+      while (i < len && isspace((unsigned char)trimmed[i])) {
+        i++;
+      }
+      if (i > 0) {
+        segment_start = i;
+        i--;
+      } else {
+        segment_start = i;
+      }
+    }
+  }
+
+  if (saw_union) {
+    char *segment =
+        type_trim_dup(trimmed + segment_start, len - segment_start);
+    if (!segment) {
+      free(trimmed);
+      return false;
+    }
+    bool matches = value_is_type_expr(val, segment, depth + 1);
+    free(segment);
+    free(trimmed);
+    return matches;
+  }
+
+  // Generic list<T>.
+  char *inner = NULL;
+  if (parse_generic_inner(trimmed, "list", &inner)) {
+    bool ok = true;
+    if (val->type != VAL_LIST) {
+      ok = false;
+    } else if (find_top_level_char(inner, ',', NULL)) {
+      ok = false;
+    } else {
+      for (size_t i = 0; i < val->as.list.count; i++) {
+        if (!value_is_type_expr(val->as.list.items[i], inner, depth + 1)) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    free(inner);
+    free(trimmed);
+    return ok;
+  }
+
+  // Generic map<K, V>.
+  if (parse_generic_inner(trimmed, "map", &inner)) {
+    bool ok = true;
+    if (val->type != VAL_MAP) {
+      ok = false;
+    } else {
+      size_t comma_idx = 0;
+      if (!find_top_level_char(inner, ',', &comma_idx)) {
+        ok = false;
+      } else {
+        char *key_type = type_trim_dup(inner, comma_idx);
+        char *value_type = type_trim_dup(inner + comma_idx + 1,
+                                         strlen(inner) - comma_idx - 1);
+        if (!key_type || !value_type || key_type[0] == '\0' ||
+            value_type[0] == '\0') {
+          ok = false;
+        } else if (find_top_level_char(value_type, ',', NULL)) {
+          // map<K,V> only supports two top-level arguments.
+          ok = false;
+        } else {
+          MapEntry *entries = (MapEntry *)val->as.map.entries;
+          for (size_t i = 0; i < val->as.map.capacity; i++) {
+            if (!entries[i].key || entries[i].is_tombstone) {
+              continue;
+            }
+            if (!value_is_type_expr(entries[i].key, key_type, depth + 1) ||
+                !value_is_type_expr(entries[i].value, value_type, depth + 1)) {
+              ok = false;
+              break;
+            }
+          }
+        }
+        free(key_type);
+        free(value_type);
+      }
+    }
+    free(inner);
+    free(trimmed);
+    return ok;
+  }
+
+  // Structural map shape: map{x:number,y:number}.
+  size_t trimmed_len = strlen(trimmed);
+  if (trimmed_len >= 5 && strncmp(trimmed, "map{", 4) == 0 &&
+      trimmed[trimmed_len - 1] == '}') {
+    if (val->type != VAL_MAP) {
+      free(trimmed);
+      return false;
+    }
+
+    char *fields = type_trim_dup(trimmed + 4, trimmed_len - 5);
+    if (!fields) {
+      free(trimmed);
+      return false;
+    }
+    if (fields[0] == '\0') {
+      free(fields);
+      free(trimmed);
+      return true;
+    }
+
+    bool ok = true;
+    size_t fields_len = strlen(fields);
+    size_t field_start = 0;
+    int inner_angle_depth = 0;
+    int inner_brace_depth = 0;
+
+    for (size_t i = 0; i <= fields_len; i++) {
+      char c = (i < fields_len) ? fields[i] : ',';
+      if (i < fields_len) {
+        if (c == '<') {
+          inner_angle_depth++;
+          continue;
+        }
+        if (c == '>') {
+          inner_angle_depth--;
+          continue;
+        }
+        if (c == '{') {
+          inner_brace_depth++;
+          continue;
+        }
+        if (c == '}') {
+          inner_brace_depth--;
+          continue;
+        }
+      }
+
+      if (c == ',' && inner_angle_depth == 0 && inner_brace_depth == 0) {
+        char *field =
+            type_trim_dup(fields + field_start, i - field_start);
+        if (!field || field[0] == '\0') {
+          free(field);
+          ok = false;
+          break;
+        }
+
+        size_t colon_idx = 0;
+        if (!find_top_level_char(field, ':', &colon_idx)) {
+          free(field);
+          ok = false;
+          break;
+        }
+
+        char *field_name = type_trim_dup(field, colon_idx);
+        char *field_type = type_trim_dup(field + colon_idx + 1,
+                                         strlen(field) - colon_idx - 1);
+        free(field);
+
+        if (!field_name || !field_type || field_name[0] == '\0' ||
+            field_type[0] == '\0') {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+
+        KronosValue *key = value_new_string(field_name, strlen(field_name));
+        if (!key) {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+        KronosValue *field_value = map_get(val, key);
+        value_release(key);
+
+        if (!field_value ||
+            !value_is_type_expr(field_value, field_type, depth + 1)) {
+          free(field_name);
+          free(field_type);
+          ok = false;
+          break;
+        }
+
+        free(field_name);
+        free(field_type);
+        field_start = i + 1;
+      }
+    }
+
+    free(fields);
+    free(trimmed);
+    return ok;
+  }
+
+  bool result = value_is_base_type(val, trimmed);
+  free(trimmed);
+  return result;
+}
+
+/**
+ * @brief Check if a value matches a type expression.
+ *
+ * Supports primitive names (`number`, `string`, ...), unions
+ * (`number or string`), generics (`list<number>`, `map<string, number>`), and
+ * structural map shapes (`map{x:number,y:number}`).
+ */
+bool value_is_type(KronosValue *val, const char *type_name) {
+  return value_is_type_expr(val, type_name, 0);
 }

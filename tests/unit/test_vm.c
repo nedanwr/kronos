@@ -40,6 +40,21 @@ static Bytecode *compile_string(const char *source) {
   return bytecode;
 }
 
+static Function *create_empty_test_function(const char *name) {
+  Function *func = calloc(1, sizeof(Function));
+  if (!func) {
+    return NULL;
+  }
+
+  func->name = strdup(name);
+  if (!func->name) {
+    free(func);
+    return NULL;
+  }
+
+  return func;
+}
+
 TEST(vm_new_free) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
@@ -55,6 +70,26 @@ TEST(vm_execute_number) {
 
   int result = vm_execute(vm, bytecode);
   ASSERT_INT_EQ(result, 0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_debug_statement) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode =
+      compile_string("set x to 42\ndebug \"Variable x:\", x");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *x = vm_get_global(vm, "x");
+  ASSERT_PTR_NOT_NULL(x);
+  ASSERT_INT_EQ(x->type, VAL_NUMBER);
+  ASSERT_DOUBLE_EQ(x->as.number, 42.0);
 
   bytecode_free(bytecode);
   vm_free(vm);
@@ -189,6 +224,162 @@ TEST(vm_execute_function) {
   ASSERT_PTR_NOT_NULL(result_val);
   ASSERT_INT_EQ(result_val->type, VAL_NUMBER);
   ASSERT_DOUBLE_EQ(result_val->as.number, 30.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_match_statement_repeated_in_loop) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let counter to 0\n"
+      "while counter is less than 2:\n"
+      "    match counter:\n"
+      "        case 0:\n"
+      "            print \"zero\"\n"
+      "        default:\n"
+      "            print \"other\"\n"
+      "    let counter to counter plus 1");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+
+  KronosValue *counter = vm_get_global(vm, "counter");
+  ASSERT_PTR_NOT_NULL(counter);
+  ASSERT_INT_EQ(counter->type, VAL_NUMBER);
+  ASSERT_DOUBLE_EQ(counter->as.number, 2.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_filter_basic) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3, 4, 5\n"
+      "set evens to call filter with nums, function with x: return x mod 2 is equal 0");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *evens = vm_get_global(vm, "evens");
+  ASSERT_PTR_NOT_NULL(evens);
+  ASSERT_INT_EQ(evens->type, VAL_LIST);
+  ASSERT_EQ(evens->as.list.count, 2);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[1]->as.number, 4.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_map_basic) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3\n"
+      "set doubled to call map with nums, function with x: return x times 2");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *doubled = vm_get_global(vm, "doubled");
+  ASSERT_PTR_NOT_NULL(doubled);
+  ASSERT_INT_EQ(doubled->type, VAL_LIST);
+  ASSERT_EQ(doubled->as.list.count, 3);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[1]->as.number, 4.0);
+  ASSERT_DOUBLE_EQ(doubled->as.list.items[2]->as.number, 6.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_list_comprehension_range) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set squares to [n times n for n in range 1 to 6]");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *squares = vm_get_global(vm, "squares");
+  ASSERT_PTR_NOT_NULL(squares);
+  ASSERT_INT_EQ(squares->type, VAL_LIST);
+  ASSERT_INT_EQ(squares->as.list.count, 5);
+  ASSERT_DOUBLE_EQ(squares->as.list.items[0]->as.number, 1.0);
+  ASSERT_DOUBLE_EQ(squares->as.list.items[4]->as.number, 25.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_list_comprehension_filter) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set evens to [value for value in [1, 2, 3, 4, 5, 6] if value mod 2 is "
+      "equal 0]");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *evens = vm_get_global(vm, "evens");
+  ASSERT_PTR_NOT_NULL(evens);
+  ASSERT_INT_EQ(evens->type, VAL_LIST);
+  ASSERT_INT_EQ(evens->as.list.count, 3);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[0]->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[1]->as.number, 4.0);
+  ASSERT_DOUBLE_EQ(evens->as.list.items[2]->as.number, 6.0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_map_requires_list_argument) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set bad to call map with \"hello\", function with x: return x");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Function 'map' requires a list argument") != NULL);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_builtin_filter_callback_arity_error) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set nums to list 1, 2, 3\n"
+      "set bad to call filter with nums, function with a, b: return a plus b");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Function 'filter callback' requires at least 2 argument") != NULL);
 
   bytecode_free(bytecode);
   vm_free(vm);
@@ -442,14 +633,15 @@ TEST(vm_define_function_direct) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
 
-  // Create a simple function manually
-  Function *func = malloc(sizeof(Function));
+  // Create a simple function manually (zero-initialized for sanitizer safety)
+  Function *func = create_empty_test_function("test_func");
   ASSERT_PTR_NOT_NULL(func);
 
-  func->name = strdup("test_func");
   func->param_count = 1;
-  func->params = malloc(sizeof(char *));
+  func->params = calloc(func->param_count, sizeof(char *));
+  ASSERT_PTR_NOT_NULL(func->params);
   func->params[0] = strdup("x");
+  ASSERT_PTR_NOT_NULL(func->params[0]);
 
   // Create minimal bytecode (properly initialized)
   func->bytecode.code = NULL;
@@ -468,6 +660,90 @@ TEST(vm_define_function_direct) {
   ASSERT_PTR_NOT_NULL(retrieved);
   ASSERT_STR_EQ(retrieved->name, "test_func");
 
+  vm_free(vm);
+}
+
+TEST(vm_define_function_duplicate_keeps_vm_state_consistent) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Function *first = create_empty_test_function("dup_func");
+  ASSERT_PTR_NOT_NULL(first);
+  int result = vm_define_function(vm, first);
+  ASSERT_INT_EQ(result, 0);
+
+  size_t count_before_duplicate = vm->function_count;
+
+  Function *duplicate = create_empty_test_function("dup_func");
+  ASSERT_PTR_NOT_NULL(duplicate);
+  result = vm_define_function(vm, duplicate);
+  ASSERT_NE(result, 0);
+
+  ASSERT_EQ(vm->function_count, count_before_duplicate);
+  ASSERT_PTR_NOT_NULL(vm_get_function(vm, "dup_func"));
+
+  // vm_define_function() leaves ownership to caller on failure.
+  function_free(duplicate);
+  vm_free(vm);
+}
+
+TEST(vm_execute_rejects_malformed_define_func_required_count) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *constants[1];
+  constants[0] = value_new_string("f", 1);
+  ASSERT_PTR_NOT_NULL(constants[0]);
+
+  // Malformed: required_param_count (2) > param_count (1).
+  uint8_t code[] = {OP_DEFINE_FUNC, 0x00, 0x00, 0x01, 0x02, 0x00,
+                    0x00,          0x00, 0x00, 0x00, 0x00, OP_HALT};
+  Bytecode bytecode = {
+      .code = code,
+      .count = sizeof(code),
+      .capacity = sizeof(code),
+      .constants = constants,
+      .const_count = 1,
+      .const_capacity = 1,
+  };
+
+  int result = vm_execute(vm, &bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_INT_EQ((int)vm->function_count, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message, "required_param_count") != NULL);
+
+  value_release(constants[0]);
+  vm_free(vm);
+}
+
+TEST(vm_execute_rejects_malformed_make_function_required_count) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *constants[1];
+  constants[0] = value_new_string("x", 1);
+  ASSERT_PTR_NOT_NULL(constants[0]);
+
+  // Malformed: required_param_count (2) > param_count (1).
+  uint8_t code[] = {OP_MAKE_FUNCTION, 0x01, 0x02, 0x00, 0x00, 0x00,
+                    0x00,             0x00, 0x00, 0x00, OP_HALT};
+  Bytecode bytecode = {
+      .code = code,
+      .count = sizeof(code),
+      .capacity = sizeof(code),
+      .constants = constants,
+      .const_count = 1,
+      .const_capacity = 1,
+  };
+
+  int result = vm_execute(vm, &bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message, "required_param_count") != NULL);
+  ASSERT_EQ(vm->stack_top - vm->stack, 0);
+
+  value_release(constants[0]);
   vm_free(vm);
 }
 
@@ -494,6 +770,105 @@ TEST(vm_set_global_type_checking) {
   ASSERT_INT_EQ(x->type, VAL_NUMBER);
   ASSERT_DOUBLE_EQ(x->as.number, 42.0);
 
+  vm_free(vm);
+}
+
+TEST(vm_set_global_initial_type_checking) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  KronosValue *str = value_new_string("hello", 5);
+  ASSERT_PTR_NOT_NULL(str);
+
+  // Should fail immediately: initial value violates declared type.
+  int result = vm_set_global(vm, "x", str, false, "number");
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NULL(vm_get_global(vm, "x"));
+
+  value_release(str);
+  vm_free(vm);
+}
+
+TEST(vm_execute_local_initial_type_mismatch) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "function bad:\n"
+      "    set x to \"oops\" as number\n"
+      "call bad");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_NE(result, 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Type mismatch for local variable 'x': expected 'number'") !=
+              NULL);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_generic_list_type_annotation) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let values to list 1, 2, 3 as list<number>\n"
+      "let values to list 4, 5, 6");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *values = vm_get_global(vm, "values");
+  ASSERT_PTR_NOT_NULL(values);
+  ASSERT_INT_EQ(values->type, VAL_LIST);
+  ASSERT_EQ(values->as.list.count, 3);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_union_type_annotation) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "let value to 42 as number or string\n"
+      "let value to \"forty-two\"");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *value = vm_get_global(vm, "value");
+  ASSERT_PTR_NOT_NULL(value);
+  ASSERT_INT_EQ(value->type, VAL_STRING);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_execute_type_alias_map_shape) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "type Point to map x: number, y: number\n"
+      "set p to map x: 1, y: 2 as Point\n"
+      "print p");
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  int result = vm_execute(vm, bytecode);
+  ASSERT_INT_EQ(result, 0);
+
+  KronosValue *p = vm_get_global(vm, "p");
+  ASSERT_PTR_NOT_NULL(p);
+  ASSERT_INT_EQ(p->type, VAL_MAP);
+
+  bytecode_free(bytecode);
   vm_free(vm);
 }
 

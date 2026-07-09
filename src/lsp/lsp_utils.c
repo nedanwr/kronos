@@ -3,6 +3,9 @@
  * @brief Helper functions for LSP server
  */
 
+// Enable POSIX function declarations (e.g., strdup) on strict C builds.
+#define _POSIX_C_SOURCE 200809L
+
 #include "../frontend/tokenizer.h"
 #include "lsp.h"
 #include <ctype.h>
@@ -17,8 +20,723 @@ extern DocumentState *g_doc;
 // Helper structure for counting references
 typedef struct {
   const char *symbol_name;
+  const Symbol *target_symbol;
   size_t count;
 } ReferenceCountContext;
+
+typedef struct {
+  size_t start_line;
+  size_t start_column;
+  size_t end_line;
+  size_t end_column;
+  bool has_position;
+} NodePositionBounds;
+
+static Symbol *allocate_symbol(void) { return calloc(1, sizeof(Symbol)); }
+
+static int compare_source_positions(size_t line_a, size_t col_a, size_t line_b,
+                                    size_t col_b) {
+  if (line_a < line_b) {
+    return -1;
+  }
+  if (line_a > line_b) {
+    return 1;
+  }
+  if (col_a < col_b) {
+    return -1;
+  }
+  if (col_a > col_b) {
+    return 1;
+  }
+  return 0;
+}
+
+static bool position_in_range(size_t line, size_t col, size_t start_line,
+                              size_t start_col, size_t end_line,
+                              size_t end_col) {
+  if (compare_source_positions(line, col, start_line, start_col) < 0) {
+    return false;
+  }
+  if (compare_source_positions(line, col, end_line, end_col) > 0) {
+    return false;
+  }
+  return true;
+}
+
+static void update_node_bounds(NodePositionBounds *bounds, size_t line,
+                               size_t column) {
+  if (!bounds) {
+    return;
+  }
+  if (!bounds->has_position) {
+    bounds->start_line = line;
+    bounds->start_column = column;
+    bounds->end_line = line;
+    bounds->end_column = column;
+    bounds->has_position = true;
+    return;
+  }
+
+  if (compare_source_positions(line, column, bounds->start_line,
+                               bounds->start_column) < 0) {
+    bounds->start_line = line;
+    bounds->start_column = column;
+  }
+  if (compare_source_positions(line, column, bounds->end_line,
+                               bounds->end_column) > 0) {
+    bounds->end_line = line;
+    bounds->end_column = column;
+  }
+}
+
+static void collect_node_position_bounds_recursive(ASTNode *node,
+                                                   NodePositionBounds *bounds,
+                                                   int depth) {
+  if (!node || !bounds || depth > MAX_AST_DEPTH) {
+    return;
+  }
+
+  size_t line = 1;
+  size_t col = 1;
+  get_node_position(node, &line, &col);
+  update_node_bounds(bounds, line, col);
+
+  switch (node->type) {
+  case AST_LIST_COMPREHENSION:
+    collect_node_position_bounds_recursive(node->as.list_comprehension.element_expr,
+                                           bounds, depth + 1);
+    collect_node_position_bounds_recursive(node->as.list_comprehension.iterable,
+                                           bounds, depth + 1);
+    collect_node_position_bounds_recursive(node->as.list_comprehension.condition,
+                                           bounds, depth + 1);
+    break;
+  case AST_ASSIGN:
+    collect_node_position_bounds_recursive(node->as.assign.value, bounds,
+                                           depth + 1);
+    break;
+  case AST_PRINT:
+    collect_node_position_bounds_recursive(node->as.print.value, bounds,
+                                           depth + 1);
+    break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      collect_node_position_bounds_recursive(node->as.debug_stmt.values[i],
+                                             bounds, depth + 1);
+    }
+    break;
+  case AST_BINOP:
+    collect_node_position_bounds_recursive(node->as.binop.left, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.binop.right, bounds,
+                                           depth + 1);
+    break;
+  case AST_IF:
+    collect_node_position_bounds_recursive(node->as.if_stmt.condition, bounds,
+                                           depth + 1);
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.if_stmt.block[i], bounds,
+                                             depth + 1);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      collect_node_position_bounds_recursive(
+          node->as.if_stmt.else_if_conditions[i], bounds, depth + 1);
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        collect_node_position_bounds_recursive(node->as.if_stmt.else_if_blocks[i][j],
+                                               bounds, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.if_stmt.else_block[i],
+                                             bounds, depth + 1);
+    }
+    break;
+  case AST_MATCH:
+    collect_node_position_bounds_recursive(node->as.match_stmt.value, bounds,
+                                           depth + 1);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      collect_node_position_bounds_recursive(node->as.match_stmt.case_patterns[i],
+                                             bounds, depth + 1);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        collect_node_position_bounds_recursive(node->as.match_stmt.case_blocks[i][j],
+                                               bounds, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.match_stmt.default_block[i],
+                                             bounds, depth + 1);
+    }
+    break;
+  case AST_FOR:
+    collect_node_position_bounds_recursive(node->as.for_stmt.iterable, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.for_stmt.end, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.for_stmt.step, bounds,
+                                           depth + 1);
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.for_stmt.block[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_WHILE:
+    collect_node_position_bounds_recursive(node->as.while_stmt.condition, bounds,
+                                           depth + 1);
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.while_stmt.block[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_FUNCTION:
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.function.block[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_CALL:
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      collect_node_position_bounds_recursive(node->as.call.args[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_RETURN:
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      collect_node_position_bounds_recursive(node->as.return_stmt.values[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      collect_node_position_bounds_recursive(node->as.list.elements[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_RANGE:
+    collect_node_position_bounds_recursive(node->as.range.start, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.range.end, bounds, depth + 1);
+    collect_node_position_bounds_recursive(node->as.range.step, bounds,
+                                           depth + 1);
+    break;
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      collect_node_position_bounds_recursive(node->as.map.keys[i], bounds,
+                                             depth + 1);
+      collect_node_position_bounds_recursive(node->as.map.values[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_INDEX:
+    collect_node_position_bounds_recursive(node->as.index.list_expr, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.index.index, bounds,
+                                           depth + 1);
+    break;
+  case AST_SLICE:
+    collect_node_position_bounds_recursive(node->as.slice.list_expr, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.slice.start, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.slice.end, bounds, depth + 1);
+    break;
+  case AST_ASSIGN_INDEX:
+    collect_node_position_bounds_recursive(node->as.assign_index.target, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.assign_index.index, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.assign_index.value, bounds,
+                                           depth + 1);
+    break;
+  case AST_DELETE:
+    collect_node_position_bounds_recursive(node->as.delete_stmt.target, bounds,
+                                           depth + 1);
+    collect_node_position_bounds_recursive(node->as.delete_stmt.key, bounds,
+                                           depth + 1);
+    break;
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.try_stmt.try_block[i], bounds,
+                                             depth + 1);
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        collect_node_position_bounds_recursive(
+            node->as.try_stmt.catch_blocks[i].catch_block[j], bounds, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+      collect_node_position_bounds_recursive(node->as.try_stmt.finally_block[i],
+                                             bounds, depth + 1);
+    }
+    break;
+  case AST_RAISE:
+    collect_node_position_bounds_recursive(node->as.raise_stmt.message, bounds,
+                                           depth + 1);
+    break;
+  case AST_LAMBDA:
+    if (node->as.lambda.is_single_line) {
+      collect_node_position_bounds_recursive(node->as.lambda.body_expr, bounds,
+                                             depth + 1);
+    } else {
+      for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+        collect_node_position_bounds_recursive(node->as.lambda.block[i], bounds,
+                                               depth + 1);
+      }
+    }
+    break;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      collect_node_position_bounds_recursive(node->as.fstring.parts[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      collect_node_position_bounds_recursive(node->as.tuple.elements[i], bounds,
+                                             depth + 1);
+    }
+    break;
+  case AST_UNPACK_ASSIGN:
+    collect_node_position_bounds_recursive(node->as.unpack_assign.value, bounds,
+                                           depth + 1);
+    break;
+  default:
+    break;
+  }
+}
+
+static void get_node_position_bounds(ASTNode *node, NodePositionBounds *bounds) {
+  if (!bounds) {
+    return;
+  }
+  memset(bounds, 0, sizeof(*bounds));
+  collect_node_position_bounds_recursive(node, bounds, 0);
+}
+
+static void process_comprehension_symbols_recursive(ASTNode *node,
+                                                    Symbol ***tail) {
+  if (!node || !tail) {
+    return;
+  }
+
+  switch (node->type) {
+  case AST_LIST_COMPREHENSION: {
+    if (node->as.list_comprehension.var) {
+      Symbol *sym = allocate_symbol();
+      if (sym) {
+        sym->name = strdup(node->as.list_comprehension.var);
+        if (sym->name) {
+          NodePositionBounds bounds;
+          sym->type = SYMBOL_VARIABLE;
+          sym->is_mutable = false;
+          sym->type_name = NULL;
+          sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
+          sym->written = true;
+          sym->read = false;
+          get_node_position(node, &sym->line, &sym->column);
+          get_node_position_bounds(node, &bounds);
+          if (bounds.has_position) {
+            sym->is_block_local = true;
+            sym->scope_start_line = bounds.start_line;
+            sym->scope_start_column = bounds.start_column;
+            sym->scope_end_line = bounds.end_line;
+            sym->scope_end_column = bounds.end_column;
+          }
+          sym->next = NULL;
+          **tail = sym;
+          *tail = &sym->next;
+        } else {
+          free(sym);
+        }
+      }
+    }
+    process_comprehension_symbols_recursive(
+        node->as.list_comprehension.element_expr, tail);
+    process_comprehension_symbols_recursive(node->as.list_comprehension.iterable,
+                                            tail);
+    process_comprehension_symbols_recursive(
+        node->as.list_comprehension.condition, tail);
+    break;
+  }
+  case AST_ASSIGN:
+    process_comprehension_symbols_recursive(node->as.assign.value, tail);
+    break;
+  case AST_PRINT:
+    process_comprehension_symbols_recursive(node->as.print.value, tail);
+    break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      process_comprehension_symbols_recursive(node->as.debug_stmt.values[i],
+                                              tail);
+    }
+    break;
+  case AST_BINOP:
+    process_comprehension_symbols_recursive(node->as.binop.left, tail);
+    process_comprehension_symbols_recursive(node->as.binop.right, tail);
+    break;
+  case AST_IF:
+    process_comprehension_symbols_recursive(node->as.if_stmt.condition, tail);
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.if_stmt.block[i], tail);
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.if_stmt.else_if_conditions[i], tail);
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        process_comprehension_symbols_recursive(
+            node->as.if_stmt.else_if_blocks[i][j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.if_stmt.else_block[i],
+                                              tail);
+    }
+    break;
+  case AST_MATCH:
+    process_comprehension_symbols_recursive(node->as.match_stmt.value, tail);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.match_stmt.case_patterns[i], tail);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        process_comprehension_symbols_recursive(
+            node->as.match_stmt.case_blocks[i][j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      process_comprehension_symbols_recursive(
+          node->as.match_stmt.default_block[i], tail);
+    }
+    break;
+  case AST_FOR:
+    process_comprehension_symbols_recursive(node->as.for_stmt.iterable, tail);
+    process_comprehension_symbols_recursive(node->as.for_stmt.end, tail);
+    process_comprehension_symbols_recursive(node->as.for_stmt.step, tail);
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.for_stmt.block[i], tail);
+    }
+    break;
+  case AST_WHILE:
+    process_comprehension_symbols_recursive(node->as.while_stmt.condition, tail);
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.while_stmt.block[i],
+                                              tail);
+    }
+    break;
+  case AST_FUNCTION:
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.function.block[i], tail);
+    }
+    break;
+  case AST_CALL:
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      process_comprehension_symbols_recursive(node->as.call.args[i], tail);
+    }
+    break;
+  case AST_RETURN:
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      process_comprehension_symbols_recursive(node->as.return_stmt.values[i],
+                                              tail);
+    }
+    break;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      process_comprehension_symbols_recursive(node->as.list.elements[i], tail);
+    }
+    break;
+  case AST_RANGE:
+    process_comprehension_symbols_recursive(node->as.range.start, tail);
+    process_comprehension_symbols_recursive(node->as.range.end, tail);
+    process_comprehension_symbols_recursive(node->as.range.step, tail);
+    break;
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      process_comprehension_symbols_recursive(node->as.map.keys[i], tail);
+      process_comprehension_symbols_recursive(node->as.map.values[i], tail);
+    }
+    break;
+  case AST_INDEX:
+    process_comprehension_symbols_recursive(node->as.index.list_expr, tail);
+    process_comprehension_symbols_recursive(node->as.index.index, tail);
+    break;
+  case AST_SLICE:
+    process_comprehension_symbols_recursive(node->as.slice.list_expr, tail);
+    process_comprehension_symbols_recursive(node->as.slice.start, tail);
+    process_comprehension_symbols_recursive(node->as.slice.end, tail);
+    break;
+  case AST_ASSIGN_INDEX:
+    process_comprehension_symbols_recursive(node->as.assign_index.target, tail);
+    process_comprehension_symbols_recursive(node->as.assign_index.index, tail);
+    process_comprehension_symbols_recursive(node->as.assign_index.value, tail);
+    break;
+  case AST_DELETE:
+    process_comprehension_symbols_recursive(node->as.delete_stmt.target, tail);
+    process_comprehension_symbols_recursive(node->as.delete_stmt.key, tail);
+    break;
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.try_stmt.try_block[i],
+                                              tail);
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        process_comprehension_symbols_recursive(
+            node->as.try_stmt.catch_blocks[i].catch_block[j], tail);
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+      process_comprehension_symbols_recursive(node->as.try_stmt.finally_block[i],
+                                              tail);
+    }
+    break;
+  case AST_RAISE:
+    process_comprehension_symbols_recursive(node->as.raise_stmt.message, tail);
+    break;
+  case AST_LAMBDA:
+    if (node->as.lambda.is_single_line) {
+      process_comprehension_symbols_recursive(node->as.lambda.body_expr, tail);
+    } else {
+      for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+        process_comprehension_symbols_recursive(node->as.lambda.block[i], tail);
+      }
+    }
+    break;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      process_comprehension_symbols_recursive(node->as.fstring.parts[i], tail);
+    }
+    break;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      process_comprehension_symbols_recursive(node->as.tuple.elements[i], tail);
+    }
+    break;
+  case AST_UNPACK_ASSIGN:
+    process_comprehension_symbols_recursive(node->as.unpack_assign.value, tail);
+    break;
+  default:
+    break;
+  }
+}
+
+static bool node_declares_loop_variable(ASTNode *node, const char *name) {
+  if (!node || !name) {
+    return false;
+  }
+
+  switch (node->type) {
+  case AST_FOR:
+    if (node->as.for_stmt.var &&
+        strcmp(node->as.for_stmt.var, name) == 0) {
+      return true;
+    }
+    if (node_declares_loop_variable(node->as.for_stmt.iterable, name) ||
+        node_declares_loop_variable(node->as.for_stmt.end, name) ||
+        node_declares_loop_variable(node->as.for_stmt.step, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.for_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_LIST_COMPREHENSION:
+    if (node->as.list_comprehension.var &&
+        strcmp(node->as.list_comprehension.var, name) == 0) {
+      return true;
+    }
+    return node_declares_loop_variable(node->as.list_comprehension.element_expr,
+                                       name) ||
+           node_declares_loop_variable(node->as.list_comprehension.iterable,
+                                       name) ||
+           node_declares_loop_variable(node->as.list_comprehension.condition,
+                                       name);
+  case AST_ASSIGN:
+    return node_declares_loop_variable(node->as.assign.value, name);
+  case AST_PRINT:
+    return node_declares_loop_variable(node->as.print.value, name);
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      if (node_declares_loop_variable(node->as.debug_stmt.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_BINOP:
+    return node_declares_loop_variable(node->as.binop.left, name) ||
+           node_declares_loop_variable(node->as.binop.right, name);
+  case AST_IF:
+    if (node_declares_loop_variable(node->as.if_stmt.condition, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.else_if_conditions[i],
+                                      name)) {
+        return true;
+      }
+      for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
+        if (node_declares_loop_variable(node->as.if_stmt.else_if_blocks[i][j],
+                                        name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
+      if (node_declares_loop_variable(node->as.if_stmt.else_block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_MATCH:
+    if (node_declares_loop_variable(node->as.match_stmt.value, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      if (node_declares_loop_variable(node->as.match_stmt.case_patterns[i],
+                                      name)) {
+        return true;
+      }
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        if (node_declares_loop_variable(node->as.match_stmt.case_blocks[i][j],
+                                        name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      if (node_declares_loop_variable(node->as.match_stmt.default_block[i],
+                                      name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_WHILE:
+    if (node_declares_loop_variable(node->as.while_stmt.condition, name)) {
+      return true;
+    }
+    for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
+      if (node_declares_loop_variable(node->as.while_stmt.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_FUNCTION:
+    for (size_t i = 0; i < node->as.function.block_size; i++) {
+      if (node_declares_loop_variable(node->as.function.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_CALL:
+    for (size_t i = 0; i < node->as.call.arg_count; i++) {
+      if (node_declares_loop_variable(node->as.call.args[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RETURN:
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      if (node_declares_loop_variable(node->as.return_stmt.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_LIST:
+    for (size_t i = 0; i < node->as.list.element_count; i++) {
+      if (node_declares_loop_variable(node->as.list.elements[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RANGE:
+    return node_declares_loop_variable(node->as.range.start, name) ||
+           node_declares_loop_variable(node->as.range.end, name) ||
+           node_declares_loop_variable(node->as.range.step, name);
+  case AST_MAP:
+    for (size_t i = 0; i < node->as.map.entry_count; i++) {
+      if (node_declares_loop_variable(node->as.map.keys[i], name) ||
+          node_declares_loop_variable(node->as.map.values[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_INDEX:
+    return node_declares_loop_variable(node->as.index.list_expr, name) ||
+           node_declares_loop_variable(node->as.index.index, name);
+  case AST_SLICE:
+    return node_declares_loop_variable(node->as.slice.list_expr, name) ||
+           node_declares_loop_variable(node->as.slice.start, name) ||
+           node_declares_loop_variable(node->as.slice.end, name);
+  case AST_ASSIGN_INDEX:
+    return node_declares_loop_variable(node->as.assign_index.target, name) ||
+           node_declares_loop_variable(node->as.assign_index.index, name) ||
+           node_declares_loop_variable(node->as.assign_index.value, name);
+  case AST_DELETE:
+    return node_declares_loop_variable(node->as.delete_stmt.target, name) ||
+           node_declares_loop_variable(node->as.delete_stmt.key, name);
+  case AST_TRY:
+    for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
+      if (node_declares_loop_variable(node->as.try_stmt.try_block[i], name)) {
+        return true;
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
+      for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
+           j++) {
+        if (node_declares_loop_variable(
+                node->as.try_stmt.catch_blocks[i].catch_block[j], name)) {
+          return true;
+        }
+      }
+    }
+    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
+      if (node_declares_loop_variable(node->as.try_stmt.finally_block[i],
+                                      name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_RAISE:
+    return node_declares_loop_variable(node->as.raise_stmt.message, name);
+  case AST_LAMBDA:
+    if (node->as.lambda.is_single_line) {
+      return node_declares_loop_variable(node->as.lambda.body_expr, name);
+    }
+    for (size_t i = 0; i < node->as.lambda.block_size; i++) {
+      if (node_declares_loop_variable(node->as.lambda.block[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_FSTRING:
+    for (size_t i = 0; i < node->as.fstring.part_count; i++) {
+      if (node_declares_loop_variable(node->as.fstring.parts[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_TUPLE:
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      if (node_declares_loop_variable(node->as.tuple.elements[i], name)) {
+        return true;
+      }
+    }
+    return false;
+  case AST_UNPACK_ASSIGN:
+    return node_declares_loop_variable(node->as.unpack_assign.value, name);
+  default:
+    return false;
+  }
+}
 
 /**
  * @brief Safely parse an unsigned long from a string
@@ -83,22 +801,34 @@ void free_symbols(Symbol *sym) {
     Symbol *next = sym->next;
     free(sym->name);
     free(sym->type_name);
+    // Free parameter names array for functions
+    if (sym->param_names) {
+      for (size_t i = 0; i < sym->param_count; i++) {
+        free(sym->param_names[i]);
+      }
+      free(sym->param_names);
+    }
     free(sym);
     sym = next;
   }
 }
 
 void get_node_position(ASTNode *node, size_t *line, size_t *col) {
-  // LIMITATION: This function uses approximate position estimates because
-  // the AST doesn't store exact source positions. The parser would need to
-  // be modified to track line/column information for each AST node.
-  // Current implementation uses indent as a crude estimate, which is
-  // inaccurate.
-  // TODO: Enhance parser to track source positions (line/column) for each node.
   *line = 1;
   *col = 1;
-  if (node && node->indent >= 0) {
-    // Use indent as a rough estimate (inaccurate - see limitation above)
+  if (!node) {
+    return;
+  }
+
+  // Prefer parser-provided source positions when available.
+  if (node->line > 0 && node->column > 0) {
+    *line = node->line;
+    *col = node->column;
+    return;
+  }
+
+  // Fallback for nodes that still don't have explicit source positions.
+  if (node->indent >= 0) {
     *line = (size_t)(node->indent / 4) + 1;
     *col = (size_t)(node->indent % 4) + 1;
   }
@@ -230,7 +960,7 @@ Symbol *load_module_exports(const char *file_path) {
 
     // Extract function definitions
     if (node->type == AST_FUNCTION && node->as.function.name) {
-      Symbol *sym = malloc(sizeof(Symbol));
+      Symbol *sym = allocate_symbol();
       if (sym) {
         sym->name = strdup(node->as.function.name);
         sym->type = SYMBOL_FUNCTION;
@@ -255,6 +985,20 @@ Symbol *load_module_exports(const char *file_path) {
         sym->type_name = NULL;
         sym->is_mutable = false;
         sym->param_count = node->as.function.param_count;
+        sym->required_param_count = node->as.function.required_param_count;
+        sym->has_variadic = node->as.function.has_variadic;
+        // Copy parameter names for signature display
+        sym->param_names = NULL;
+        if (node->as.function.param_count > 0 && node->as.function.params) {
+          sym->param_names = malloc(sizeof(char *) * node->as.function.param_count);
+          if (sym->param_names) {
+            for (size_t pi = 0; pi < node->as.function.param_count; pi++) {
+              sym->param_names[pi] = node->as.function.params[pi]
+                  ? strdup(node->as.function.params[pi])
+                  : NULL;
+            }
+          }
+        }
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -264,7 +1008,7 @@ Symbol *load_module_exports(const char *file_path) {
     }
     // Extract variable declarations (top-level only)
     else if (node->type == AST_ASSIGN && node->as.assign.name) {
-      Symbol *sym = malloc(sizeof(Symbol));
+      Symbol *sym = allocate_symbol();
       if (sym) {
         sym->name = strdup(node->as.assign.name);
         sym->type = SYMBOL_VARIABLE;
@@ -298,6 +1042,43 @@ Symbol *load_module_exports(const char *file_path) {
                              : NULL;
         sym->is_mutable = node->as.assign.is_mutable;
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
+        sym->written = false;
+        sym->read = false;
+        sym->next = NULL;
+        *tail = sym;
+        tail = &sym->next;
+      }
+    } else if (node->type == AST_TYPE_ALIAS && node->as.type_alias.name) {
+      Symbol *sym = allocate_symbol();
+      if (sym) {
+        sym->name = strdup(node->as.type_alias.name);
+        sym->type = SYMBOL_TYPE_ALIAS;
+        if (source_for_pos) {
+          char pattern[LSP_PATTERN_BUFFER_SIZE];
+          int n = snprintf(pattern, sizeof(pattern), "type %s to", sym->name);
+          if (n >= 0 && (size_t)n < sizeof(pattern)) {
+            find_node_position(node, source_for_pos, pattern, &sym->line,
+                               &sym->column);
+            if (sym->line == 1 && sym->column == 0) {
+              get_node_position(node, &sym->line, &sym->column);
+            }
+          } else {
+            get_node_position(node, &sym->line, &sym->column);
+          }
+        } else {
+          get_node_position(node, &sym->line, &sym->column);
+        }
+        sym->type_name = node->as.type_alias.target_type
+                             ? strdup(node->as.type_alias.target_type)
+                             : NULL;
+        sym->is_mutable = false;
+        sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = false;
         sym->read = false;
         sym->next = NULL;
@@ -388,6 +1169,7 @@ char *get_module_hover_info(ImportedModule *mod) {
     Symbol *sym = mod->exports;
     int func_count = 0;
     int var_count = 0;
+    int alias_count = 0;
     while (sym) {
       if (sym->type == SYMBOL_FUNCTION) {
         func_count++;
@@ -479,10 +1261,49 @@ char *get_module_hover_info(ImportedModule *mod) {
             pos += (size_t)ret;
           }
         }
+      } else if (sym->type == SYMBOL_TYPE_ALIAS) {
+        alias_count++;
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, "• `%s` (type alias",
+                         sym->name);
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
+          }
+        }
+        if (sym->type_name) {
+          remaining = buffer_size - pos;
+          if (remaining > 0) {
+            ret = snprintf(hover_text + pos, remaining, " -> `%s`",
+                           sym->type_name);
+            if (ret < 0)
+              ret = 0;
+            if ((size_t)ret >= remaining) {
+              pos = buffer_size - 1;
+            } else {
+              pos += (size_t)ret;
+            }
+          }
+        }
+        remaining = buffer_size - pos;
+        if (remaining > 0) {
+          ret = snprintf(hover_text + pos, remaining, ")\n");
+          if (ret < 0)
+            ret = 0;
+          if ((size_t)ret >= remaining) {
+            pos = buffer_size - 1;
+          } else {
+            pos += (size_t)ret;
+          }
+        }
       }
       sym = sym->next;
     }
-    if (func_count == 0 && var_count == 0) {
+    if (func_count == 0 && var_count == 0 && alias_count == 0) {
       remaining = buffer_size - pos;
       if (remaining > 0) {
         ret = snprintf(hover_text + pos, remaining, "No exports found\n");
@@ -561,7 +1382,7 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
 
       // Only create new symbol if it doesn't exist
       if (!existing) {
-        sym = malloc(sizeof(Symbol));
+        sym = allocate_symbol();
         if (!sym)
           continue;
         sym->name = strdup(node->as.assign.name);
@@ -579,6 +1400,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
         }
 
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = true; // Initial assignment counts as a write
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -590,8 +1414,48 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       }
       break;
     }
+    case AST_UNPACK_ASSIGN: {
+      // Create a symbol for each unpacked variable
+      for (size_t j = 0; j < node->as.unpack_assign.name_count; j++) {
+        // Check if symbol already exists (for reassignments)
+        Symbol *existing = head ? *head : NULL;
+        while (existing) {
+          if (existing->name &&
+              strcmp(existing->name, node->as.unpack_assign.names[j]) == 0 &&
+              existing->type == SYMBOL_VARIABLE) {
+            existing->written = true;
+            break;
+          }
+          existing = existing->next;
+        }
+
+        // Only create new symbol if it doesn't exist
+        if (!existing) {
+          sym = allocate_symbol();
+          if (!sym)
+            continue;
+          sym->name = strdup(node->as.unpack_assign.names[j]);
+          sym->type = SYMBOL_VARIABLE;
+          sym->is_mutable = node->as.unpack_assign.is_mutable;
+          sym->type_name = NULL;  // No type annotation for unpacking
+          sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
+          sym->written = true;
+          sym->read = false;
+          get_node_position(node, &line, &col);
+          sym->line = line;
+          sym->column = col;
+          sym->next = NULL;
+          **tail = sym;
+          *tail = &sym->next;
+        }
+      }
+      break;
+    }
     case AST_FUNCTION: {
-      sym = malloc(sizeof(Symbol));
+      sym = allocate_symbol();
       if (!sym)
         continue;
       sym->name = strdup(node->as.function.name);
@@ -599,6 +1463,20 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       sym->is_mutable = false;
       sym->type_name = NULL;
       sym->param_count = node->as.function.param_count;
+      sym->required_param_count = node->as.function.required_param_count;
+      sym->has_variadic = node->as.function.has_variadic;
+      // Copy parameter names for signature display
+      sym->param_names = NULL;
+      if (node->as.function.param_count > 0 && node->as.function.params) {
+        sym->param_names = malloc(sizeof(char *) * node->as.function.param_count);
+        if (sym->param_names) {
+          for (size_t pi = 0; pi < node->as.function.param_count; pi++) {
+            sym->param_names[pi] = node->as.function.params[pi]
+                ? strdup(node->as.function.params[pi])
+                : NULL;
+          }
+        }
+      }
       sym->written = false;
       sym->read = false;
       get_node_position(node, &line, &col);
@@ -609,22 +1487,37 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       *tail = &sym->next;
 
       // Add parameters as symbols
-      for (size_t j = 0; j < node->as.function.param_count; j++) {
-        Symbol *param = malloc(sizeof(Symbol));
-        if (!param)
-          continue;
-        param->name = strdup(node->as.function.params[j]);
-        param->type = SYMBOL_PARAMETER;
-        param->is_mutable = false;
-        param->type_name = NULL;
-        param->param_count = 0;
-        param->written = false; // Parameters are passed in, not written
-        param->read = false;
-        param->line = line;
-        param->column = col;
-        param->next = NULL;
-        **tail = param;
-        *tail = &param->next;
+      if (node->as.function.param_count > 0 && node->as.function.params) {
+        for (size_t j = 0; j < node->as.function.param_count; j++) {
+          const char *param_name = node->as.function.params[j];
+          if (!param_name)
+            continue;
+
+          Symbol *param = allocate_symbol();
+          if (!param)
+            continue;
+
+          param->name = strdup(param_name);
+          if (!param->name) {
+            free(param);
+            continue;
+          }
+
+          param->type = SYMBOL_PARAMETER;
+          param->is_mutable = false;
+          param->type_name = NULL;
+          param->param_count = 0;
+          param->required_param_count = 0;
+          param->has_variadic = false;
+          param->param_names = NULL;
+          param->written = false; // Parameters are passed in, not written
+          param->read = false;
+          param->line = line;
+          param->column = col;
+          param->next = NULL;
+          **tail = param;
+          *tail = &param->next;
+        }
       }
 
       // Recursively process function body to add local variables
@@ -634,10 +1527,46 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       }
       break;
     }
+    case AST_TYPE_ALIAS: {
+      Symbol *existing = head ? *head : NULL;
+      while (existing) {
+        if (existing->name &&
+            strcmp(existing->name, node->as.type_alias.name) == 0 &&
+            existing->type == SYMBOL_TYPE_ALIAS) {
+          break;
+        }
+        existing = existing->next;
+      }
+
+      if (!existing) {
+        sym = allocate_symbol();
+        if (!sym)
+          break;
+        sym->name = strdup(node->as.type_alias.name);
+        sym->type = SYMBOL_TYPE_ALIAS;
+        sym->is_mutable = false;
+        sym->type_name = node->as.type_alias.target_type
+                             ? strdup(node->as.type_alias.target_type)
+                             : NULL;
+        sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
+        sym->written = false;
+        sym->read = false;
+        get_node_position(node, &line, &col);
+        sym->line = line;
+        sym->column = col;
+        sym->next = NULL;
+        **tail = sym;
+        *tail = &sym->next;
+      }
+      break;
+    }
     case AST_FOR: {
       // Add loop variable to symbol table
       if (node->as.for_stmt.var) {
-        sym = malloc(sizeof(Symbol));
+        sym = allocate_symbol();
         if (!sym)
           break;
         sym->name = strdup(node->as.for_stmt.var);
@@ -646,6 +1575,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
             false; // Loop variables are immutable (assigned by loop)
         sym->type_name = NULL; // Type depends on what's being iterated
         sym->param_count = 0;
+        sym->required_param_count = 0;
+        sym->has_variadic = false;
+        sym->param_names = NULL;
         sym->written = false; // Loop variables are assigned by the loop
         sym->read = false;
         get_node_position(node, &line, &col);
@@ -661,7 +1593,7 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
       // Add catch variables to symbol table
       for (size_t j = 0; j < node->as.try_stmt.catch_block_count; j++) {
         if (node->as.try_stmt.catch_blocks[j].catch_var) {
-          sym = malloc(sizeof(Symbol));
+          sym = allocate_symbol();
           if (!sym)
             break;
           sym->name = strdup(node->as.try_stmt.catch_blocks[j].catch_var);
@@ -669,6 +1601,9 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
           sym->is_mutable = false;           // Catch variables are immutable
           sym->type_name = strdup("string"); // Error messages are strings
           sym->param_count = 0;
+          sym->required_param_count = 0;
+          sym->has_variadic = false;
+          sym->param_names = NULL;
           sym->written =
               false; // Catch variables are assigned by exception handler
           sym->read = false;
@@ -679,6 +1614,23 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
           **tail = sym;
           *tail = &sym->next;
         }
+      }
+      break;
+    }
+    case AST_MATCH: {
+      for (size_t j = 0; j < node->as.match_stmt.case_count; j++) {
+        if (node->as.match_stmt.case_blocks[j] &&
+            node->as.match_stmt.case_block_sizes[j] > 0) {
+          process_statements_for_symbols(node->as.match_stmt.case_blocks[j],
+                                         node->as.match_stmt.case_block_sizes[j],
+                                         tail, head);
+        }
+      }
+      if (node->as.match_stmt.default_block &&
+          node->as.match_stmt.default_block_size > 0) {
+        process_statements_for_symbols(node->as.match_stmt.default_block,
+                                       node->as.match_stmt.default_block_size,
+                                       tail, head);
       }
       break;
     }
@@ -763,6 +1715,10 @@ void build_symbol_table(DocumentState *doc, AST *ast, const char *text) {
   // bodies)
   process_statements_for_symbols(ast->statements, ast->count, &tail,
                                  &doc->symbols);
+
+  for (size_t i = 0; i < ast->count; i++) {
+    process_comprehension_symbols_recursive(ast->statements[i], &tail);
+  }
 
   free(line_starts);
 }
@@ -965,6 +1921,7 @@ int get_builtin_arg_count(const char *func_name) {
   if (strcmp(func_name, "add") == 0 || strcmp(func_name, "subtract") == 0 ||
       strcmp(func_name, "multiply") == 0 || strcmp(func_name, "divide") == 0 ||
       strcmp(func_name, "power") == 0 || strcmp(func_name, "split") == 0 ||
+      strcmp(func_name, "filter") == 0 || strcmp(func_name, "map") == 0 ||
       strcmp(func_name, "contains") == 0 ||
       strcmp(func_name, "starts_with") == 0 ||
       strcmp(func_name, "ends_with") == 0 ||
@@ -1035,6 +1992,375 @@ void find_call_position(const char *text, const char *func_name, size_t *line,
     *col = (size_t)(pos - line_start);
     return;
   }
+}
+
+static bool is_match_inside_quoted_string(const char *line_start,
+                                          const char *pos) {
+  if (!line_start || !pos || pos < line_start) {
+    return false;
+  }
+
+  bool in_single_quote = false;
+  bool in_double_quote = false;
+  bool escaped = false;
+  for (const char *cursor = line_start; cursor < pos; cursor++) {
+    char ch = *cursor;
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch == '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (ch == '"' && !in_single_quote) {
+      in_double_quote = !in_double_quote;
+      continue;
+    }
+
+    if (ch == '\'' && !in_double_quote) {
+      in_single_quote = !in_single_quote;
+      continue;
+    }
+  }
+
+  return in_single_quote || in_double_quote;
+}
+
+bool find_call_expression_position(const char *text, const char *func_name,
+                                   size_t preferred_line, size_t *line,
+                                   size_t *col, size_t *length) {
+  *line = 1;
+  *col = 0;
+  *length = 0;
+  if (!text || !func_name)
+    return false;
+
+  // Search for "call <func_name> with" pattern
+  char pattern[256];
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    // Pattern too long, cannot search
+    return false;
+  }
+
+  const char *pos = text;
+  bool have_fallback = false;
+  size_t fallback_line = 1;
+  size_t fallback_col = 0;
+  size_t fallback_length = 0;
+  while ((pos = strstr(pos, pattern)) != NULL) {
+    // Check if this is the actual call (not part of a comment)
+    const char *line_start = pos;
+    while (line_start > text && *(line_start - 1) != '\n') {
+      line_start--;
+    }
+
+    const char *line_end = pos;
+    while (*line_end != '\0' && *line_end != '\n') {
+      line_end++;
+    }
+
+    // Skip leading whitespace
+    const char *first_non_ws = line_start;
+    while (first_non_ws < line_end &&
+           (*first_non_ws == ' ' || *first_non_ws == '\t')) {
+      first_non_ws++;
+    }
+    // Skip comment lines
+    if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (is_match_inside_quoted_string(line_start, pos)) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    // Count lines up to this position
+    size_t current_line = 1;
+    for (const char *p = text; p < pos; p++) {
+      if (*p == '\n')
+        current_line++;
+    }
+    size_t current_col = (size_t)(pos - line_start);
+
+    // Highlight only the call expression, excluding inline comments and trailing
+    // whitespace.
+    const char *range_end = line_end;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+    for (const char *cursor = pos; cursor < line_end; cursor++) {
+      char ch = *cursor;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (ch == '"' && !in_single_quote) {
+        in_double_quote = !in_double_quote;
+        continue;
+      }
+
+      if (ch == '\'' && !in_double_quote) {
+        in_single_quote = !in_single_quote;
+        continue;
+      }
+
+      if (ch == '#' && !in_single_quote && !in_double_quote) {
+        range_end = cursor;
+        break;
+      }
+    }
+
+    while (range_end > pos &&
+           (*(range_end - 1) == ' ' || *(range_end - 1) == '\t' ||
+            *(range_end - 1) == '\r')) {
+      range_end--;
+    }
+
+    if (range_end <= pos) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    size_t current_length = (size_t)(range_end - pos);
+    if (current_length == 0) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (preferred_line == 0 || current_line == preferred_line) {
+      *line = current_line;
+      *col = current_col;
+      *length = current_length;
+      return true;
+    }
+
+    if (!have_fallback) {
+      have_fallback = true;
+      fallback_line = current_line;
+      fallback_col = current_col;
+      fallback_length = current_length;
+    }
+
+    pos += strlen(pattern);
+  }
+
+  if (have_fallback) {
+    *line = fallback_line;
+    *col = fallback_col;
+    *length = fallback_length;
+    return true;
+  }
+
+  return false;
+}
+
+bool find_call_argument_position_by_index(const char *text,
+                                          const char *func_name,
+                                          size_t preferred_line,
+                                          size_t arg_index, size_t *line,
+                                          size_t *col, size_t *length) {
+  *line = 1;
+  *col = 0;
+  *length = 0;
+  if (!text || !func_name)
+    return false;
+
+  char pattern[256];
+  int n = snprintf(pattern, sizeof(pattern), "call %s with", func_name);
+  if (n < 0 || (size_t)n >= sizeof(pattern)) {
+    return false;
+  }
+
+  const char *pos = text;
+  while ((pos = strstr(pos, pattern)) != NULL) {
+    const char *line_start = pos;
+    while (line_start > text && *(line_start - 1) != '\n') {
+      line_start--;
+    }
+
+    const char *line_end = pos;
+    while (*line_end != '\0' && *line_end != '\n') {
+      line_end++;
+    }
+
+    const char *first_non_ws = line_start;
+    while (first_non_ws < line_end &&
+           (*first_non_ws == ' ' || *first_non_ws == '\t')) {
+      first_non_ws++;
+    }
+    if (first_non_ws < line_end && *first_non_ws == '#') {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    if (is_match_inside_quoted_string(line_start, pos)) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    size_t current_line = 1;
+    for (const char *p = text; p < pos; p++) {
+      if (*p == '\n')
+        current_line++;
+    }
+    if (preferred_line != 0 && current_line != preferred_line) {
+      pos += strlen(pattern);
+      continue;
+    }
+
+    // Ignore inline comments when splitting arguments.
+    const char *statement_end = line_end;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+    for (const char *cursor = pos; cursor < line_end; cursor++) {
+      char ch = *cursor;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch == '"' && !in_single_quote) {
+        in_double_quote = !in_double_quote;
+        continue;
+      }
+      if (ch == '\'' && !in_double_quote) {
+        in_single_quote = !in_single_quote;
+        continue;
+      }
+      if (ch == '#' && !in_single_quote && !in_double_quote) {
+        statement_end = cursor;
+        break;
+      }
+    }
+
+    const char *args_start = pos + strlen(pattern);
+    while (args_start < statement_end &&
+           (*args_start == ' ' || *args_start == '\t')) {
+      args_start++;
+    }
+    if (args_start >= statement_end) {
+      if (preferred_line != 0)
+        return false;
+      pos += strlen(pattern);
+      continue;
+    }
+
+    size_t current_arg_index = 0;
+    const char *arg_start = args_start;
+    while (arg_start < statement_end) {
+      while (arg_start < statement_end &&
+             (*arg_start == ' ' || *arg_start == '\t')) {
+        arg_start++;
+      }
+      if (arg_start >= statement_end)
+        break;
+
+      const char *cursor = arg_start;
+      bool arg_in_single_quote = false;
+      bool arg_in_double_quote = false;
+      bool arg_escaped = false;
+      int paren_depth = 0;
+      int bracket_depth = 0;
+      int brace_depth = 0;
+      for (; cursor < statement_end; cursor++) {
+        char ch = *cursor;
+        if (arg_escaped) {
+          arg_escaped = false;
+          continue;
+        }
+        if (ch == '\\') {
+          arg_escaped = true;
+          continue;
+        }
+        if (ch == '"' && !arg_in_single_quote) {
+          arg_in_double_quote = !arg_in_double_quote;
+          continue;
+        }
+        if (ch == '\'' && !arg_in_double_quote) {
+          arg_in_single_quote = !arg_in_single_quote;
+          continue;
+        }
+        if (arg_in_single_quote || arg_in_double_quote) {
+          continue;
+        }
+        if (ch == '(') {
+          paren_depth++;
+          continue;
+        }
+        if (ch == ')' && paren_depth > 0) {
+          paren_depth--;
+          continue;
+        }
+        if (ch == '[') {
+          bracket_depth++;
+          continue;
+        }
+        if (ch == ']' && bracket_depth > 0) {
+          bracket_depth--;
+          continue;
+        }
+        if (ch == '{') {
+          brace_depth++;
+          continue;
+        }
+        if (ch == '}' && brace_depth > 0) {
+          brace_depth--;
+          continue;
+        }
+        if (ch == ',' && paren_depth == 0 && bracket_depth == 0 &&
+            brace_depth == 0) {
+          break;
+        }
+      }
+
+      const char *arg_end = cursor;
+      while (arg_end > arg_start &&
+             (*(arg_end - 1) == ' ' || *(arg_end - 1) == '\t' ||
+              *(arg_end - 1) == '\r')) {
+        arg_end--;
+      }
+
+      if (current_arg_index == arg_index) {
+        if (arg_end <= arg_start)
+          return false;
+        *line = current_line;
+        *col = (size_t)(arg_start - line_start);
+        *length = (size_t)(arg_end - arg_start);
+        return true;
+      }
+
+      if (cursor >= statement_end)
+        break;
+
+      current_arg_index++;
+      arg_start = cursor + 1;
+    }
+
+    if (preferred_line != 0)
+      return false;
+
+    pos += strlen(pattern);
+  }
+
+  return false;
 }
 
 bool find_call_argument_position(const char *text, const char *func_name,
@@ -1353,27 +2679,120 @@ bool is_loop_variable(Symbol *sym, AST *ast) {
   if (!sym || !ast || sym->type != SYMBOL_VARIABLE)
     return false;
 
-  // Check if this variable is declared in a FOR statement
   for (size_t i = 0; i < ast->count; i++) {
-    ASTNode *node = ast->statements[i];
-    if (!node || node->type != AST_FOR)
-      continue;
-
-    if (node->as.for_stmt.var &&
-        strcmp(node->as.for_stmt.var, sym->name) == 0) {
+    if (node_declares_loop_variable(ast->statements[i], sym->name)) {
       return true;
-    }
-
-    // Check nested FOR statements in the loop body
-    if (node->as.for_stmt.block) {
-      AST temp_ast = {node->as.for_stmt.block, node->as.for_stmt.block_size,
-                      node->as.for_stmt.block_size};
-      if (is_loop_variable(sym, &temp_ast))
-        return true;
     }
   }
 
   return false;
+}
+
+static bool symbol_has_scope_range(const Symbol *sym) {
+  return sym && sym->is_block_local && sym->scope_start_line > 0 &&
+         sym->scope_start_column > 0 && sym->scope_end_line > 0 &&
+         sym->scope_end_column > 0;
+}
+
+static bool symbol_visible_at_position(const Symbol *sym, size_t line,
+                                       size_t col) {
+  if (!sym) {
+    return false;
+  }
+  if (!sym->is_block_local) {
+    return true;
+  }
+  if (!symbol_has_scope_range(sym)) {
+    // If a local symbol has missing range metadata, keep previous behavior.
+    return true;
+  }
+  return position_in_range(line, col, sym->scope_start_line,
+                           sym->scope_start_column, sym->scope_end_line,
+                           sym->scope_end_column);
+}
+
+static void get_symbol_scope_span(const Symbol *sym, size_t *line_span,
+                                  size_t *col_span) {
+  if (!line_span || !col_span || !symbol_has_scope_range(sym)) {
+    if (line_span) {
+      *line_span = SIZE_MAX;
+    }
+    if (col_span) {
+      *col_span = SIZE_MAX;
+    }
+    return;
+  }
+
+  if (sym->scope_end_line < sym->scope_start_line) {
+    *line_span = 0;
+    *col_span = 0;
+    return;
+  }
+
+  *line_span = sym->scope_end_line - sym->scope_start_line;
+  if (*line_span == 0 && sym->scope_end_column >= sym->scope_start_column) {
+    *col_span = sym->scope_end_column - sym->scope_start_column;
+  } else {
+    *col_span = sym->scope_end_column;
+  }
+}
+
+static bool prefer_symbol_candidate(const Symbol *candidate, const Symbol *best) {
+  if (!candidate) {
+    return false;
+  }
+  if (!best) {
+    return true;
+  }
+
+  if (candidate->is_block_local != best->is_block_local) {
+    return candidate->is_block_local;
+  }
+
+  if (candidate->is_block_local && best->is_block_local) {
+    size_t candidate_line_span = 0;
+    size_t candidate_col_span = 0;
+    size_t best_line_span = 0;
+    size_t best_col_span = 0;
+    get_symbol_scope_span(candidate, &candidate_line_span, &candidate_col_span);
+    get_symbol_scope_span(best, &best_line_span, &best_col_span);
+
+    if (candidate_line_span != best_line_span) {
+      return candidate_line_span < best_line_span;
+    }
+    if (candidate_col_span != best_col_span) {
+      return candidate_col_span < best_col_span;
+    }
+  }
+
+  // Preserve previous behavior for ties and global symbols (first declaration).
+  return false;
+}
+
+static Symbol *find_symbol_at_source_position(const char *name, size_t line,
+                                              size_t col) {
+  if (!g_doc || !name) {
+    return NULL;
+  }
+
+  Symbol *best = NULL;
+  for (Symbol *sym = g_doc->symbols; sym; sym = sym->next) {
+    if (!sym->name || strcmp(sym->name, name) != 0) {
+      continue;
+    }
+    if (!symbol_visible_at_position(sym, line, col)) {
+      continue;
+    }
+    if (prefer_symbol_candidate(sym, best)) {
+      best = sym;
+      continue;
+    }
+    if (!best) {
+      best = sym;
+    }
+  }
+
+  return best;
 }
 
 Symbol *find_symbol(const char *const name) {
@@ -1386,6 +2805,19 @@ Symbol *find_symbol(const char *const name) {
     sym = sym->next;
   }
   return NULL;
+}
+
+Symbol *find_symbol_at_position(const char *const name, size_t line,
+                                size_t character) {
+  if (!name) {
+    return NULL;
+  }
+
+  if (line == SIZE_MAX || character == SIZE_MAX) {
+    return find_symbol(name);
+  }
+
+  return find_symbol_at_source_position(name, line + 1, character + 1);
 }
 
 char *get_word_at_position(const char *source, size_t line, size_t character) {
@@ -1481,6 +2913,25 @@ const char *get_module_description(const char *module_name) {
   return NULL;
 }
 
+static bool node_reference_matches_symbol(const ReferenceCountContext *ctx,
+                                          ASTNode *node, const char *name) {
+  if (!ctx || !node || !name || !ctx->symbol_name) {
+    return false;
+  }
+  if (strcmp(name, ctx->symbol_name) != 0) {
+    return false;
+  }
+  if (!ctx->target_symbol) {
+    return true;
+  }
+
+  size_t line = 1;
+  size_t col = 1;
+  get_node_position(node, &line, &col);
+  Symbol *resolved = find_symbol_at_source_position(ctx->symbol_name, line, col);
+  return resolved == ctx->target_symbol;
+}
+
 // Internal recursive version with depth tracking
 static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
                                                int depth) {
@@ -1494,9 +2945,23 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     return;
 
   switch (node->type) {
+  case AST_PRINT:
+    if (node->as.print.value) {
+      count_references_in_node_recursive(node->as.print.value, ctx, depth + 1);
+    }
+    break;
+  case AST_DEBUG:
+    for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
+      if (node->as.debug_stmt.values[i]) {
+        count_references_in_node_recursive(node->as.debug_stmt.values[i], ctx,
+                                           depth + 1);
+      }
+    }
+    break;
+
   case AST_ASSIGN:
     if (node->as.assign.name &&
-        strcmp(node->as.assign.name, ctx->symbol_name) == 0) {
+        node_reference_matches_symbol(ctx, node, node->as.assign.name)) {
       ctx->count++; // Definition counts as a reference
     }
     if (node->as.assign.value) {
@@ -1504,15 +2969,39 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     }
     break;
 
+  case AST_UNPACK_ASSIGN:
+    // Check each unpacking target for references
+    for (size_t i = 0; i < node->as.unpack_assign.name_count; i++) {
+      if (node->as.unpack_assign.names[i] &&
+          node_reference_matches_symbol(ctx, node,
+                                        node->as.unpack_assign.names[i])) {
+        ctx->count++;
+      }
+    }
+    if (node->as.unpack_assign.value) {
+      count_references_in_node_recursive(node->as.unpack_assign.value, ctx, depth + 1);
+    }
+    break;
+
+  case AST_TUPLE:
+    // Search each tuple element for references
+    for (size_t i = 0; i < node->as.tuple.element_count; i++) {
+      if (node->as.tuple.elements[i]) {
+        count_references_in_node_recursive(node->as.tuple.elements[i], ctx, depth + 1);
+      }
+    }
+    break;
+
   case AST_VAR:
-    if (node->as.var_name && strcmp(node->as.var_name, ctx->symbol_name) == 0) {
+    if (node->as.var_name &&
+        node_reference_matches_symbol(ctx, node, node->as.var_name)) {
       ctx->count++;
     }
     break;
 
   case AST_CALL:
     if (node->as.call.name &&
-        strcmp(node->as.call.name, ctx->symbol_name) == 0) {
+        node_reference_matches_symbol(ctx, node, node->as.call.name)) {
       ctx->count++;
     }
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
@@ -1525,7 +3014,7 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
 
   case AST_FUNCTION:
     if (node->as.function.name &&
-        strcmp(node->as.function.name, ctx->symbol_name) == 0) {
+        node_reference_matches_symbol(ctx, node, node->as.function.name)) {
       ctx->count++; // Definition counts as a reference
     }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
@@ -1566,9 +3055,26 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     }
     break;
 
+  case AST_MATCH:
+    count_references_in_node_recursive(node->as.match_stmt.value, ctx,
+                                       depth + 1);
+    for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
+      count_references_in_node_recursive(node->as.match_stmt.case_patterns[i],
+                                         ctx, depth + 1);
+      for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
+        count_references_in_node_recursive(node->as.match_stmt.case_blocks[i][j],
+                                           ctx, depth + 1);
+      }
+    }
+    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
+      count_references_in_node_recursive(node->as.match_stmt.default_block[i],
+                                         ctx, depth + 1);
+    }
+    break;
+
   case AST_FOR:
     if (node->as.for_stmt.var &&
-        strcmp(node->as.for_stmt.var, ctx->symbol_name) == 0) {
+        node_reference_matches_symbol(ctx, node, node->as.for_stmt.var)) {
       ctx->count++;
     }
     if (node->as.for_stmt.iterable) {
@@ -1597,9 +3103,11 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     break;
 
   case AST_RETURN:
-    if (node->as.return_stmt.value) {
-      count_references_in_node_recursive(node->as.return_stmt.value, ctx,
-                                         depth + 1);
+    for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
+      if (node->as.return_stmt.values[i]) {
+        count_references_in_node_recursive(node->as.return_stmt.values[i], ctx,
+                                           depth + 1);
+      }
     }
     break;
 
@@ -1635,6 +3143,19 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     }
     break;
 
+  case AST_LIST_COMPREHENSION:
+    if (node->as.list_comprehension.var &&
+        node_reference_matches_symbol(ctx, node, node->as.list_comprehension.var)) {
+      ctx->count++;
+    }
+    count_references_in_node_recursive(node->as.list_comprehension.element_expr,
+                                       ctx, depth + 1);
+    count_references_in_node_recursive(node->as.list_comprehension.iterable,
+                                       ctx, depth + 1);
+    count_references_in_node_recursive(node->as.list_comprehension.condition,
+                                       ctx, depth + 1);
+    break;
+
   case AST_MAP:
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
       if (node->as.map.keys[i]) {
@@ -1666,8 +3187,8 @@ static void count_references_in_node_recursive(ASTNode *node, void *ctx_ptr,
     }
     for (size_t i = 0; i < node->as.try_stmt.catch_block_count; i++) {
       if (node->as.try_stmt.catch_blocks[i].catch_var &&
-          strcmp(node->as.try_stmt.catch_blocks[i].catch_var,
-                 ctx->symbol_name) == 0) {
+          node_reference_matches_symbol(
+              ctx, node, node->as.try_stmt.catch_blocks[i].catch_var)) {
         ctx->count++;
       }
       for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
@@ -1702,9 +3223,26 @@ size_t count_symbol_references(const char *symbol_name, AST *ast) {
   if (!symbol_name || !ast || !ast->statements)
     return 0;
 
-  ReferenceCountContext ctx = {symbol_name, 0};
+  const Symbol *target_symbol = find_symbol(symbol_name);
+  ReferenceCountContext ctx = {symbol_name, target_symbol, 0};
 
   // Count references in all top-level statements
+  for (size_t i = 0; i < ast->count; i++) {
+    if (ast->statements[i]) {
+      count_references_in_node_recursive(ast->statements[i], &ctx, 0);
+    }
+  }
+
+  return ctx.count;
+}
+
+size_t count_symbol_references_for_symbol(const Symbol *symbol, AST *ast) {
+  if (!symbol || !symbol->name || !ast || !ast->statements) {
+    return 0;
+  }
+
+  ReferenceCountContext ctx = {symbol->name, symbol, 0};
+
   for (size_t i = 0; i < ast->count; i++) {
     if (ast->statements[i]) {
       count_references_in_node_recursive(ast->statements[i], &ctx, 0);

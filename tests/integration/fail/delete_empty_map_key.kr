@@ -1,0 +1,6 @@
+# Test: Delete key from empty map
+# Expected: Fail with "Map key not found"
+
+let empty_map to map
+delete empty_map at 0
+print empty_map

@@ -29,6 +29,7 @@ typedef enum {
   SYMBOL_VARIABLE,  /**< Variable declaration (set/let) */
   SYMBOL_FUNCTION,  /**< Function definition */
   SYMBOL_PARAMETER, /**< Function parameter */
+  SYMBOL_TYPE_ALIAS, /**< Type alias declaration */
 } SymbolType;
 
 /**
@@ -44,9 +45,17 @@ typedef struct Symbol {
   size_t column;   /**< 1-based column number where symbol is defined */
   char *type_name; /**< Optional type annotation (e.g., "number", "string") */
   bool is_mutable; /**< For variables: true for 'let', false for 'set' */
-  size_t param_count;  /**< For functions: number of parameters */
+  size_t param_count;           /**< For functions: total number of parameters */
+  size_t required_param_count;  /**< For functions: number of required parameters (no defaults) */
+  bool has_variadic;            /**< For functions: true if last param is variadic (...param) */
+  char **param_names;           /**< For functions: parameter names array (NULL if no params) */
   bool written;        /**< Track if variable has been assigned to */
   bool read;           /**< Track if variable has been read from */
+  bool is_block_local; /**< Whether symbol visibility is limited to a source range */
+  size_t scope_start_line;   /**< 1-based inclusive scope start line (0 when not scoped) */
+  size_t scope_start_column; /**< 1-based inclusive scope start column (0 when not scoped) */
+  size_t scope_end_line;     /**< 1-based inclusive scope end line (0 when not scoped) */
+  size_t scope_end_column;   /**< 1-based inclusive scope end column (0 when not scoped) */
   struct Symbol *next; /**< Next symbol in linked list */
 } Symbol;
 
@@ -120,6 +129,8 @@ void process_statements_for_symbols(ASTNode **statements, size_t count,
                                      Symbol ***tail, Symbol **head);
 void build_symbol_table(DocumentState *doc, AST *ast, const char *text);
 Symbol *find_symbol(const char *const name);
+Symbol *find_symbol_at_position(const char *const name, size_t line,
+                                size_t character);
 char *get_word_at_position(const char *source, size_t line, size_t character);
 bool find_nth_occurrence(const char *text, const char *varname, size_t n,
                          size_t *line, size_t *col);
@@ -129,6 +140,14 @@ bool get_constant_number(ASTNode *node, double *value);
 int get_builtin_arg_count(const char *func_name);
 void find_call_position(const char *text, const char *func_name,
                         size_t *line, size_t *col);
+bool find_call_expression_position(const char *text, const char *func_name,
+                                   size_t preferred_line, size_t *line,
+                                   size_t *col, size_t *length);
+bool find_call_argument_position_by_index(const char *text,
+                                          const char *func_name,
+                                          size_t preferred_line,
+                                          size_t arg_index, size_t *line,
+                                          size_t *col, size_t *length);
 bool find_call_argument_position(const char *text, const char *func_name,
                                  ASTNode *arg_node, size_t *line,
                                  size_t *col, size_t *length);
@@ -140,6 +159,7 @@ bool is_loop_variable(Symbol *sym, AST *ast);
 const char *get_module_description(const char *module_name);
 void count_references_in_node(ASTNode *node, void *ctx);
 size_t count_symbol_references(const char *symbol_name, AST *ast);
+size_t count_symbol_references_for_symbol(const Symbol *symbol, AST *ast);
 bool grow_diagnostics_buffer(char **diagnostics, size_t *capacity,
                              size_t pos, size_t needed);
 bool safe_strtoul(const char *str, size_t *out_value);
@@ -163,7 +183,9 @@ void check_unused_symbols(Symbol *symbols, const char *text, AST *ast,
                           char **diagnostics, size_t *pos,
                           size_t *remaining, bool *has_diagnostics,
                           size_t *capacity);
-void check_diagnostics(const char *uri, const char *text);
+void check_diagnostics(const char *uri, const char *text,
+                       bool allow_blocking_import_io);
+void lsp_clear_diagnostics_cache(void);
 
 // Handlers (lsp_handlers.c)
 void handle_initialize(const char *id);
@@ -176,6 +198,12 @@ void handle_document_symbols(const char *id);
 void handle_workspace_symbol(const char *id, const char *body);
 void handle_code_lens(const char *id, const char *body);
 void handle_semantic_tokens(const char *id);
+void handle_signature_help(const char *id, const char *body);
+void handle_inlay_hints(const char *id, const char *body);
+void handle_prepare_call_hierarchy(const char *id, const char *body);
+void handle_call_hierarchy_incoming(const char *id, const char *body);
+void handle_call_hierarchy_outgoing(const char *id, const char *body);
+void handle_folding_range(const char *id, const char *body);
 
 // Completion (lsp_completion.c)
 void handle_completion(const char *id, const char *body);

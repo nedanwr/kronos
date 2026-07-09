@@ -8,13 +8,13 @@ A high-performance programming language built in C with human-readable syntax, f
 
 - **Human-Readable Syntax**: Natural language keywords like `set`, `let`, `to`, `print`, `is equal`, `greater than`, etc.
 - **Mutable & Immutable Variables**: Choose between `let` (mutable) and `set` (immutable)
-- **Optional Type Annotations**: Enforce types with the `as` keyword
+- **Optional Type Annotations**: Enforce primitive, generic, union, and alias types with `as`
 - **F-Strings**: Formatted string literals with expression interpolation (`f"Hello, {name}!"`)
 - **String Operations**: Concatenation, indexing, slicing, and comprehensive built-in functions
-- **Lists & Arrays**: List literals, indexing, slicing, and iteration
+- **Lists & Arrays**: Keyword and bracket list literals, list comprehensions, indexing, slicing, and iteration
 - **Maps/Dictionaries**: Key-value storage with hash table implementation, map literals, and indexing
 - **Range Objects**: First-class range support with indexing, slicing, and iteration
-- **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort)
+- **Enhanced Standard Library**: Math functions (sqrt, power, abs, round, floor, ceil, rand, min, max), type conversion (to_number, to_bool), and list utilities (reverse, sort, filter, map)
 - **Module System**: Import built-in modules (`import math`) and file-based modules (`import utils from "utils.kr"`). Use namespaced functions (`math.sqrt`, `utils.function`). String functions are global built-ins.
 - **Control Flow**: If/else-if/else, for/while loops, break/continue statements
 - **Functions**: First-class functions with parameters, return values, and local scoping
@@ -30,8 +30,8 @@ A high-performance programming language built in C with human-readable syntax, f
 ### Developer Experience
 
 - **Editor Support**: Syntax highlighting for VSCode, Vim, Sublime, and more
-- **LSP Support**: Real-time error checking, go-to-definition, hover information, and autocomplete
-- **Comprehensive Testing**: 129 tests (83 passing, 46 expected fail cases) ensuring reliability
+- **LSP Support**: Real-time diagnostics, definitions/references, hover, autocomplete, signature help, inlay hints, call hierarchy, semantic tokens, and folding
+- **Comprehensive Testing**: Unit, integration, and LSP coverage across implemented language features
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ Run the comprehensive test suite:
 ./scripts/run_tests.sh
 ```
 
-This runs 129 tests (83 passing, 46 expected fail cases) covering all implemented features. See [tests/README.md](tests/README.md) for details.
+This runs the project test suites covering implemented language features. See [tests/README.md](tests/README.md) for details.
 
 ### Editor Setup (Optional)
 
@@ -88,6 +88,11 @@ let counter to counter plus 1  # Can reassign
 # Type annotations
 let age to 25 as number
 set name to "Alice" as string
+let scores to list 95, 87, 92 as list<number>
+let value to 42 as number or string
+
+type Point to map x: number, y: number
+set origin to map x: 0, y: 0 as Point
 
 # Data types
 set isActive to true
@@ -131,6 +136,7 @@ while counter is less than 10:
 
 # Lists and ranges
 set my_list to list 1, 2, 3, 4, 5
+set squares to [x times x for x in range 1 to 6]
 print my_list at 0           # First element
 print my_list at -1          # Last element
 print my_list from 1 to 3    # Slice

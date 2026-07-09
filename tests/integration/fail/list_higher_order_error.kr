@@ -1,0 +1,5 @@
+# Test higher-order list utility errors
+
+# map with non-list first argument
+set bad_map to call map with "hello", function with x: return x
+# Expected: Runtime error - map requires a list argument

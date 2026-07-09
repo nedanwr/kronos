@@ -10,6 +10,7 @@ typedef enum {
   OP_LOAD_VAR,      // Load variable
   OP_STORE_VAR,     // Store variable
   OP_PRINT,         // Print top of stack
+  OP_DEBUG,         // Print debug message with one or more values
   OP_ADD,           // Binary add
   OP_SUB,           // Binary subtract
   OP_MUL,           // Binary multiply
@@ -55,6 +56,11 @@ typedef enum {
   OP_THROW,         // Throw exception (error_message -> exception)
   OP_RETHROW,       // Rethrow current exception
   OP_IMPORT,        // Import module (module_name, file_path constants)
+  OP_FORMAT_VALUE,  // Format value with spec (value, spec_idx -> formatted string)
+  OP_MAKE_FUNCTION, // Create function value on stack (lambda)
+  OP_CALL_VALUE,    // Call function value from stack
+  OP_TUPLE_NEW,     // Create new tuple (arg: element count)
+  OP_UNPACK,        // Unpack tuple/list into N values (arg: count)
   OP_HALT,          // End program
 } OpCode;
 

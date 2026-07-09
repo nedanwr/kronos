@@ -1,0 +1,31 @@
+# Test: Variable swapping with multiple assignment
+# Expected: Pass
+
+# Simple swap
+let x to 10
+let y to 20
+print x
+print y
+
+# Swap using tuple unpacking
+let x, y to y, x
+print x
+print y
+
+# Swap again to verify
+let x, y to y, x
+print x
+print y
+
+# Three-way rotation
+let a to 1
+let b to 2
+let c to 3
+print a
+print b
+print c
+
+let a, b, c to c, a, b
+print a
+print b
+print c

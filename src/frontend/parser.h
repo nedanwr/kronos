@@ -8,6 +8,7 @@
 typedef enum {
   AST_ASSIGN,
   AST_PRINT,
+  AST_DEBUG,
   AST_IF,
   AST_FOR,
   AST_WHILE,
@@ -25,6 +26,7 @@ typedef enum {
   AST_VAR,
   AST_BINOP,
   AST_LIST,
+  AST_LIST_COMPREHENSION,
   AST_RANGE,
   AST_MAP,
   AST_INDEX,
@@ -33,6 +35,11 @@ typedef enum {
   AST_DELETE,       // Map key deletion: delete var at key
   AST_TRY,          // Try/catch/finally exception handling
   AST_RAISE,        // Raise exception: raise ErrorType "message"
+  AST_MATCH,        // Match statement: match expr: case pattern: ...
+  AST_LAMBDA,       // Anonymous function expression
+  AST_TUPLE,        // Tuple expression: a, b, c
+  AST_UNPACK_ASSIGN, // Destructuring assignment: set x, y to expr
+  AST_TYPE_ALIAS,   // Type alias declaration: type Name to ...
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
@@ -76,6 +83,10 @@ struct ASTNode {
       // etc.
       ASTNode **parts;
       size_t part_count;
+      // Format specifiers: parallel array, NULL for string literals or
+      // expressions without format specs. format_specs[i] corresponds to
+      // parts[i]. Example: f"{price:.2f}" -> format_specs[i] = ".2f"
+      char **format_specs;
     } fstring;
     bool boolean;
     char *var_name;
@@ -88,10 +99,22 @@ struct ASTNode {
       char *type_name; // Optional type annotation (NULL if not specified)
     } assign;
 
+    // Type alias: type Name to TypeExpr
+    struct {
+      char *name;
+      char *target_type;
+    } type_alias;
+
     // Print statement
     struct {
       ASTNode *value;
     } print;
+
+    // Debug statement: debug expr [, expr2, ...]
+    struct {
+      ASTNode **values;
+      size_t value_count;
+    } debug_stmt;
 
     // Binary operation (arithmetic and comparison)
     struct {
@@ -155,11 +178,25 @@ struct ASTNode {
       ASTNode *message; // Error message expression
     } raise_stmt;
 
+    // Match statement: match value: case pattern: ... default: ...
+    struct {
+      ASTNode *value;
+      ASTNode **case_patterns;
+      ASTNode ***case_blocks;
+      size_t *case_block_sizes;
+      size_t case_count;
+      ASTNode **default_block;
+      size_t default_block_size;
+    } match_stmt;
+
     // Functions
     struct {
       char *name;
       char **params;
+      ASTNode **param_defaults;    // Default value expressions (NULL for required params)
       size_t param_count;
+      size_t required_param_count; // Number of required params (without defaults)
+      bool has_variadic;           // true if last param is variadic (...param)
       ASTNode **block;
       size_t block_size;
     } function;
@@ -167,12 +204,30 @@ struct ASTNode {
     struct {
       char *name;
       ASTNode **args;
+      char **arg_names;    // Parallel array: NULL for positional, name for named args
       size_t arg_count;
     } call;
 
+    // Return statement: return expr [, expr2, expr3, ...]
     struct {
-      ASTNode *value;
+      ASTNode **values;    // Array of return values
+      size_t value_count;  // Number of return values (1 for single return)
     } return_stmt;
+
+    // Lambda: anonymous function expression
+    // Single-line: function with params: expr
+    // Multi-line: function with params:\n    block
+    struct {
+      char **params;
+      ASTNode **param_defaults;    // Default value expressions (NULL for required params)
+      size_t param_count;
+      size_t required_param_count; // Number of required params (without defaults)
+      bool has_variadic;           // true if last param is variadic (...param)
+      ASTNode *body_expr;  // For single-line: the return expression
+      ASTNode **block;     // For multi-line: block of statements
+      size_t block_size;
+      bool is_single_line; // true if single-line form
+    } lambda;
 
     // Import: import module_name [from "file.kr"] or from module_name import
     // func1, func2
@@ -190,6 +245,14 @@ struct ASTNode {
       ASTNode **elements;
       size_t element_count;
     } list;
+
+    // List comprehension: [expr for var in iterable if condition]
+    struct {
+      ASTNode *element_expr;
+      char *var;
+      ASTNode *iterable;
+      ASTNode *condition; // Optional filter clause
+    } list_comprehension;
 
     // Range literal: range 1 to 10 [by 2]
     struct {
@@ -230,6 +293,20 @@ struct ASTNode {
       ASTNode *target; // Variable (map)
       ASTNode *key;    // Key expression
     } delete_stmt;
+
+    // Tuple expression: a, b, c (for multiple return values and swapping)
+    struct {
+      ASTNode **elements;
+      size_t element_count;
+    } tuple;
+
+    // Unpacking assignment: set x, y, z to expr
+    struct {
+      char **names;       // Array of variable names
+      size_t name_count;  // Number of names
+      ASTNode *value;     // Expression to unpack (should eval to tuple/list)
+      bool is_mutable;    // true for 'let', false for 'set'
+    } unpack_assign;
   } as;
 };
 

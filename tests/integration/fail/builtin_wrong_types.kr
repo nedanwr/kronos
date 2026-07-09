@@ -1,5 +1,16 @@
-# Test: Built-in function with wrong types
+# Test: Built-in numeric functions with wrong types (arithmetic family)
 # Expected: Error: Function 'add' requires both arguments to be numbers
+#
+# Note:
+# - Integration fail tests stop at the first runtime error, so only the first
+#   call executes in the CLI fail suite.
+# - The remaining cases provide end-to-end LSP diagnostic coverage for the same
+#   built-in type-checking path across all arithmetic built-ins.
 
-call add with "hello", "world"
-
+call add with "hello", "world"         # both wrong
+call add with 1, "world"               # number + string
+call add with "hello", 2               # string + number
+call subtract with "hello", 1          # wrong first arg
+call multiply with true, 2             # wrong first arg (bool)
+call divide with 8, "two"              # wrong second arg
+call power with null, 3                # wrong first arg (null)

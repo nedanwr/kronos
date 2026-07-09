@@ -66,11 +66,11 @@
       "patterns": [
         {
           "name": "keyword.control.kronos",
-          "match": "\\b(if|else|for|while|in|range|return|with|break|continue|try|catch|finally|raise|delete)\\b"
+          "match": "\\b(if|else|for|while|in|range|return|with|break|continue|try|catch|finally|raise|delete|match|case|default)\\b"
         },
         {
           "name": "keyword.other.kronos",
-          "match": "\\b(print|to|as|is|than|by|at)\\b"
+          "match": "\\b(print|debug|to|as|is|than|by|at)\\b"
         },
         {
           "name": "storage.type.kronos",
@@ -240,7 +240,7 @@
               "name": "keyword.control.kronos"
             }
           },
-          "end": "\\b(with)\\b",
+          "end": "(\\bwith\\b|$)",
           "endCaptures": {
             "1": {
               "name": "keyword.control.kronos"
@@ -264,7 +264,7 @@
               "name": "keyword.control.kronos"
             }
           },
-          "end": "\\b(with)\\b",
+          "end": "(\\bwith\\b|$)",
           "endCaptures": {
             "1": {
               "name": "keyword.control.kronos"
@@ -305,4 +305,3 @@
     }
   }
 }
-

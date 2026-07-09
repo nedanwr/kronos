@@ -1,0 +1,25 @@
+# Test higher-order list utilities: filter and map
+
+set numbers to list 1, 2, 3, 4, 5
+
+# Filter even numbers
+set evens to call filter with numbers, function with x: return x mod 2 is equal 0
+print evens
+# Expected: [2, 4]
+
+# Map numbers to doubled values
+set doubled to call map with numbers, function with x: return x times 2
+print doubled
+# Expected: [2, 4, 6, 8, 10]
+
+# Filter using truthy callback result
+set mixed_truthy to list 0, 1, 2, 0, 3
+set truthy_only to call filter with mixed_truthy, function with x: x
+print truthy_only
+# Expected: [1, 2, 3]
+
+# Map strings to their lengths
+set words to list "a", "bb", "ccc"
+set lengths to call map with words, function with word: return call len with word
+print lengths
+# Expected: [1, 2, 3]

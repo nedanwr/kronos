@@ -1,0 +1,5 @@
+# Test: Union type annotation mismatch
+# Expected: Error - boolean does not match number|string
+
+let value to 10 as number or string
+let value to true

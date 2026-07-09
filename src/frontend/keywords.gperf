@@ -44,6 +44,7 @@ than,TOK_THAN
 and,TOK_AND
 or,TOK_OR
 print,TOK_PRINT
+debug,TOK_DEBUG
 plus,TOK_PLUS
 minus,TOK_MINUS
 times,TOK_TIMES
@@ -55,3 +56,6 @@ try,TOK_TRY
 catch,TOK_CATCH
 finally,TOK_FINALLY
 raise,TOK_RAISE
+match,TOK_MATCH
+case,TOK_CASE
+default,TOK_DEFAULT

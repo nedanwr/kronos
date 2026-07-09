@@ -1,0 +1,47 @@
+# Test: Default parameter values in functions
+
+# Basic default parameter
+function greet with name, greeting = "Hello":
+    return f"{greeting}, {name}!"
+
+# Using default value
+set result to call greet with "Alice"
+print result
+
+# Overriding default value
+set result2 to call greet with "Bob", "Hi"
+print result2
+
+# Multiple default parameters
+function create_user with username, role = "user", active = true:
+    return f"{username}:{role}:{active}"
+
+# All defaults
+set user1 to call create_user with "alice"
+print user1
+
+# Override one default
+set user2 to call create_user with "bob", "admin"
+print user2
+
+# Override all defaults
+set user3 to call create_user with "charlie", "moderator", false
+print user3
+
+# Lambda with default parameters
+set add_with_default to function with a, b = 10: a plus b
+
+set sum1 to call add_with_default with 5
+print sum1
+
+set sum2 to call add_with_default with 5, 3
+print sum2
+
+# Verify backward compatibility - function with no defaults
+function simple_add with a, b:
+    return a plus b
+
+set simple_result to call simple_add with 3, 4
+print simple_result
+
+print "All default parameter tests passed!"

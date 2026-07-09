@@ -1,6 +1,33 @@
 #include "../../src/core/runtime.h"
 #include "../framework/test_framework.h"
 
+static KronosValue *build_nested_single_item_list(size_t depth, double leaf) {
+  KronosValue *current = value_new_number(leaf);
+  if (!current) {
+    return NULL;
+  }
+
+  for (size_t i = 0; i < depth; i++) {
+    KronosValue *list = value_new_list(1);
+    if (!list || !list->as.list.items || list->as.list.capacity == 0) {
+      if (list) {
+        value_release(list);
+      }
+      value_release(current);
+      return NULL;
+    }
+
+    value_retain(current);
+    list->as.list.items[0] = current;
+    list->as.list.count = 1;
+
+    value_release(current);
+    current = list;
+  }
+
+  return current;
+}
+
 TEST(value_new_number) {
   KronosValue *val = value_new_number(42.5);
   ASSERT_PTR_NOT_NULL(val);
@@ -130,6 +157,23 @@ TEST(value_equals_nil) {
   value_release(b);
 }
 
+TEST(value_equals_deep_nested_lists) {
+  // Depth > 8 forces visited-pair growth in value_equals_recursive().
+  KronosValue *a = build_nested_single_item_list(12, 7.0);
+  KronosValue *b = build_nested_single_item_list(12, 7.0);
+  KronosValue *c = build_nested_single_item_list(12, 8.0);
+  ASSERT_PTR_NOT_NULL(a);
+  ASSERT_PTR_NOT_NULL(b);
+  ASSERT_PTR_NOT_NULL(c);
+
+  ASSERT_TRUE(value_equals(a, b));
+  ASSERT_FALSE(value_equals(a, c));
+
+  value_release(a);
+  value_release(b);
+  value_release(c);
+}
+
 TEST(value_equals_different_types) {
   KronosValue *num = value_new_number(10);
   KronosValue *str = value_new_string("10", 2);
@@ -198,6 +242,90 @@ TEST(value_is_type) {
   value_release(str);
   value_release(bool_val);
   value_release(nil);
+}
+
+TEST(value_is_type_union) {
+  KronosValue *num = value_new_number(10);
+  KronosValue *str = value_new_string("hello", 5);
+  KronosValue *bool_val = value_new_bool(true);
+
+  ASSERT_TRUE(value_is_type(num, "number or string"));
+  ASSERT_TRUE(value_is_type(str, "number or string"));
+  ASSERT_FALSE(value_is_type(bool_val, "number or string"));
+  ASSERT_TRUE(value_is_type(bool_val, "boolean or number"));
+
+  value_release(num);
+  value_release(str);
+  value_release(bool_val);
+}
+
+TEST(value_is_type_generic_list) {
+  KronosValue *list = value_new_list(2);
+  KronosValue *n1 = value_new_number(1);
+  KronosValue *n2 = value_new_number(2);
+  ASSERT_PTR_NOT_NULL(list);
+  ASSERT_PTR_NOT_NULL(n1);
+  ASSERT_PTR_NOT_NULL(n2);
+
+  value_retain(n1);
+  list->as.list.items[list->as.list.count++] = n1;
+  value_retain(n2);
+  list->as.list.items[list->as.list.count++] = n2;
+
+  ASSERT_TRUE(value_is_type(list, "list<number>"));
+  ASSERT_TRUE(value_is_type(list, "list<number or string>"));
+  ASSERT_FALSE(value_is_type(list, "list<string>"));
+
+  value_release(list);
+  value_release(n1);
+  value_release(n2);
+}
+
+TEST(value_is_type_generic_map) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *k1 = value_new_string("x", 1);
+  KronosValue *v1 = value_new_number(1);
+  KronosValue *k2 = value_new_string("y", 1);
+  KronosValue *v2 = value_new_number(2);
+  ASSERT_PTR_NOT_NULL(map);
+  ASSERT_INT_EQ(map_set(map, k1, v1), 0);
+  ASSERT_INT_EQ(map_set(map, k2, v2), 0);
+
+  ASSERT_TRUE(value_is_type(map, "map<string, number>"));
+  ASSERT_FALSE(value_is_type(map, "map<number, number>"));
+  ASSERT_TRUE(value_is_type(map, "map<string, number or string>"));
+
+  value_release(map);
+  value_release(k1);
+  value_release(v1);
+  value_release(k2);
+  value_release(v2);
+}
+
+TEST(value_is_type_map_shape) {
+  KronosValue *map = value_new_map(0);
+  KronosValue *kx = value_new_string("x", 1);
+  KronosValue *ky = value_new_string("y", 1);
+  KronosValue *kextra = value_new_string("z", 1);
+  KronosValue *vx = value_new_number(1);
+  KronosValue *vy = value_new_number(2);
+  KronosValue *vextra = value_new_number(3);
+  ASSERT_PTR_NOT_NULL(map);
+  ASSERT_INT_EQ(map_set(map, kx, vx), 0);
+  ASSERT_INT_EQ(map_set(map, ky, vy), 0);
+  ASSERT_INT_EQ(map_set(map, kextra, vextra), 0);
+
+  ASSERT_TRUE(value_is_type(map, "map{x:number,y:number}"));
+  ASSERT_FALSE(value_is_type(map, "map{x:number,y:string}"));
+  ASSERT_FALSE(value_is_type(map, "map{x:number,missing:number}"));
+
+  value_release(map);
+  value_release(kx);
+  value_release(ky);
+  value_release(kextra);
+  value_release(vx);
+  value_release(vy);
+  value_release(vextra);
 }
 
 TEST(value_new_list) {
@@ -271,18 +399,37 @@ TEST(string_intern) {
 
 TEST(value_new_function) {
   uint8_t bytecode[] = {1, 2, 3};
-  KronosValue *func = value_new_function(bytecode, 3, 2);
+  KronosValue *func = value_new_function(bytecode, 3, 2, 2, false, NULL, NULL);
   ASSERT_PTR_NOT_NULL(func);
   ASSERT_INT_EQ(func->type, VAL_FUNCTION);
   ASSERT_INT_EQ(func->as.function.arity, 2);
+  ASSERT_INT_EQ(func->as.function.required_arity, 2);
+  ASSERT_INT_EQ(func->as.function.has_variadic, false);
   ASSERT_INT_EQ(func->as.function.length, 3);
+  ASSERT_PTR_NULL(func->as.function.param_names);
+  ASSERT_PTR_NULL(func->as.function.param_defaults);
+
+  value_release(func);
+}
+
+TEST(value_new_function_with_params) {
+  uint8_t bytecode[] = {1, 2, 3};
+  char *params[] = {"x", "y"};
+  KronosValue *func = value_new_function(bytecode, 3, 2, 2, false, params, NULL);
+  ASSERT_PTR_NOT_NULL(func);
+  ASSERT_INT_EQ(func->type, VAL_FUNCTION);
+  ASSERT_INT_EQ(func->as.function.arity, 2);
+  ASSERT_INT_EQ(func->as.function.required_arity, 2);
+  ASSERT_PTR_NOT_NULL(func->as.function.param_names);
+  ASSERT_STR_EQ(func->as.function.param_names[0], "x");
+  ASSERT_STR_EQ(func->as.function.param_names[1], "y");
 
   value_release(func);
 }
 
 TEST(value_new_function_null_bytecode) {
   // Should return NULL for invalid input
-  KronosValue *func = value_new_function(NULL, 0, 0);
+  KronosValue *func = value_new_function(NULL, 0, 0, 0, false, NULL, NULL);
   ASSERT_PTR_NULL(func);
 }
 

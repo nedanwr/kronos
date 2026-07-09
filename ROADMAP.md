@@ -24,8 +24,6 @@ This document outlines the planned features and release schedule for Kronos.
 
 ---
 
-## Upcoming Releases
-
 ### Version 0.4.0: "Modules & Error Handling"
 
 **Target:** Q4 2025
@@ -228,14 +226,25 @@ This document outlines the planned features and release schedule for Kronos.
 
 #### Planned Features
 
-- **String Interpolation Enhancements** - Advanced formatting features
+- ✅ **String Interpolation Enhancements** - Advanced formatting features (completed)
 
   ```kronos
   set price to 19.99
   set formatted to f"Price: {price:.2f}"  # Format specifiers
+  set padded to f"|{x:>10}|"              # Width and alignment
+  set zeroed to f"{num:0>5}"              # Fill characters
   ```
 
-- **Multiple Return Values** - Tuple returns and destructuring
+- ✅ **Anonymous Functions / Lambdas** - First-class functions (foundation for functional features) (completed)
+
+  ```kronos
+  set double to function with x: return x times 2
+  set add to function with a, b:
+      return a plus b
+  print call double with 5  # Prints: 10
+  ```
+
+- ✅ **Multiple Return Values** - Tuple returns and destructuring (completed)
 
   ```kronos
   function divide_with_remainder with a, b:
@@ -245,34 +254,27 @@ This document outlines the planned features and release schedule for Kronos.
   set x, y to y, x  # Swap
   ```
 
-- **Function Enhancements**
+- ✅ **Function Enhancements** - Extended function capabilities (completed)
 
-  - Default parameter values: `function greet with name, greeting="Hello":`
-  - Variadic functions: `function sum with ...numbers:`
-  - Named arguments: `call create_user with name: "Alice", age: 30`
+  - ✅ Default parameter values: `function greet with name, greeting="Hello":`
+  - ✅ Variadic functions: `function sum with ...numbers:`
+  - ✅ Named arguments: `call create_user with name: "Alice", age: 30`
 
-- **Anonymous Functions / Lambdas** - First-class functions
+- ✅ **List Utilities (Higher-Order)** - `filter()` and `map()` functions (requires lambdas) (completed)
 
   ```kronos
-  set double to function with x: return x times 2
+  set evens to filter numbers with function with x: return x mod 2 is equal 0
   set doubled to map numbers with function with x: return x times 2
   ```
 
-- **List Utilities (Higher-Order)** - `filter()` and `map()` functions
-
-  ```kronos
-  set evens to filter numbers with function with x: return (x divided by 2) times 2 is equal x
-  set doubled to map numbers with function with x: return x times 2
-  ```
-
-- **List Comprehensions** - Concise list creation
+- ✅ **List Comprehensions** - Concise list creation (syntax sugar for filter/map) (completed)
 
   ```kronos
   set squares to [x times x for x in range 1 to 10]
-  set evens to [x for x in range 1 to 20 if (x divided by 2) times 2 is equal x]
+  set evens to [x for x in range 1 to 20 if x mod 2 is equal 0]
   ```
 
-- **Pattern Matching** - Advanced control flow
+- ✅ **Pattern Matching** - Advanced control flow (completed)
 
   ```kronos
   match value:
@@ -284,36 +286,120 @@ This document outlines the planned features and release schedule for Kronos.
           print "Other"
   ```
 
-- **Type System Enhancements**
+  - Match value is evaluated once per statement
+  - `case` branches are checked top to bottom
+  - `default` is optional, but must appear last when present
 
-  - Generic types: `list<number>`, `map<string, number>`
-  - Type aliases: `type Point to map x: number, y: number`
-  - Multi-type support: `as number or string`
+- ✅ **Type System Enhancements** - Generic/union/alias support (completed)
 
-- **Debugging Support**
+  - ✅ Generic types: `list<number>`, `map<string, number>`
+  - ✅ Type aliases: `type Point to map x: number, y: number`
+  - ✅ Multi-type support: `as number or string`
+
+- ✅ **Debugging Support** - Lightweight runtime diagnostics (completed)
 
   ```kronos
   debug "Variable x:", x
   ```
 
-- **LSP Improvements**
-  - Signature help
-  - Semantic tokens
-  - Inlay hints
-  - Call hierarchy
-  - Code folding
-  - Bracket pair colorization
+  - ✅ `debug` statement with one or more expressions
+  - ✅ Runtime output with consistent `[DEBUG]` prefix
+  - ✅ LSP coverage for completions, diagnostics, and symbol references inside debug statements
+
+- ✅ **LSP Improvements** (completed)
+  - ✅ Signature help
+  - ✅ Semantic tokens
+  - ✅ Inlay hints
+  - ✅ Call hierarchy
+  - ✅ Code folding
+  - ✅ Bracket pair colorization
 
 ---
 
-### Version 1.0.0: "Production Release"
+### Version 0.6.0: "Core Runtime Beta"
 
-**Target:** N/A
+**Target:** Q2 2026
 **Status:** 📋 Planned
 
-#### Planned Features
+#### Scope
 
-- **Concurrency** - Goroutines and channels (Go-inspired)
+- **Core Standard Library Completion (Beta)** - Stabilize the modules required for 1.0 language adoption
+  - **Math:** `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan()`, `log()`, `log10()`, `exp()`, `cbrt()`
+  - **String:** `find()`, `rfind()`, `count()`, `capitalize()`, `title()`
+  - **Date/Time:** `now()`, `format_date()`, `parse_date()`, `sleep()`
+  - **Collections:** `zip()`, `enumerate()`, `any()`, `all()`, `sum()`
+  - **System:** `exit()`, `args()`, `env()`
+  - **JSON:** `parse_json()`, `to_json()`
+  - **Modules in scope:** `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
+
+- **Method Chaining (Beta)** - Fluent API support with parser/runtime hardening
+
+  ```kronos
+  set result to text.uppercase().trim().split(" ")
+  set processed to list 1, 2, 3.filter(function with x: return x is greater than 2).map(function with x: return x times 2)
+  ```
+
+- **Baseline Optimizations (Beta)** - Safe optimizations targeted for 1.0
+  - Bytecode optimization passes
+  - Constant folding
+  - Dead code elimination
+
+---
+
+### Version 0.7.0: "Tooling & LSP Beta"
+
+**Target:** Q3 2026
+**Status:** 📋 Planned
+
+#### Scope
+
+- **Code Formatter (Beta)** - Opinionated formatter (like `gofmt`/`rustfmt`)
+
+  ```bash
+  kronos format <file>
+  kronos format --check <file>
+  ```
+
+- **Linter (Beta)** - Code quality checks
+
+  ```bash
+  kronos lint <file>
+  kronos lint --fix <file>
+  ```
+
+- **Test Runner & Test Module (Beta)** - Built-in testing workflow and module APIs
+
+  ```bash
+  kronos test
+  kronos test --verbose
+  ```
+
+- **Documentation Generator (Beta)** - Generate docs from code
+
+  ```bash
+  kronos doc
+  kronos doc --output docs/
+  ```
+
+- **LSP Complete (Beta)** - Full language server protocol support
+  - All previous LSP features
+  - Workspace symbols
+  - Call hierarchy
+  - Multi-root workspace support
+  - Production-ready performance targets
+
+- **CLI Utilities (Beta)** - `parse_args()` and argument parsing utilities used by tooling
+
+---
+
+### Version 0.8.0: "Concurrency & Ecosystem Beta"
+
+**Target:** Q4 2026
+**Status:** 📋 Planned
+
+#### Scope
+
+- **Concurrency (Beta)** - Goroutines and channels (Go-inspired)
 
   ```kronos
   spawn task with:
@@ -326,32 +412,21 @@ This document outlines the planned features and release schedule for Kronos.
   set msg to receive ch
   ```
 
-- **Complete Standard Library** - 50+ functions across multiple modules
-
-  - **Math:** `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan()`, `log()`, `log10()`, `exp()`, `cbrt()`
-  - **String:** `find()`, `rfind()`, `count()`, `capitalize()`, `title()`
-  - **Date/Time:** `now()`, `format_date()`, `parse_date()`, `sleep()`
-  - **Collections:** `zip()`, `enumerate()`, `any()`, `all()`, `sum()`
-  - **System:** `exit()`, `args()`, `env()`
-  - **JSON:** `parse_json()`, `to_json()`
-  - **CSV:** `read_csv()`, `write_csv()`, `parse_csv()`, `to_csv()`
-  - **Test Framework:** `assert`, `test`, `run_tests`
-  - **Crypto:** `md5()`, `sha1()`, `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
+- **Networking & Data Modules (Beta)** - `http`, `csv`, and `crypto` module hardening
   - **HTTP:** `http_get()`, `http_post()`, HTTP server (requires concurrency)
-  - **CLI:** `parse_args()`, argument parsing utilities
+  - **CSV:** `read_csv()`, `write_csv()`, `parse_csv()`, `to_csv()`
+  - **Crypto:** `sha256()`, `sha512()`, `random_bytes()`, `secure_random_int()`
+  - **Crypto (legacy/checksum only):** `md5()`, `sha1()` (insecure for password hashing/signatures)
 
-- **Method Chaining** - Fluent API support
+- **Package Manager (Beta)** - Install and manage packages
 
-  ```kronos
-  set result to text.uppercase().trim().split(" ")
-  set processed to list 1, 2, 3.filter(function with x: return x is greater than 2).map(function with x: return x times 2)
+  ```bash
+  kronos install <package>
+  kronos list
+  kronos remove <package>
   ```
 
-- **Performance Optimizations**
-
-  - Bytecode optimization passes
-  - Constant folding
-  - Dead code elimination
+- **Advanced Runtime Optimizations (Beta-only in 0.8.0)** - Promote to 1.0 only after stability and profiling wins are proven
   - Inline caching for method calls
   - Profile-guided optimization
   - **F-string Expression Parsing Optimization** - Parse embedded expressions inline
@@ -360,63 +435,34 @@ This document outlines the planned features and release schedule for Kronos.
     - Requires architectural changes: position tracking, substring parsing capability
     - Will eliminate redundant tokenization for f-string expressions
 
-- **Standard Library Modules**
+---
 
-  - `math` - Complete mathematical functions
-  - `string` - String utilities
-  - `os` - Operating system interface
-  - `json` - JSON parsing and generation
-  - `csv` - CSV parsing and generation
-  - `test` - Testing framework
-  - `crypto` - Cryptographic functions
-  - `http` - HTTP client and server
-  - `cli` - Command-line argument parsing
-  - `time` - Time and date operations
-  - `collections` - Collection utilities
-  - `regex` - Regular expressions
+### Version 1.0.0: "Production Release"
 
-- **Package Manager** - Install and manage packages
+**Target:** After 0.8.0 exits beta
+**Status:** 📋 Planned
 
-  ```bash
-  kronos install <package>
-  kronos list
-  kronos remove <package>
-  ```
+#### Release Criteria (No Major Net-New Features)
 
-- **Code Formatter** - Opinionated formatter (like `gofmt`/`rustfmt`)
+- **Language Stability**
+  - All core language features from 0.4.x-0.8.x are specification-locked
+  - No known parser/runtime crashers in common usage paths
 
-  ```bash
-  kronos format <file>
-  kronos format --check <file>
-  ```
+- **Core Library Stability**
+  - `math`, `string`, `os`, `json`, `time`, `collections`, and `regex` are stable and documented
+  - Backward compatibility policy published for standard library APIs
 
-- **Linter** - Code quality checks
+- **Tooling & DX Baseline**
+  - Formatter, linter, test runner, and docs generator exit beta with stable CLI behavior
+  - LSP features meet performance and correctness targets in medium-sized workspaces
 
-  ```bash
-  kronos lint <file>
-  kronos lint --fix <file>
-  ```
+- **Beta Graduation Rules**
+  - Concurrency, package manager, and `http`/`csv`/`crypto` modules graduate only if 0.8.0 feedback is positive
+  - Features that do not meet quality gates remain in beta and roll into post-1.0 releases
 
-- **Test Runner** - Built-in testing framework
-
-  ```bash
-  kronos test
-  kronos test --verbose
-  ```
-
-- **Documentation Generator** - Generate docs from code
-
-  ```bash
-  kronos doc
-  kronos doc --output docs/
-  ```
-
-- **LSP Complete** - Full language server protocol support
-  - All previous LSP features
-  - Workspace symbols
-  - Call hierarchy
-  - Multi-root workspace support
-  - Production-ready performance
+- **Operational Readiness**
+  - Cross-platform CI coverage and release automation are in place
+  - Migration guide and 1.0 compatibility guarantees are published
 
 ---
 
@@ -492,4 +538,4 @@ Interested in contributing? Check out our [contributing guidelines](CONTRIBUTING
 
 ---
 
-**Last Updated:** December 2025
+**Last Updated:** March 2026

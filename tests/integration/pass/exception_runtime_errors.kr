@@ -1,0 +1,20 @@
+# Runtime VM errors should be catchable with try/catch
+# Expected output:
+# Caught file runtime: Path must be a string
+# Caught math runtime: Cannot divide by zero
+# Done
+
+try:
+    call read_file with 123
+catch err:
+    print f"Caught file runtime: {err}"
+
+set x to 1
+set y to 0
+
+try:
+    print x divided by y
+catch err:
+    print f"Caught math runtime: {err}"
+
+print "Done"

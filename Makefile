@@ -6,7 +6,7 @@ LDFLAGS = -lm
 CORE_SRC = src/core/runtime.c src/core/gc.c
 FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/keywords_hash.c src/frontend/parser.c
 COMPILER_SRC = src/compiler/compiler.c
-VM_SRC = src/vm/vm.c
+VM_SRC = src/vm/vm.c src/vm/vm_builtins.c src/vm/vm_builtins_registry.c
 MAIN_SRC = main.c
 LINENOISE_SRC = linenoise.c
 
@@ -118,6 +118,7 @@ TEST_UNIT_SRC = tests/unit/test_tokenizer.c \
                 tests/unit/test_compiler.c \
                 tests/unit/test_vm.c \
                 tests/unit/test_gc.c \
+                tests/unit/test_lsp_utils.c \
                 tests/unit/test_main.c
 
 # Unit test object files
@@ -130,9 +131,10 @@ TEST_TARGET = tests/unit/kronos_unit_tests
 # Object files for unit tests (exclude main.o)
 TEST_OBJ_SRC = $(CORE_SRC) $(FRONTEND_SRC) $(COMPILER_SRC) $(VM_SRC)
 TEST_OBJ_BASE = $(TEST_OBJ_SRC:.c=.o)
+TEST_UNIT_EXTRA_OBJ = src/lsp/lsp_utils.o
 
 # Build unit tests
-$(TEST_TARGET): $(TEST_OBJ_BASE) $(TEST_OBJ)
+$(TEST_TARGET): $(TEST_OBJ_BASE) $(TEST_UNIT_EXTRA_OBJ) $(TEST_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Build test object files

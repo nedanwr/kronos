@@ -253,6 +253,77 @@ TEST(tokenize_keywords) {
   token_array_free(tokens);
 }
 
+TEST(tokenize_match_keywords) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("match case default", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 4);
+
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+
+  ASSERT_TRUE(i + 2 < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_MATCH);
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_CASE);
+  ASSERT_INT_EQ(tokens->tokens[i + 2].type, TOK_DEFAULT);
+
+  token_array_free(tokens);
+}
+
+TEST(tokenize_debug_keyword) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("debug", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 2);
+
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+
+  ASSERT_TRUE(i < tokens->count);
+  ASSERT_INT_EQ(tokens->tokens[i].type, TOK_DEBUG);
+  token_array_free(tokens);
+}
+
+TEST(tokenize_bracket_list_comprehension) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("[x for x in list 1, 2, 3]", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+  ASSERT_TRUE(tokens->count >= 12);
+
+  size_t i = 0;
+  while (i < tokens->count && (tokens->tokens[i].type == TOK_INDENT ||
+                               tokens->tokens[i].type == TOK_NEWLINE)) {
+    i++;
+  }
+
+  ASSERT_INT_EQ(tokens->tokens[i + 0].type, TOK_LBRACKET);
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_NAME);
+  ASSERT_INT_EQ(tokens->tokens[i + 2].type, TOK_FOR);
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_NAME);
+  ASSERT_INT_EQ(tokens->tokens[i + 4].type, TOK_IN);
+  ASSERT_INT_EQ(tokens->tokens[i + 5].type, TOK_LIST);
+  ASSERT_INT_EQ(tokens->tokens[i + 6].type, TOK_NUMBER);
+  ASSERT_INT_EQ(tokens->tokens[i + 7].type, TOK_COMMA);
+  ASSERT_INT_EQ(tokens->tokens[i + 8].type, TOK_NUMBER);
+  ASSERT_INT_EQ(tokens->tokens[i + 9].type, TOK_COMMA);
+  ASSERT_INT_EQ(tokens->tokens[i + 10].type, TOK_NUMBER);
+  ASSERT_INT_EQ(tokens->tokens[i + 11].type, TOK_RBRACKET);
+
+  token_array_free(tokens);
+}
+
 /**
  * @brief Test tokenization of map keyword
  *
@@ -509,6 +580,28 @@ TEST(tokenize_assignment_statement) {
   ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_NUMBER);
   ASSERT_STR_EQ(tokens->tokens[i + 3].text, "10");
 
+  token_array_free(tokens);
+}
+
+TEST(tokenize_generic_type_delimiters) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("set xs to list 1 as list<number>", &err);
+
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  bool found_langle = false;
+  bool found_rangle = false;
+  for (size_t i = 0; i < tokens->count; i++) {
+    if (tokens->tokens[i].type == TOK_LANGLE) {
+      found_langle = true;
+    } else if (tokens->tokens[i].type == TOK_RANGLE) {
+      found_rangle = true;
+    }
+  }
+
+  ASSERT_TRUE(found_langle);
+  ASSERT_TRUE(found_rangle);
   token_array_free(tokens);
 }
 

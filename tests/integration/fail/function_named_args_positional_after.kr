@@ -1,0 +1,8 @@
+# Test: Positional argument after named argument should fail
+# Expected: Error - Positional argument cannot follow named argument
+
+function example with a, b, c:
+    return a plus b plus c
+
+# This should fail - positional arg after named
+call example with a: 1, 2, 3

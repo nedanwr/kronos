@@ -1,0 +1,30 @@
+# Test: Basic multiple return values
+# Expected: Pass
+
+# Function that returns two values
+function divide_with_remainder with a, b:
+    let quotient to a divided by b
+    let quotient to call floor with quotient
+    set remainder to a mod b
+    return quotient, remainder
+
+# Call the function and unpack results
+set q, r to call divide_with_remainder with 10, 3
+print q
+print r
+
+# Another function returning multiple values
+function get_min_max with nums:
+    let min_val to nums at 0
+    let max_val to nums at 0
+    for n in nums:
+        if n is less than min_val:
+            let min_val to n
+        if n is greater than max_val:
+            let max_val to n
+    return min_val, max_val
+
+set numbers to list 5, 2, 8, 1, 9, 3
+set lo, hi to call get_min_max with numbers
+print lo
+print hi

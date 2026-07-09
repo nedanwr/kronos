@@ -1,0 +1,5 @@
+# Test: Generic type annotation mismatch
+# Expected: Error - list element type does not match annotation
+
+let nums to list 1, 2, 3 as list<number>
+let nums to list 4, "five", 6
