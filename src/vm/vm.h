@@ -124,6 +124,11 @@ typedef struct KronosVM {
   KronosErrorCode last_error_code;
   KronosErrorCallback error_callback;
 
+  char **process_args;
+  size_t process_arg_count;
+  bool exit_requested;
+  int exit_code;
+
   // Exception handler stack (for try/catch/finally)
   struct {
     uint8_t *handler_ip;     // IP of exception handler (catch or finally)
@@ -165,6 +170,7 @@ KronosVM *vm_new(void);
  * @note Thread-safety: VM is NOT thread-safe. Caller must synchronize access.
  */
 void vm_free(KronosVM *vm);
+int vm_set_args(KronosVM *vm, int argc, char **argv);
 
 /**
  * @brief Clear the VM stack, releasing all values
