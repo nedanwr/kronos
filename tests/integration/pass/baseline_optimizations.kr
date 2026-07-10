@@ -1,0 +1,22 @@
+# Constant folding across arithmetic, comparison, boolean, unary and strings.
+print 2 plus 3 times 4
+print (10 minus 4) divided by 2
+print 17 mod 5
+print 3 is less than 4
+print not false
+print "constant " plus "folding"
+
+# Statements after a guaranteed terminator must never be emitted.
+function optimized_result:
+    return (2 plus 3) times 4
+    print "unreachable"
+
+print call optimized_result
+
+let iterations to 0
+while iterations is less than 1:
+    let iterations to iterations plus 1
+    continue
+    print "unreachable loop statement"
+
+print iterations

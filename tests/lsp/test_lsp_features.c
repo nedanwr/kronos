@@ -1217,6 +1217,24 @@ TEST(lsp_folding_ranges_for_comments_and_blocks) {
   free(response);
 }
 
+TEST(lsp_diagnostics_accept_optimized_constant_and_dead_code) {
+  const char *code =
+      "print (2 plus 3) times 4\n"
+      "let iterations to 0\n"
+      "while iterations is less than 1:\n"
+      "    let iterations to iterations plus 1\n"
+      "    continue\n"
+      "    print 999999\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///optimizer.kr", code));
+
+  usleep(100000);
+  char *diag = lsp_read_diagnostics_with_message(NULL, 8);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(diag, "\"diagnostics\":[]"));
+  free(diag);
+}
+
 // Setup and teardown
 void lsp_test_setup(void) {
   if (!g_ctx) {
