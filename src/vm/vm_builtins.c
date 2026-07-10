@@ -1,7 +1,9 @@
+#define _XOPEN_SOURCE 700
 #define _POSIX_C_SOURCE 200809L
 #include "vm_builtins.h"
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -9,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef _WIN32
@@ -1549,6 +1552,1042 @@ int builtin_max(KronosVM *vm, uint8_t arg_count) {
   KronosValue *result = value_new_number(max_val);
   PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
   value_release(result);
+  return 0;
+}
+
+typedef double (*UnaryMathFunction)(double);
+
+static int builtin_unary_math(KronosVM *vm, uint8_t arg_count,
+                              const char *name, UnaryMathFunction function,
+                              bool require_unit_interval,
+                              bool require_positive) {
+  if (arg_count != 1) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' expects 1 argument, got %d", name,
+                     arg_count);
+  }
+
+  KronosValue *arg;
+  POP_OR_RETURN(vm, arg);
+  if (arg->type != VAL_NUMBER) {
+    int error = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Function '%s' requires a number argument", name);
+    value_release(arg);
+    return error;
+  }
+  if (require_unit_interval &&
+      (arg->as.number < -1.0 || arg->as.number > 1.0)) {
+    int error = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Function '%s' requires a value between -1 and 1",
+                          name);
+    value_release(arg);
+    return error;
+  }
+  if (require_positive && arg->as.number <= 0.0) {
+    int error = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Function '%s' requires a positive number", name);
+    value_release(arg);
+    return error;
+  }
+
+  KronosValue *result = value_new_number(function(arg->as.number));
+  if (!result) {
+    value_release(arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
+  value_release(result);
+  value_release(arg);
+  return 0;
+}
+
+#define DEFINE_UNARY_MATH_BUILTIN(name, function, unit_interval, positive)     \
+  int builtin_##name(KronosVM *vm, uint8_t arg_count) {                       \
+    return builtin_unary_math(vm, arg_count, #name, function, unit_interval,  \
+                              positive);                                      \
+  }
+
+DEFINE_UNARY_MATH_BUILTIN(sin, sin, false, false)
+DEFINE_UNARY_MATH_BUILTIN(cos, cos, false, false)
+DEFINE_UNARY_MATH_BUILTIN(tan, tan, false, false)
+DEFINE_UNARY_MATH_BUILTIN(asin, asin, true, false)
+DEFINE_UNARY_MATH_BUILTIN(acos, acos, true, false)
+DEFINE_UNARY_MATH_BUILTIN(atan, atan, false, false)
+DEFINE_UNARY_MATH_BUILTIN(log, log, false, true)
+DEFINE_UNARY_MATH_BUILTIN(log10, log10, false, true)
+DEFINE_UNARY_MATH_BUILTIN(exp, exp, false, false)
+DEFINE_UNARY_MATH_BUILTIN(cbrt, cbrt, false, false)
+
+#undef DEFINE_UNARY_MATH_BUILTIN
+
+static int pop_string_pair(KronosVM *vm, uint8_t arg_count, const char *name,
+                           KronosValue **text, KronosValue **needle) {
+  if (arg_count != 2) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' expects 2 arguments, got %d", name,
+                     arg_count);
+  }
+  POP_OR_RETURN(vm, *needle);
+  POP_OR_RETURN_WITH_CLEANUP(vm, *text, value_release(*needle));
+  if ((*text)->type != VAL_STRING || (*needle)->type != VAL_STRING) {
+    int error = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Function '%s' requires string arguments", name);
+    value_release(*text);
+    value_release(*needle);
+    return error;
+  }
+  return 0;
+}
+
+int builtin_find(KronosVM *vm, uint8_t arg_count) {
+  KronosValue *text;
+  KronosValue *needle;
+  int status = pop_string_pair(vm, arg_count, "find", &text, &needle);
+  if (status != 0)
+    return status;
+  const char *match = strstr(text->as.string.data, needle->as.string.data);
+  double index = match ? (double)(match - text->as.string.data) : -1.0;
+  KronosValue *result = value_new_number(index);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(text); value_release(needle););
+  value_release(result);
+  value_release(text);
+  value_release(needle);
+  return 0;
+}
+
+int builtin_rfind(KronosVM *vm, uint8_t arg_count) {
+  KronosValue *text;
+  KronosValue *needle;
+  int status = pop_string_pair(vm, arg_count, "rfind", &text, &needle);
+  if (status != 0)
+    return status;
+  const char *last = NULL;
+  const char *cursor = text->as.string.data;
+  while (true) {
+    const char *match = strstr(cursor, needle->as.string.data);
+    if (!match)
+      break;
+    last = match;
+    cursor = match + (needle->as.string.length > 0 ? 1 : 0);
+    if (needle->as.string.length == 0 && *cursor == '\0')
+      break;
+  }
+  double index = last ? (double)(last - text->as.string.data) : -1.0;
+  KronosValue *result = value_new_number(index);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(text); value_release(needle););
+  value_release(result);
+  value_release(text);
+  value_release(needle);
+  return 0;
+}
+
+int builtin_count(KronosVM *vm, uint8_t arg_count) {
+  KronosValue *text;
+  KronosValue *needle;
+  int status = pop_string_pair(vm, arg_count, "count", &text, &needle);
+  if (status != 0)
+    return status;
+  size_t count = 0;
+  if (needle->as.string.length > 0) {
+    const char *cursor = text->as.string.data;
+    const char *match;
+    while ((match = strstr(cursor, needle->as.string.data)) != NULL) {
+      count++;
+      cursor = match + needle->as.string.length;
+    }
+  } else {
+    count = text->as.string.length + 1;
+  }
+  KronosValue *result = value_new_number((double)count);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(text); value_release(needle););
+  value_release(result);
+  value_release(text);
+  value_release(needle);
+  return 0;
+}
+
+static int builtin_string_case(KronosVM *vm, uint8_t arg_count,
+                               const char *name, bool title_case) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' expects 1 argument, got %d", name,
+                     arg_count);
+  KronosValue *arg;
+  POP_OR_RETURN(vm, arg);
+  if (arg->type != VAL_STRING) {
+    int error = vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                          "Function '%s' requires a string argument", name);
+    value_release(arg);
+    return error;
+  }
+  char *buffer = malloc(arg->as.string.length + 1);
+  if (!buffer) {
+    value_release(arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+  }
+  bool new_word = true;
+  for (size_t i = 0; i < arg->as.string.length; i++) {
+    unsigned char character = (unsigned char)arg->as.string.data[i];
+    buffer[i] = (char)(new_word ? toupper(character) : tolower(character));
+    new_word = title_case && isspace(character);
+  }
+  buffer[arg->as.string.length] = '\0';
+  KronosValue *result = value_new_string(buffer, arg->as.string.length);
+  free(buffer);
+  if (!result) {
+    value_release(arg);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(arg););
+  value_release(result);
+  value_release(arg);
+  return 0;
+}
+
+int builtin_capitalize(KronosVM *vm, uint8_t arg_count) {
+  return builtin_string_case(vm, arg_count, "capitalize", false);
+}
+
+int builtin_title(KronosVM *vm, uint8_t arg_count) {
+  return builtin_string_case(vm, arg_count, "title", true);
+}
+
+static int push_list_result(KronosVM *vm, KronosValue *result) {
+  if (!result)
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  int status = push(vm, result);
+  value_release(result);
+  return status;
+}
+
+int builtin_enumerate(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'enumerate' expects 1 argument, got %d",
+                     arg_count);
+  KronosValue *list;
+  POP_OR_RETURN(vm, list);
+  if (list->type != VAL_LIST) {
+    value_release(list);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'enumerate' requires a list argument");
+  }
+  KronosValue *result = value_new_list(list->as.list.count);
+  if (!result) {
+    value_release(list);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  }
+  for (size_t i = 0; i < list->as.list.count; i++) {
+    KronosValue *index = value_new_number((double)i);
+    KronosValue *items[2] = {index, list->as.list.items[i]};
+    KronosValue *tuple = index ? value_new_tuple(items, 2) : NULL;
+    value_release(index);
+    if (!tuple) {
+      value_release(result);
+      value_release(list);
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+    }
+    result->as.list.items[result->as.list.count++] = tuple;
+  }
+  value_release(list);
+  return push_list_result(vm, result);
+}
+
+int builtin_zip(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count < 2)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'zip' expects at least 2 arguments, got %d",
+                     arg_count);
+  KronosValue **lists = malloc(sizeof(KronosValue *) * arg_count);
+  if (!lists)
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate memory");
+  size_t shortest = SIZE_MAX;
+  for (int i = arg_count - 1; i >= 0; i--) {
+    lists[i] = pop(vm);
+    if (!lists[i]) {
+      for (int j = i + 1; j < arg_count; j++)
+        value_release(lists[j]);
+      free(lists);
+      return vm_propagate_error(vm, KRONOS_ERR_RUNTIME);
+    }
+    if (lists[i]->type != VAL_LIST) {
+      for (int j = i; j < arg_count; j++)
+        value_release(lists[j]);
+      free(lists);
+      return vm_error(vm, KRONOS_ERR_RUNTIME,
+                      "Function 'zip' requires list arguments");
+    }
+    if (lists[i]->as.list.count < shortest)
+      shortest = lists[i]->as.list.count;
+  }
+  KronosValue *result = value_new_list(shortest);
+  for (size_t row = 0; result && row < shortest; row++) {
+    KronosValue **items = malloc(sizeof(KronosValue *) * arg_count);
+    if (!items) {
+      value_release(result);
+      result = NULL;
+      break;
+    }
+    for (size_t column = 0; column < arg_count; column++)
+      items[column] = lists[column]->as.list.items[row];
+    KronosValue *tuple = value_new_tuple(items, arg_count);
+    free(items);
+    if (!tuple) {
+      value_release(result);
+      result = NULL;
+      break;
+    }
+    result->as.list.items[result->as.list.count++] = tuple;
+  }
+  for (size_t i = 0; i < arg_count; i++)
+    value_release(lists[i]);
+  free(lists);
+  return push_list_result(vm, result);
+}
+
+static int builtin_list_predicate(KronosVM *vm, uint8_t arg_count,
+                                  const char *name, bool require_all) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' expects 1 argument, got %d", name,
+                     arg_count);
+  KronosValue *list;
+  POP_OR_RETURN(vm, list);
+  if (list->type != VAL_LIST) {
+    value_release(list);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function '%s' requires a list argument", name);
+  }
+  bool value = require_all;
+  for (size_t i = 0; i < list->as.list.count; i++) {
+    bool truthy = value_is_truthy(list->as.list.items[i]);
+    if (truthy != require_all) {
+      value = !require_all;
+      break;
+    }
+  }
+  KronosValue *result = value_new_bool(value);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(list););
+  value_release(result);
+  value_release(list);
+  return 0;
+}
+
+int builtin_any(KronosVM *vm, uint8_t arg_count) {
+  return builtin_list_predicate(vm, arg_count, "any", false);
+}
+
+int builtin_all(KronosVM *vm, uint8_t arg_count) {
+  return builtin_list_predicate(vm, arg_count, "all", true);
+}
+
+int builtin_sum(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'sum' expects 1 argument, got %d", arg_count);
+  KronosValue *list;
+  POP_OR_RETURN(vm, list);
+  if (list->type != VAL_LIST) {
+    value_release(list);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'sum' requires a list argument");
+  }
+  double sum = 0.0;
+  for (size_t i = 0; i < list->as.list.count; i++) {
+    if (list->as.list.items[i]->type != VAL_NUMBER) {
+      value_release(list);
+      return vm_error(vm, KRONOS_ERR_RUNTIME,
+                      "Function 'sum' requires a list of numbers");
+    }
+    sum += list->as.list.items[i]->as.number;
+  }
+  KronosValue *result = value_new_number(sum);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(list););
+  value_release(result);
+  value_release(list);
+  return 0;
+}
+
+int builtin_now(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 0)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'now' expects 0 arguments, got %d", arg_count);
+  KronosValue *result = value_new_number((double)time(NULL));
+  if (!result)
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+  value_release(result);
+  return 0;
+}
+
+int builtin_format_date(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 2)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'format_date' expects 2 arguments, got %d",
+                     arg_count);
+  KronosValue *format;
+  KronosValue *timestamp;
+  POP_OR_RETURN(vm, format);
+  POP_OR_RETURN_WITH_CLEANUP(vm, timestamp, value_release(format));
+  if (timestamp->type != VAL_NUMBER || format->type != VAL_STRING) {
+    value_release(timestamp);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'format_date' requires a number and a string");
+  }
+  time_t raw_time = (time_t)timestamp->as.number;
+  struct tm local_time;
+#ifdef _WIN32
+  if (localtime_s(&local_time, &raw_time) != 0) {
+#else
+  if (!localtime_r(&raw_time, &local_time)) {
+#endif
+    value_release(timestamp);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME, "Invalid date value");
+  }
+  char buffer[1024];
+  size_t length = strftime(buffer, sizeof(buffer), format->as.string.data,
+                           &local_time);
+  if (length == 0 && format->as.string.length > 0) {
+    value_release(timestamp);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Formatted date exceeds maximum length");
+  }
+  KronosValue *result = value_new_string(buffer, length);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(timestamp); value_release(format););
+  value_release(result);
+  value_release(timestamp);
+  value_release(format);
+  return 0;
+}
+
+int builtin_parse_date(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 2)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'parse_date' expects 2 arguments, got %d",
+                     arg_count);
+  KronosValue *format;
+  KronosValue *text;
+  POP_OR_RETURN(vm, format);
+  POP_OR_RETURN_WITH_CLEANUP(vm, text, value_release(format));
+  if (text->type != VAL_STRING || format->type != VAL_STRING) {
+    value_release(text);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'parse_date' requires string arguments");
+  }
+#ifdef _WIN32
+  value_release(text);
+  value_release(format);
+  return vm_error(vm, KRONOS_ERR_RUNTIME,
+                  "Function 'parse_date' is unavailable on this platform");
+#else
+  struct tm parsed = {0};
+  char *end = strptime(text->as.string.data, format->as.string.data, &parsed);
+  if (!end || *end != '\0') {
+    value_release(text);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Date does not match the supplied format");
+  }
+  parsed.tm_isdst = -1;
+  time_t timestamp_value = mktime(&parsed);
+  if (timestamp_value == (time_t)-1) {
+    value_release(text);
+    value_release(format);
+    return vm_error(vm, KRONOS_ERR_RUNTIME, "Date is outside the valid range");
+  }
+  KronosValue *result = value_new_number((double)timestamp_value);
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(text); value_release(format););
+  value_release(result);
+  value_release(text);
+  value_release(format);
+  return 0;
+#endif
+}
+
+int builtin_sleep(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'sleep' expects 1 argument, got %d", arg_count);
+  KronosValue *duration;
+  POP_OR_RETURN(vm, duration);
+  if (duration->type != VAL_NUMBER || duration->as.number < 0.0 ||
+      !isfinite(duration->as.number)) {
+    value_release(duration);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'sleep' requires a non-negative finite number");
+  }
+  double integral;
+  double fractional = modf(duration->as.number, &integral);
+  struct timespec requested = {(time_t)integral,
+                               (long)(fractional * 1000000000.0)};
+  while (nanosleep(&requested, &requested) != 0 && errno == EINTR) {
+  }
+  value_release(duration);
+  KronosValue *result = value_new_nil();
+  if (!result)
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result););
+  value_release(result);
+  return 0;
+}
+
+int builtin_args(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 0)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'args' expects 0 arguments, got %d", arg_count);
+  KronosVM *owner = vm->root_vm_ref ? vm->root_vm_ref : vm;
+  KronosValue *result = value_new_list(owner->process_arg_count);
+  if (!result)
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  for (size_t i = 0; i < owner->process_arg_count; i++) {
+    KronosValue *arg = value_new_string(owner->process_args[i],
+                                        strlen(owner->process_args[i]));
+    if (!arg) {
+      value_release(result);
+      return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+    }
+    result->as.list.items[result->as.list.count++] = arg;
+  }
+  return push_list_result(vm, result);
+}
+
+int builtin_env(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'env' expects 1 argument, got %d", arg_count);
+  KronosValue *name;
+  POP_OR_RETURN(vm, name);
+  if (name->type != VAL_STRING) {
+    value_release(name);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'env' requires a string argument");
+  }
+  const char *value = getenv(name->as.string.data);
+  KronosValue *result = value ? value_new_string(value, strlen(value))
+                              : value_new_nil();
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(name););
+  value_release(result);
+  value_release(name);
+  return 0;
+}
+
+int builtin_exit(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count > 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'exit' expects at most 1 argument, got %d",
+                     arg_count);
+  int exit_code = 0;
+  if (arg_count == 1) {
+    KronosValue *code;
+    POP_OR_RETURN(vm, code);
+    if (code->type != VAL_NUMBER || !isfinite(code->as.number) ||
+        floor(code->as.number) != code->as.number || code->as.number < 0.0 ||
+        code->as.number > 255.0) {
+      value_release(code);
+      return vm_error(vm, KRONOS_ERR_RUNTIME,
+                      "Function 'exit' requires an integer from 0 to 255");
+    }
+    exit_code = (int)code->as.number;
+    value_release(code);
+  }
+  KronosVM *owner = vm->root_vm_ref ? vm->root_vm_ref : vm;
+  owner->exit_requested = true;
+  owner->exit_code = exit_code;
+  vm->exit_requested = true;
+  vm->exit_code = exit_code;
+  return 0;
+}
+
+#define JSON_MAX_DEPTH 64
+
+typedef struct {
+  const char *cursor;
+  const char *error;
+} JsonParser;
+
+typedef struct {
+  char *data;
+  size_t length;
+  size_t capacity;
+} JsonBuffer;
+
+static bool json_buffer_append(JsonBuffer *buffer, const char *text,
+                               size_t length) {
+  if (length > SIZE_MAX - buffer->length - 1)
+    return false;
+  size_t required = buffer->length + length + 1;
+  if (required > buffer->capacity) {
+    size_t capacity = buffer->capacity ? buffer->capacity : 64;
+    while (capacity < required) {
+      if (capacity > SIZE_MAX / 2)
+        return false;
+      capacity *= 2;
+    }
+    char *data = realloc(buffer->data, capacity);
+    if (!data)
+      return false;
+    buffer->data = data;
+    buffer->capacity = capacity;
+  }
+  memcpy(buffer->data + buffer->length, text, length);
+  buffer->length += length;
+  buffer->data[buffer->length] = '\0';
+  return true;
+}
+
+static void json_skip_space(JsonParser *parser) {
+  while (isspace((unsigned char)*parser->cursor))
+    parser->cursor++;
+}
+
+static bool json_append_utf8(JsonBuffer *buffer, unsigned codepoint) {
+  char bytes[4];
+  size_t length;
+  if (codepoint <= 0x7f) {
+    bytes[0] = (char)codepoint;
+    length = 1;
+  } else if (codepoint <= 0x7ff) {
+    bytes[0] = (char)(0xc0 | (codepoint >> 6));
+    bytes[1] = (char)(0x80 | (codepoint & 0x3f));
+    length = 2;
+  } else {
+    bytes[0] = (char)(0xe0 | (codepoint >> 12));
+    bytes[1] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
+    bytes[2] = (char)(0x80 | (codepoint & 0x3f));
+    length = 3;
+  }
+  return json_buffer_append(buffer, bytes, length);
+}
+
+static int json_hex_digit(char character) {
+  if (character >= '0' && character <= '9')
+    return character - '0';
+  if (character >= 'a' && character <= 'f')
+    return character - 'a' + 10;
+  if (character >= 'A' && character <= 'F')
+    return character - 'A' + 10;
+  return -1;
+}
+
+static KronosValue *json_parse_string(JsonParser *parser) {
+  if (*parser->cursor++ != '"')
+    return NULL;
+  JsonBuffer buffer = {0};
+  while (*parser->cursor && *parser->cursor != '"') {
+    unsigned char character = (unsigned char)*parser->cursor++;
+    if (character < 0x20) {
+      parser->error = "Unescaped control character in JSON string";
+      free(buffer.data);
+      return NULL;
+    }
+    if (character != '\\') {
+      if (!json_buffer_append(&buffer, (const char *)&character, 1))
+        parser->error = "Failed to allocate JSON string";
+      if (parser->error) {
+        free(buffer.data);
+        return NULL;
+      }
+      continue;
+    }
+    char escape = *parser->cursor++;
+    const char *replacement = NULL;
+    switch (escape) {
+    case '"': replacement = "\""; break;
+    case '\\': replacement = "\\"; break;
+    case '/': replacement = "/"; break;
+    case 'b': replacement = "\b"; break;
+    case 'f': replacement = "\f"; break;
+    case 'n': replacement = "\n"; break;
+    case 'r': replacement = "\r"; break;
+    case 't': replacement = "\t"; break;
+    case 'u': {
+      unsigned codepoint = 0;
+      for (int i = 0; i < 4; i++) {
+        int digit = json_hex_digit(parser->cursor[i]);
+        if (digit < 0) {
+          parser->error = "Invalid Unicode escape in JSON string";
+          free(buffer.data);
+          return NULL;
+        }
+        codepoint = codepoint * 16u + (unsigned)digit;
+      }
+      parser->cursor += 4;
+      if (codepoint >= 0xd800 && codepoint <= 0xdfff) {
+        parser->error = "JSON surrogate pairs are not supported";
+        free(buffer.data);
+        return NULL;
+      }
+      if (!json_append_utf8(&buffer, codepoint)) {
+        parser->error = "Failed to allocate JSON string";
+        free(buffer.data);
+        return NULL;
+      }
+      continue;
+    }
+    default:
+      parser->error = "Invalid escape in JSON string";
+      free(buffer.data);
+      return NULL;
+    }
+    if (!json_buffer_append(&buffer, replacement, 1)) {
+      parser->error = "Failed to allocate JSON string";
+      free(buffer.data);
+      return NULL;
+    }
+  }
+  if (*parser->cursor != '"') {
+    parser->error = "Unterminated JSON string";
+    free(buffer.data);
+    return NULL;
+  }
+  parser->cursor++;
+  KronosValue *value = value_new_string(buffer.data ? buffer.data : "",
+                                        buffer.length);
+  free(buffer.data);
+  if (!value)
+    parser->error = "Failed to allocate JSON value";
+  return value;
+}
+
+static KronosValue *json_parse_value(JsonParser *parser, int depth);
+
+static KronosValue *json_parse_number(JsonParser *parser) {
+  const char *start = parser->cursor;
+  const char *cursor = start;
+  if (*cursor == '-')
+    cursor++;
+  if (*cursor == '0') {
+    cursor++;
+    if (isdigit((unsigned char)*cursor)) {
+      parser->error = "JSON numbers cannot contain leading zeros";
+      return NULL;
+    }
+  } else if (*cursor >= '1' && *cursor <= '9') {
+    while (isdigit((unsigned char)*cursor))
+      cursor++;
+  } else {
+    return NULL;
+  }
+  if (*cursor == '.') {
+    cursor++;
+    if (!isdigit((unsigned char)*cursor)) {
+      parser->error = "JSON fraction requires a digit";
+      return NULL;
+    }
+    while (isdigit((unsigned char)*cursor))
+      cursor++;
+  }
+  if (*cursor == 'e' || *cursor == 'E') {
+    cursor++;
+    if (*cursor == '+' || *cursor == '-')
+      cursor++;
+    if (!isdigit((unsigned char)*cursor)) {
+      parser->error = "JSON exponent requires a digit";
+      return NULL;
+    }
+    while (isdigit((unsigned char)*cursor))
+      cursor++;
+  }
+
+  errno = 0;
+  char *end;
+  double number = strtod(start, &end);
+  if (end != cursor || errno == ERANGE || !isfinite(number)) {
+    parser->error = "JSON number is outside the supported range";
+    return NULL;
+  }
+  parser->cursor = cursor;
+  return value_new_number(number);
+}
+
+static KronosValue *json_parse_array(JsonParser *parser, int depth) {
+  parser->cursor++;
+  KronosValue *list = value_new_list(4);
+  if (!list) {
+    parser->error = "Failed to allocate JSON array";
+    return NULL;
+  }
+  json_skip_space(parser);
+  if (*parser->cursor == ']') {
+    parser->cursor++;
+    return list;
+  }
+  while (true) {
+    KronosValue *item = json_parse_value(parser, depth + 1);
+    if (!item) {
+      value_release(list);
+      return NULL;
+    }
+    if (list->as.list.count == list->as.list.capacity) {
+      size_t capacity = list->as.list.capacity * 2;
+      KronosValue **items = realloc(list->as.list.items,
+                                    capacity * sizeof(KronosValue *));
+      if (!items) {
+        value_release(item);
+        value_release(list);
+        parser->error = "Failed to grow JSON array";
+        return NULL;
+      }
+      list->as.list.items = items;
+      list->as.list.capacity = capacity;
+    }
+    list->as.list.items[list->as.list.count++] = item;
+    json_skip_space(parser);
+    if (*parser->cursor == ']') {
+      parser->cursor++;
+      return list;
+    }
+    if (*parser->cursor++ != ',') {
+      value_release(list);
+      parser->error = "Expected ',' or ']' in JSON array";
+      return NULL;
+    }
+    json_skip_space(parser);
+  }
+}
+
+static KronosValue *json_parse_object(JsonParser *parser, int depth) {
+  parser->cursor++;
+  KronosValue *map = value_new_map(8);
+  if (!map) {
+    parser->error = "Failed to allocate JSON object";
+    return NULL;
+  }
+  json_skip_space(parser);
+  if (*parser->cursor == '}') {
+    parser->cursor++;
+    return map;
+  }
+  while (true) {
+    if (*parser->cursor != '"') {
+      value_release(map);
+      parser->error = "JSON object keys must be strings";
+      return NULL;
+    }
+    KronosValue *key = json_parse_string(parser);
+    json_skip_space(parser);
+    if (!key || *parser->cursor++ != ':') {
+      value_release(key);
+      value_release(map);
+      if (!parser->error)
+        parser->error = "Expected ':' after JSON object key";
+      return NULL;
+    }
+    KronosValue *value = json_parse_value(parser, depth + 1);
+    if (!value || map_set(map, key, value) != 0) {
+      value_release(key);
+      value_release(value);
+      value_release(map);
+      if (!parser->error)
+        parser->error = "Failed to add JSON object entry";
+      return NULL;
+    }
+    value_release(key);
+    value_release(value);
+    json_skip_space(parser);
+    if (*parser->cursor == '}') {
+      parser->cursor++;
+      return map;
+    }
+    if (*parser->cursor++ != ',') {
+      value_release(map);
+      parser->error = "Expected ',' or '}' in JSON object";
+      return NULL;
+    }
+    json_skip_space(parser);
+  }
+}
+
+static KronosValue *json_parse_value(JsonParser *parser, int depth) {
+  if (depth > JSON_MAX_DEPTH) {
+    parser->error = "JSON nesting exceeds maximum depth";
+    return NULL;
+  }
+  json_skip_space(parser);
+  if (*parser->cursor == '"')
+    return json_parse_string(parser);
+  if (*parser->cursor == '[')
+    return json_parse_array(parser, depth);
+  if (*parser->cursor == '{')
+    return json_parse_object(parser, depth);
+  if (strncmp(parser->cursor, "true", 4) == 0) {
+    parser->cursor += 4;
+    return value_new_bool(true);
+  }
+  if (strncmp(parser->cursor, "false", 5) == 0) {
+    parser->cursor += 5;
+    return value_new_bool(false);
+  }
+  if (strncmp(parser->cursor, "null", 4) == 0) {
+    parser->cursor += 4;
+    return value_new_nil();
+  }
+  KronosValue *number = json_parse_number(parser);
+  if (number)
+    return number;
+  if (parser->error)
+    return NULL;
+  parser->error = "Invalid JSON value";
+  return NULL;
+}
+
+static bool json_serialize_value(JsonBuffer *buffer, KronosValue *value,
+                                 int depth);
+
+static bool json_serialize_string(JsonBuffer *buffer, const char *text,
+                                  size_t length) {
+  if (!json_buffer_append(buffer, "\"", 1))
+    return false;
+  for (size_t i = 0; i < length; i++) {
+    unsigned char character = (unsigned char)text[i];
+    const char *escape = NULL;
+    switch (character) {
+    case '"': escape = "\\\""; break;
+    case '\\': escape = "\\\\"; break;
+    case '\b': escape = "\\b"; break;
+    case '\f': escape = "\\f"; break;
+    case '\n': escape = "\\n"; break;
+    case '\r': escape = "\\r"; break;
+    case '\t': escape = "\\t"; break;
+    }
+    if (escape) {
+      if (!json_buffer_append(buffer, escape, 2))
+        return false;
+    } else if (character < 0x20) {
+      char unicode[7];
+      snprintf(unicode, sizeof(unicode), "\\u%04x", character);
+      if (!json_buffer_append(buffer, unicode, 6))
+        return false;
+    } else if (!json_buffer_append(buffer, (const char *)&character, 1)) {
+      return false;
+    }
+  }
+  return json_buffer_append(buffer, "\"", 1);
+}
+
+static bool json_serialize_value(JsonBuffer *buffer, KronosValue *value,
+                                 int depth) {
+  if (!value || depth > JSON_MAX_DEPTH)
+    return false;
+  char number[64];
+  switch (value->type) {
+  case VAL_NIL:
+    return json_buffer_append(buffer, "null", 4);
+  case VAL_BOOL:
+    return json_buffer_append(buffer, value->as.boolean ? "true" : "false",
+                              value->as.boolean ? 4 : 5);
+  case VAL_NUMBER: {
+    if (!isfinite(value->as.number))
+      return false;
+    int length = snprintf(number, sizeof(number), "%.17g", value->as.number);
+    return length > 0 && json_buffer_append(buffer, number, (size_t)length);
+  }
+  case VAL_STRING:
+    return json_serialize_string(buffer, value->as.string.data,
+                                 value->as.string.length);
+  case VAL_LIST:
+  case VAL_TUPLE: {
+    size_t count = value->type == VAL_LIST ? value->as.list.count
+                                           : value->as.tuple.count;
+    KronosValue **items = value->type == VAL_LIST ? value->as.list.items
+                                                   : value->as.tuple.items;
+    if (!json_buffer_append(buffer, "[", 1))
+      return false;
+    for (size_t i = 0; i < count; i++) {
+      if ((i > 0 && !json_buffer_append(buffer, ",", 1)) ||
+          !json_serialize_value(buffer, items[i], depth + 1))
+        return false;
+    }
+    return json_buffer_append(buffer, "]", 1);
+  }
+  case VAL_MAP:
+    if (!json_buffer_append(buffer, "{", 1))
+      return false;
+    size_t written = 0;
+    for (size_t i = 0; i < value->as.map.capacity; i++) {
+      if (!value->as.map.entries[i].key || value->as.map.entries[i].is_tombstone)
+        continue;
+      KronosValue *key = value->as.map.entries[i].key;
+      if (key->type != VAL_STRING ||
+          (written++ > 0 && !json_buffer_append(buffer, ",", 1)) ||
+          !json_serialize_string(buffer, key->as.string.data,
+                                 key->as.string.length) ||
+          !json_buffer_append(buffer, ":", 1) ||
+          !json_serialize_value(buffer, value->as.map.entries[i].value,
+                                depth + 1))
+        return false;
+    }
+    return json_buffer_append(buffer, "}", 1);
+  default:
+    return false;
+  }
+}
+
+int builtin_parse_json(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'parse_json' expects 1 argument, got %d",
+                     arg_count);
+  KronosValue *text;
+  POP_OR_RETURN(vm, text);
+  if (text->type != VAL_STRING) {
+    value_release(text);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Function 'parse_json' requires a string argument");
+  }
+  JsonParser parser = {text->as.string.data, NULL};
+  KronosValue *result = json_parse_value(&parser, 0);
+  json_skip_space(&parser);
+  if (!result || *parser.cursor != '\0') {
+    value_release(result);
+    value_release(text);
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME, "Invalid JSON: %s",
+                     parser.error ? parser.error : "unexpected trailing data");
+  }
+  value_release(text);
+  int status = push(vm, result);
+  value_release(result);
+  return status;
+}
+
+int builtin_to_json(KronosVM *vm, uint8_t arg_count) {
+  if (arg_count != 1)
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Function 'to_json' expects 1 argument, got %d",
+                     arg_count);
+  KronosValue *value;
+  POP_OR_RETURN(vm, value);
+  JsonBuffer buffer = {0};
+  if (!json_serialize_value(&buffer, value, 0)) {
+    free(buffer.data);
+    value_release(value);
+    return vm_error(vm, KRONOS_ERR_RUNTIME,
+                    "Value cannot be represented as JSON");
+  }
+  KronosValue *result = value_new_string(buffer.data, buffer.length);
+  free(buffer.data);
+  if (!result) {
+    value_release(value);
+    return vm_error(vm, KRONOS_ERR_INTERNAL, "Failed to allocate result");
+  }
+  PUSH_OR_RETURN_WITH_CLEANUP(vm, result, value_release(result);
+                              value_release(value););
+  value_release(result);
+  value_release(value);
   return 0;
 }
 
