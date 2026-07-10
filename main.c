@@ -975,6 +975,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (vm_set_args(vm, file_count, &argv[optind]) != 0) {
+    print_error("Failed to store process arguments");
+    kronos_vm_free(vm);
+    return 1;
+  }
+
   int exit_code = 0;
   for (int i = optind; i < argc; i++) {
     // Check for signal before processing each file
@@ -995,6 +1001,11 @@ int main(int argc, char **argv) {
       // Convert any non-zero result to standard exit code 1
       // (kronos_run_file should only return 0 or negative, but be defensive)
       exit_code = 1;
+    }
+
+    if (vm->exit_requested) {
+      exit_code = vm->exit_code;
+      break;
     }
 
     // Check for signal after processing each file

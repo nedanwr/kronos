@@ -394,7 +394,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 #### Scope
 
-- **Core Standard Library Completion (Beta)** - Stabilize the modules required for 1.0 language adoption
+- ✅ **Core Standard Library Completion (Beta)** - Stabilize the modules required for 1.0 language adoption (completed)
   - **Math:** `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan()`, `log()`, `log10()`, `exp()`, `cbrt()`
   - **String:** `find()`, `rfind()`, `count()`, `capitalize()`, `title()`
   - **Date/Time:** `now()`, `format_date()`, `parse_date()`, `sleep()`

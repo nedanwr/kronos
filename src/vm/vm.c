@@ -868,6 +868,10 @@ KronosVM *vm_new(void) {
   vm->last_error_type = NULL;
   vm->last_error_code = KRONOS_OK;
   vm->error_callback = NULL;
+  vm->process_args = NULL;
+  vm->process_arg_count = 0;
+  vm->exit_requested = false;
+  vm->exit_code = 0;
   vm->exception_handler_count = 0;
 
   // Initialize function hash table to all NULL
@@ -935,6 +939,34 @@ KronosVM *vm_new(void) {
   return vm;
 }
 
+int vm_set_args(KronosVM *vm, int argc, char **argv) {
+  if (!vm || argc < 0 || (argc > 0 && !argv))
+    return -(int)KRONOS_ERR_INVALID_ARGUMENT;
+
+  char **copies = NULL;
+  if (argc > 0) {
+    copies = calloc((size_t)argc, sizeof(char *));
+    if (!copies)
+      return -(int)KRONOS_ERR_INTERNAL;
+    for (int i = 0; i < argc; i++) {
+      copies[i] = strdup(argv[i] ? argv[i] : "");
+      if (!copies[i]) {
+        for (int j = 0; j < i; j++)
+          free(copies[j]);
+        free(copies);
+        return -(int)KRONOS_ERR_INTERNAL;
+      }
+    }
+  }
+
+  for (size_t i = 0; i < vm->process_arg_count; i++)
+    free(vm->process_args[i]);
+  free(vm->process_args);
+  vm->process_args = copies;
+  vm->process_arg_count = (size_t)argc;
+  return 0;
+}
+
 /**
  * @brief Free a VM instance and all its resources
  *
@@ -975,6 +1007,11 @@ void vm_free(KronosVM *vm) {
   for (size_t i = 0; i < vm->function_count; i++) {
     function_free(vm->functions[i]);
   }
+
+  for (size_t i = 0; i < vm->process_arg_count; i++) {
+    free(vm->process_args[i]);
+  }
+  free(vm->process_args);
 
   // Release modules
   for (size_t i = 0; i < vm->module_count; i++) {
@@ -3090,6 +3127,7 @@ static int handle_op_call_func(KronosVM *vm) {
 
   // Check for built-in functions first
   const char *func_name = name_val->as.string.data;
+  bool force_builtin = false;
 
   // Check for module.function syntax (e.g., math.sqrt)
   const char *dot = strchr(func_name, '.');
@@ -3107,17 +3145,23 @@ static int handle_op_call_func(KronosVM *vm) {
     const char *actual_func_name = dot + 1;
 
     // Check for built-in modules first
-    if (strcmp(module_name, "math") == 0) {
+    if (strcmp(module_name, "math") == 0 ||
+        strcmp(module_name, "string") == 0 ||
+        strcmp(module_name, "collections") == 0 ||
+        strcmp(module_name, "time") == 0 || strcmp(module_name, "os") == 0 ||
+        strcmp(module_name, "json") == 0) {
       // Math functions are already implemented as built-ins
       // Just route to the built-in function by name
       free(module_name);
       // Continue to built-in function checks below with actual_func_name
       func_name = actual_func_name;
+      force_builtin = true;
     } else if (strcmp(module_name, "regex") == 0) {
       // Regex functions are implemented as built-ins
       free(module_name);
       // Continue to built-in function checks below with actual_func_name
       func_name = actual_func_name;
+      force_builtin = true;
     } else {
       // Check for loaded file-based modules
       Module *mod = vm_get_module(vm, module_name);
@@ -3202,7 +3246,7 @@ static int handle_op_call_func(KronosVM *vm) {
 
   // Try to find built-in function using dispatch table
   BuiltinHandler builtin = vm_find_builtin(func_name);
-  if (builtin) {
+  if (builtin && (force_builtin || !vm_get_function(vm, func_name))) {
     // Named arguments not supported for built-in functions
     if (named_count > 0) {
       FREE_NAMED_ARGS();
@@ -5643,6 +5687,9 @@ int vm_execute(KronosVM *vm, Bytecode *bytecode) {
   bool handling_exception = false;
 
   while (1) {
+    if (vm->exit_requested)
+      return 0;
+
     // Once a catch block has consumed the error, return to normal execution.
     if (handling_exception && vm->last_error_code == KRONOS_OK) {
       handling_exception = false;

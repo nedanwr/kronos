@@ -153,3 +153,22 @@ print sorted
 print "Descending:"
 print descending
 ```
+
+## Collection Aggregation
+
+These functions are available globally or through the `collections` module.
+
+| Function | Description |
+| --- | --- |
+| `zip(list1, list2, ...)` | Combine items into tuples, stopping at the shortest list |
+| `enumerate(list)` | Return `(index, item)` tuples starting at zero |
+| `any(list)` | Return whether at least one item is truthy |
+| `all(list)` | Return whether every item is truthy; empty lists return `true` |
+| `sum(list)` | Sum a list containing only numbers; empty lists return `0` |
+
+```kronos
+import collections
+set pairs to call collections.zip with [1, 2], ["a", "b"]
+set indexed to call collections.enumerate with [10, 20]
+set total to call collections.sum with [1, 2, 3]
+```

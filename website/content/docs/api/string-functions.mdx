@@ -134,3 +134,22 @@ Replace all occurrences of a substring with another substring.
 set text to "Hello World"
 set replaced to call replace with text, "World", "Kronos"  # Returns "Hello Kronos"
 ```
+
+## Finding and Casing
+
+These functions are available globally or through the `string` module.
+
+| Function | Description |
+| --- | --- |
+| `find(text, substring)` | First byte index, or `-1` when absent |
+| `rfind(text, substring)` | Last byte index, or `-1` when absent |
+| `count(text, substring)` | Number of non-overlapping occurrences |
+| `capitalize(text)` | Uppercase the first character and lowercase the remainder |
+| `title(text)` | Capitalize each whitespace-separated word |
+
+```kronos
+import string
+set first to call string.find with "banana", "na"       # 2
+set last to call string.rfind with "banana", "na"       # 4
+set heading to call string.title with "hello world"      # "Hello World"
+```
