@@ -1,20 +1,14 @@
-import { readFileSync } from "fs";
-import { join } from "path";
 import {
   defineConfig,
   defineDocs,
   frontmatterSchema,
   metaSchema,
 } from "fumadocs-mdx/config";
-
-// Load Kronos grammar synchronously at build time
-const kronosGrammar = JSON.parse(
-  readFileSync(join(process.cwd(), "lib/kronos.tmLanguage.json"), "utf8")
-);
+import kronosGrammar from "./lib/kronos.tmLanguage.json";
 
 // You can customise Zod schemas for frontmatter and `meta.json` here
 // see https://fumadocs.dev/docs/mdx/collections
-export const docs = defineDocs({
+export const { docs, meta } = defineDocs({
   dir: "content/docs",
   docs: {
     schema: frontmatterSchema,
@@ -31,7 +25,13 @@ export default defineConfig({
   mdxOptions: {
     rehypeCodeOptions: {
       langs: [kronosGrammar],
-      theme: "github-dark",
+      langAlias: {
+        kr: "kronos",
+      },
+      themes: {
+        light: "github-light",
+        dark: "github-dark",
+      },
     },
   },
 });

@@ -14,7 +14,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 The development roadmap for the Kronos programming language.
 
 <Callout>
-  **Current Version:** 0.4.5 — Website, documentation & interactive playground.
+  **Current Version:** 0.5.2-beta — Website migration to TanStack Start completed.
 </Callout>
 
 ---
@@ -46,10 +46,30 @@ Official website, documentation, and interactive playground.
 
 ### v0.5.0 — Advanced Language Features
 
-<span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-400 ring-1 ring-inset ring-amber-500/20">In Progress</span>
-<span className="ml-2 text-sm text-[#9CA3AF]">Q1 2026</span>
+<span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Completed</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Target Q1 2026 · Applied Q3 2026</span>
 
 Lambdas, list comprehensions, pattern matching, enhanced type system, and debugging support.
+
+</Step>
+<Step>
+
+### v0.5.1 — Runtime & LSP Hardening
+
+<span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Completed</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Applied Q3 2026</span>
+
+Runtime, compiler, LSP, memory management, coverage tooling, and regression-test hardening.
+
+</Step>
+<Step>
+
+### v0.5.2 — Website Runtime Migration
+
+<span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-400 ring-1 ring-inset ring-green-500/20">Completed</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Applied Q3 2026</span>
+
+Website migration from Next.js routing to TanStack Start and Vite.
 
 </Step>
 <Step>
@@ -57,7 +77,7 @@ Lambdas, list comprehensions, pattern matching, enhanced type system, and debugg
 ### v0.6.0 — Core Runtime Beta
 
 <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
-<span className="ml-2 text-sm text-[#9CA3AF]">Q2 2026</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q3 2026</span>
 
 Core standard library completion, method chaining hardening, and baseline runtime optimizations.
 
@@ -67,7 +87,7 @@ Core standard library completion, method chaining hardening, and baseline runtim
 ### v0.7.0 — Tooling & LSP Beta
 
 <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
-<span className="ml-2 text-sm text-[#9CA3AF]">Q3 2026</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q4 2026</span>
 
 Formatter, linter, test runner, docs generator, and full LSP hardening.
 
@@ -77,7 +97,7 @@ Formatter, linter, test runner, docs generator, and full LSP hardening.
 ### v0.8.0 — Concurrency & Ecosystem Beta
 
 <span className="inline-flex items-center rounded-full bg-slate-500/10 px-2 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-500/20">Planned</span>
-<span className="ml-2 text-sm text-[#9CA3AF]">Q4 2026</span>
+<span className="ml-2 text-sm text-[#9CA3AF]">Q1 2027</span>
 
 Concurrency, package manager, networking/data modules, and advanced runtime optimization validation.
 
@@ -97,7 +117,7 @@ Stabilization release after beta graduation; no major net-new features.
 
 ## What's Available Now
 
-Everything in v0.4.5 is stable and ready for use:
+Everything through v0.5.2 is stable and ready for use:
 
 <Cards>
   <Card title="Core Language" description="Variables, types, operators, control flow, functions" />
@@ -108,13 +128,15 @@ Everything in v0.4.5 is stable and ready for use:
   <Card title="File I/O" description="Read, write, path operations" />
   <Card title="Regex" description="Pattern matching and text processing" />
   <Card title="LSP" description="Full editor support with completions, hover, go-to-definition" />
+  <Card title="Advanced Features" description="Lambdas, comprehensions, pattern matching, and multi-return values" />
+  <Card title="Function System" description="Default parameters, variadic functions, and named arguments" />
 </Cards>
 
 ---
 
 ## Version Details
 
-<Tabs items={['v0.4.0', 'v0.4.5', 'v0.5.0', 'v0.6.0', 'v0.7.0', 'v0.8.0', 'v1.0.0']}>
+<Tabs items={['v0.4.0', 'v0.4.5', 'v0.5.0', 'v0.5.1', 'v0.5.2', 'v0.6.0', 'v0.7.0', 'v0.8.0', 'v1.0.0']}>
 
 <Tab value="v0.4.0">
 
@@ -360,6 +382,69 @@ debug "x * 2 =", x times 2
 
 </Tab>
 
+<Tab value="v0.5.1">
+
+### Runtime & LSP Hardening
+
+<Accordions>
+<Accordion title="Runtime Fixes ✓">
+- Improved `try`/`finally` execution by validating jump targets and preserving exception handlers correctly
+- Reworked `contains` and `replace` substring scanning for more accurate edge-case behavior
+- Improved Windows directory listing with UTF-8 path handling
+- Added graceful errors for builds without POSIX regex support
+</Accordion>
+
+<Accordion title="Compiler Hardening ✓">
+- Added metadata validation for function and call bytecode printing
+- Improved diagnostics for truncated `OP_DEFINE_FUNC` and `OP_CALL_FUNC` instructions
+- Added allocation checks while compiling default parameter values
+</Accordion>
+
+<Accordion title="LSP Fixes ✓">
+- Normalized module paths for relative imports
+- Treated disk-restricted module loading as pending instead of failing hard
+- Expanded hover markdown buffers and JSON escaping
+- Improved rename handling for strings with unescaped quotes
+- Tightened loop-variable scope diagnostics
+</Accordion>
+
+<Accordion title="Memory Management ✓">
+- Added GC marking for tuple items
+- Covered tuple allocation accounting with regression tests
+</Accordion>
+
+<Accordion title="Testing & Coverage ✓">
+- Added LSP tests to CI
+- Added optional lcov line/branch coverage reporting
+- Added regression tests for `try`/`catch`/`finally`, `try`/`finally`, `math.rand`, and slicing-to-end behavior
+- Improved cleanup of generated test artifacts
+</Accordion>
+</Accordions>
+
+</Tab>
+
+<Tab value="v0.5.2">
+
+### Website Runtime Migration
+
+<Accordions>
+<Accordion title="TanStack Start Migration ✓">
+- Replaced Next.js app routes with TanStack file routes
+- Added TanStack router setup with scroll restoration and intent preloading
+- Ported docs, playground, search API, OG image, `llms-full.txt`, and home routes
+- Updated Fumadocs provider and MDX loading for TanStack integration
+</Accordion>
+
+<Accordion title="Website Build Tooling ✓">
+- Replaced the Next.js build/dev/start scripts with Vite build/dev/preview scripts
+- Removed Next.js-specific configuration and dependencies
+- Added TanStack Start, TanStack Router, Vite, React plugin, and tsconfig paths support
+- Updated TypeScript, ESLint, source config, lockfile, and package scripts for the Vite pipeline
+</Accordion>
+</Accordions>
+
+</Tab>
+
 <Tab value="v0.6.0">
 
 ### Core Runtime Beta
@@ -555,5 +640,5 @@ Beyond v1.0.0, we're considering:
 </Cards>
 
 <Callout type="info">
-  **Last Updated:** March 2026
+  **Last Updated:** July 2026
 </Callout>

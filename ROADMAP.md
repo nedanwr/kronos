@@ -4,8 +4,8 @@ This document outlines the planned features and release schedule for Kronos.
 
 ## Current Status
 
-**Current Version:** 0.4.5
-**Status:** ✅ Stable - Core language features complete
+**Current Version:** 0.5.2-beta
+**Status:** ✅ Completed - Website runtime migration
 
 ### What's Available Now
 
@@ -21,6 +21,11 @@ This document outlines the planned features and release schedule for Kronos.
 - ✅ Enhanced control flow (else-if, break, continue)
 - ✅ LSP support (error checking, go-to-definition, hover, completions)
 - ✅ Range objects (literals, indexing, slicing, iteration, length)
+- ✅ Advanced language features (lambdas, comprehensions, pattern matching, multi-return values)
+- ✅ Function enhancements (default parameters, variadic functions, named arguments)
+- ✅ Enhanced type system (generic types, type aliases, union types)
+- ✅ Runtime diagnostics and LSP improvements (debug statements, signature help, semantic tokens, inlay hints)
+- ✅ Website migration to TanStack Start for 0.5.2-beta
 
 ---
 
@@ -222,7 +227,8 @@ This document outlines the planned features and release schedule for Kronos.
 ### Version 0.5.0: "Advanced Language Features"
 
 **Target:** Q1 2026
-**Status:** 🚧 In Progress
+**Applied:** Q3 2026
+**Status:** ✅ Completed
 
 #### Planned Features
 
@@ -316,9 +322,74 @@ This document outlines the planned features and release schedule for Kronos.
 
 ---
 
+### Version 0.5.1: "Runtime & LSP Hardening"
+
+**Applied:** Q3 2026
+**Status:** ✅ Completed
+
+#### Completed Features
+
+- ✅ **Runtime Fixes** - Hardened exception, string, path, regex, and directory-listing behavior
+
+  - Improved `try`/`finally` execution by validating jump targets and preserving exception handlers correctly
+  - Reworked `contains` and `replace` substring scanning for more accurate edge-case behavior
+  - Improved Windows directory listing with UTF-8 path handling
+  - Added graceful errors for builds without POSIX regex support
+
+- ✅ **Compiler Hardening** - Safer bytecode diagnostics and default-value compilation
+
+  - Added metadata validation for function and call bytecode printing
+  - Improved diagnostics for truncated `OP_DEFINE_FUNC` and `OP_CALL_FUNC` instructions
+  - Added allocation checks while compiling default parameter values
+
+- ✅ **LSP Fixes** - More robust module, hover, rename, and diagnostics behavior
+
+  - Normalized module paths for relative imports
+  - Treated disk-restricted module loading as pending instead of failing hard
+  - Expanded hover markdown buffers and JSON escaping
+  - Improved rename handling for strings with unescaped quotes
+  - Tightened loop-variable scope diagnostics
+
+- ✅ **Memory Management** - Tuple values are tracked during garbage collection
+
+  - Added GC marking for tuple items
+  - Covered tuple allocation accounting with regression tests
+
+- ✅ **Testing & Coverage Tooling** - Expanded confidence for release validation
+
+  - Added LSP tests to CI
+  - Added optional lcov line/branch coverage reporting
+  - Added regression tests for `try`/`catch`/`finally`, `try`/`finally`, `math.rand`, and slicing-to-end behavior
+  - Improved cleanup of generated test artifacts
+
+---
+
+### Version 0.5.2: "Website Runtime Migration"
+
+**Applied:** Q3 2026
+**Status:** ✅ Completed
+
+#### Completed Features
+
+- ✅ **TanStack Start Website Migration** - Move the documentation site from Next.js routing to TanStack Start
+
+  - Replaced Next.js app routes with TanStack file routes
+  - Added Vite build/dev/preview workflow
+  - Added TanStack router setup with scroll restoration and intent preloading
+  - Ported docs, playground, search API, OG image, `llms-full.txt`, and home routes
+  - Updated Fumadocs provider and MDX loading for TanStack integration
+
+- ✅ **Website Build Tooling** - Align frontend dependencies and configuration with the new runtime
+
+  - Removed Next.js-specific config and dependencies
+  - Added TanStack Start, TanStack Router, Vite, React plugin, and tsconfig paths support
+  - Updated TypeScript, ESLint, source config, lockfile, and package scripts for the Vite pipeline
+
+---
+
 ### Version 0.6.0: "Core Runtime Beta"
 
-**Target:** Q2 2026
+**Target:** Q3 2026
 **Status:** 📋 Planned
 
 #### Scope
@@ -348,7 +419,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.7.0: "Tooling & LSP Beta"
 
-**Target:** Q3 2026
+**Target:** Q4 2026
 **Status:** 📋 Planned
 
 #### Scope
@@ -394,7 +465,7 @@ This document outlines the planned features and release schedule for Kronos.
 
 ### Version 0.8.0: "Concurrency & Ecosystem Beta"
 
-**Target:** Q4 2026
+**Target:** Q1 2027
 **Status:** 📋 Planned
 
 #### Scope
@@ -538,4 +609,4 @@ Interested in contributing? Check out our [contributing guidelines](CONTRIBUTING
 
 ---
 
-**Last Updated:** March 2026
+**Last Updated:** July 2026

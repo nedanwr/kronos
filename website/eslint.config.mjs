@@ -1,15 +1,20 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
-  ...nextVitals,
   globalIgnores([
     ".next/**",
+    ".output/**",
     "out/**",
     "build/**",
-    "next-env.d.ts",
+    "dist/**",
     ".source/**",
+    "public/wasm/**",
+    "src/routeTree.gen.ts",
   ]),
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
 ]);
 
 export default eslintConfig;
