@@ -13,6 +13,7 @@ COVERAGE_SUMMARY = $(COVERAGE_DIR)/summary.txt
 COVERAGE_HTML_DIR = $(COVERAGE_DIR)/html
 COVERAGE_CFLAGS = $(FEATURE_CFLAGS) -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
 COVERAGE_LDFLAGS = -lm --coverage
+LCOV_BRANCH_FLAGS = --rc lcov_branch_coverage=1 --rc geninfo_unexecuted_blocks=1
 # Set to 1 to include LSP tests in coverage runs.
 COVERAGE_INCLUDE_LSP ?= 0
 
@@ -233,10 +234,11 @@ coverage: coverage-clean
 		echo "Running LSP tests for coverage..."; \
 		$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" test-lsp; \
 	fi
-	lcov --capture --directory . --output-file $(COVERAGE_INFO) --rc lcov_branch_coverage=1
-	lcov --remove $(COVERAGE_INFO) '/usr/*' 'tests/*' 'website/*' 'vscode-extension/*' 'wasm/*' \
-		--output-file $(COVERAGE_FILTERED_INFO) --rc lcov_branch_coverage=1
-	lcov --summary $(COVERAGE_FILTERED_INFO) --rc lcov_branch_coverage=1 | tee $(COVERAGE_SUMMARY)
+	@echo "Omitting test harness coverage data from product coverage report..."
+	find tests -type f \( -name '*.gcda' -o -name '*.gcno' \) -delete
+	lcov --capture --directory . --output-file $(COVERAGE_INFO) $(LCOV_BRANCH_FLAGS)
+	cp $(COVERAGE_INFO) $(COVERAGE_FILTERED_INFO)
+	lcov --summary $(COVERAGE_FILTERED_INFO) $(LCOV_BRANCH_FLAGS) | tee $(COVERAGE_SUMMARY)
 	@echo "Coverage summary written to $(COVERAGE_SUMMARY)"
 
 coverage-html: coverage
