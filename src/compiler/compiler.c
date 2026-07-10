@@ -39,6 +39,7 @@
  */
 
 #include "compiler.h"
+#include "optimizer.h"
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -663,6 +664,14 @@ static KronosValue *compile_default_value_to_constant(Compiler *c,
 
 // Forward declarations for statement compilation helpers
 static void compile_statement(Compiler *c, const ASTNode *node);
+
+static void compile_reachable_block(Compiler *c, ASTNode *const *statements,
+                                    size_t count) {
+  size_t reachable = optimizer_reachable_count(statements, count);
+  for (size_t i = 0; i < reachable && !compiler_has_error(c); i++) {
+    compile_statement(c, statements[i]);
+  }
+}
 static void compile_assign_statement(Compiler *c, const ASTNode *node);
 static void compile_assign_index_statement(Compiler *c, const ASTNode *node);
 static void compile_delete_statement(Compiler *c, const ASTNode *node);
@@ -1549,19 +1558,20 @@ static void compile_lambda_expression(Compiler *c, const ASTNode *node) {
     emit_byte(c, OP_RETURN_VAL);
   } else {
     // Multi-line: compile block statements
-    for (size_t i = 0; i < node->as.lambda.block_size; i++) {
-      compile_statement(c, node->as.lambda.block[i]);
-      if (compiler_has_error(c)) {
-        return;
-      }
-    }
-    // Implicit return nil if no explicit return
-    KronosValue *nil_val = value_new_nil();
-    emit_constant(c, nil_val);
+    compile_reachable_block(c, node->as.lambda.block,
+                            node->as.lambda.block_size);
     if (compiler_has_error(c)) {
       return;
     }
-    emit_byte(c, OP_RETURN_VAL);
+    if (!optimizer_block_terminates(node->as.lambda.block,
+                                    node->as.lambda.block_size)) {
+      KronosValue *nil_val = value_new_nil();
+      emit_constant(c, nil_val);
+      if (compiler_has_error(c)) {
+        return;
+      }
+      emit_byte(c, OP_RETURN_VAL);
+    }
   }
 
   // Calculate and patch body length
@@ -1623,6 +1633,14 @@ static void compile_tuple_expression(Compiler *c, const ASTNode *node) {
 static void compile_expression(Compiler *c, const ASTNode *node) {
   if (!node || compiler_has_error(c)) {
     return;
+  }
+
+  if (node->type == AST_BINOP) {
+    KronosValue *folded = optimizer_fold_constant(node);
+    if (folded) {
+      emit_constant(c, folded);
+      return;
+    }
   }
 
   switch (node->type) {
@@ -2145,11 +2163,10 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
   }
 
   // Compile if block
-  for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
-    compile_statement(c, node->as.if_stmt.block[i]);
-    if (compiler_has_error(c)) {
-      return;
-    }
+  compile_reachable_block(c, node->as.if_stmt.block,
+                          node->as.if_stmt.block_size);
+  if (compiler_has_error(c)) {
+    return;
   }
 
   // Collect all jump positions that need to be patched to point to next
@@ -2242,13 +2259,12 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
     }
 
     // Compile else-if block
-    for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
-      compile_statement(c, node->as.if_stmt.else_if_blocks[i][j]);
-      if (compiler_has_error(c)) {
-        free(jump_positions);
-        free(skip_jumps);
-        return;
-      }
+    compile_reachable_block(c, node->as.if_stmt.else_if_blocks[i],
+                            node->as.if_stmt.else_if_block_sizes[i]);
+    if (compiler_has_error(c)) {
+      free(jump_positions);
+      free(skip_jumps);
+      return;
     }
 
     // Emit skip jump AFTER the else-if block body (to skip to end when this
@@ -2316,13 +2332,12 @@ static void compile_if_statement(Compiler *c, const ASTNode *node) {
     jump_count = 0;
 
     // Compile else block
-    for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
-      compile_statement(c, node->as.if_stmt.else_block[i]);
-      if (compiler_has_error(c)) {
-        free(jump_positions);
-        free(skip_jumps);
-        return;
-      }
+    compile_reachable_block(c, node->as.if_stmt.else_block,
+                            node->as.if_stmt.else_block_size);
+    if (compiler_has_error(c)) {
+      free(jump_positions);
+      free(skip_jumps);
+      return;
     }
   }
 
@@ -2438,12 +2453,11 @@ static void compile_match_statement(Compiler *c, const ASTNode *node) {
       return;
     }
 
-    for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
-      compile_statement(c, node->as.match_stmt.case_blocks[i][j]);
-      if (compiler_has_error(c)) {
-        free(skip_jumps);
-        return;
-      }
+    compile_reachable_block(c, node->as.match_stmt.case_blocks[i],
+                            node->as.match_stmt.case_block_sizes[i]);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
     }
 
     size_t skip_jump = emit_jump_with_offset(c, OP_JUMP);
@@ -2479,12 +2493,11 @@ static void compile_match_statement(Compiler *c, const ASTNode *node) {
   }
 
   if (node->as.match_stmt.default_block) {
-    for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
-      compile_statement(c, node->as.match_stmt.default_block[i]);
-      if (compiler_has_error(c)) {
-        free(skip_jumps);
-        return;
-      }
+    compile_reachable_block(c, node->as.match_stmt.default_block,
+                            node->as.match_stmt.default_block_size);
+    if (compiler_has_error(c)) {
+      free(skip_jumps);
+      return;
     }
   }
 
@@ -2670,12 +2683,11 @@ static void compile_for_statement(Compiler *c, const ASTNode *node) {
     }
 
     // Compile loop body
-    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
-      compile_statement(c, node->as.for_stmt.block[i]);
-      if (compiler_has_error(c)) {
-        pop_loop(c);
-        return;
-      }
+    compile_reachable_block(c, node->as.for_stmt.block,
+                            node->as.for_stmt.block_size);
+    if (compiler_has_error(c)) {
+      pop_loop(c);
+      return;
     }
 
     // Set continue target to here (increment part) for continue statements
@@ -2878,12 +2890,11 @@ static void compile_for_statement(Compiler *c, const ASTNode *node) {
     // Stack is now empty - loop body can do whatever it wants
 
     // Compile loop body
-    for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
-      compile_statement(c, node->as.for_stmt.block[i]);
-      if (compiler_has_error(c)) {
-        pop_loop(c);
-        return;
-      }
+    compile_reachable_block(c, node->as.for_stmt.block,
+                            node->as.for_stmt.block_size);
+    if (compiler_has_error(c)) {
+      pop_loop(c);
+      return;
     }
 
     // Jump back to loop start
@@ -2977,12 +2988,11 @@ static void compile_while_statement(Compiler *c, const ASTNode *node) {
   }
 
   // Compile loop body
-  for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
-    compile_statement(c, node->as.while_stmt.block[i]);
-    if (compiler_has_error(c)) {
-      pop_loop(c);
-      return;
-    }
+  compile_reachable_block(c, node->as.while_stmt.block,
+                          node->as.while_stmt.block_size);
+  if (compiler_has_error(c)) {
+    pop_loop(c);
+    return;
   }
 
   // Jump back to loop start
@@ -3219,22 +3229,20 @@ static void compile_function_statement(Compiler *c, const ASTNode *node) {
   }
 
   // Compile function body
-  for (size_t i = 0; i < node->as.function.block_size; i++) {
-    compile_statement(c, node->as.function.block[i]);
+  compile_reachable_block(c, node->as.function.block,
+                          node->as.function.block_size);
+  if (compiler_has_error(c)) {
+    return;
+  }
+
+  if (!optimizer_block_terminates(node->as.function.block,
+                                  node->as.function.block_size)) {
+    KronosValue *nil_val = value_new_nil();
+    emit_constant(c, nil_val);
     if (compiler_has_error(c)) {
       return;
     }
-  }
-
-  // Implicit return nil if no explicit return
-  KronosValue *nil_val = value_new_nil();
-  emit_constant(c, nil_val);
-  if (compiler_has_error(c)) {
-    return;
-  }
-  emit_byte(c, OP_RETURN_VAL);
-  if (compiler_has_error(c)) {
-    return;
+    emit_byte(c, OP_RETURN_VAL);
   }
 
   // Patch jump over body
@@ -3262,11 +3270,10 @@ static void compile_try_statement(Compiler *c, const ASTNode *node) {
   emit_byte(c, 0);
 
   // Compile try block
-  for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
-    compile_statement(c, node->as.try_stmt.try_block[i]);
-    if (compiler_has_error(c)) {
-      return;
-    }
+  compile_reachable_block(c, node->as.try_stmt.try_block,
+                          node->as.try_stmt.try_block_size);
+  if (compiler_has_error(c)) {
+    return;
   }
 
   // Emit OP_TRY_EXIT to mark normal completion
@@ -3331,12 +3338,11 @@ static void compile_try_statement(Compiler *c, const ASTNode *node) {
     }
 
     // Compile first catch block
-    for (size_t i = 0; i < node->as.try_stmt.catch_blocks[0].catch_block_size;
-         i++) {
-      compile_statement(c, node->as.try_stmt.catch_blocks[0].catch_block[i]);
-      if (compiler_has_error(c)) {
-        return;
-      }
+    compile_reachable_block(
+        c, node->as.try_stmt.catch_blocks[0].catch_block,
+        node->as.try_stmt.catch_blocks[0].catch_block_size);
+    if (compiler_has_error(c)) {
+      return;
     }
 
     // Compile additional catch blocks (if any)
@@ -3376,12 +3382,11 @@ static void compile_try_statement(Compiler *c, const ASTNode *node) {
       }
 
       // Compile catch block
-      for (size_t i = 0;
-           i < node->as.try_stmt.catch_blocks[cb].catch_block_size; i++) {
-        compile_statement(c, node->as.try_stmt.catch_blocks[cb].catch_block[i]);
-        if (compiler_has_error(c)) {
-          return;
-        }
+      compile_reachable_block(
+          c, node->as.try_stmt.catch_blocks[cb].catch_block,
+          node->as.try_stmt.catch_blocks[cb].catch_block_size);
+      if (compiler_has_error(c)) {
+        return;
       }
     }
   }
@@ -3403,11 +3408,10 @@ static void compile_try_statement(Compiler *c, const ASTNode *node) {
     emit_byte(c, OP_FINALLY);
 
     // Compile finally block
-    for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
-      compile_statement(c, node->as.try_stmt.finally_block[i]);
-      if (compiler_has_error(c)) {
-        return;
-      }
+    compile_reachable_block(c, node->as.try_stmt.finally_block,
+                            node->as.try_stmt.finally_block_size);
+    if (compiler_has_error(c)) {
+      return;
     }
   } else {
     // No finally, patch OP_TRY_EXIT to jump past exception handler
@@ -3606,9 +3610,7 @@ Bytecode *compile(AST *ast, const char **out_err) {
   }
 
   // Compile all statements
-  for (size_t i = 0; i < ast->count && !compiler_has_error(c); i++) {
-    compile_statement(c, ast->statements[i]);
-  }
+  compile_reachable_block(c, ast->statements, ast->count);
 
   // Emit halt instruction if no errors occurred
   if (!compiler_has_error(c)) {

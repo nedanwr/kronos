@@ -20,7 +20,7 @@ COVERAGE_INCLUDE_LSP ?= 0
 # Source files
 CORE_SRC = src/core/runtime.c src/core/gc.c
 FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/keywords_hash.c src/frontend/parser.c
-COMPILER_SRC = src/compiler/compiler.c
+COMPILER_SRC = src/compiler/compiler.c src/compiler/optimizer.c
 VM_SRC = src/vm/vm.c src/vm/vm_builtins.c src/vm/vm_builtins_registry.c
 MAIN_SRC = main.c
 LINENOISE_SRC = linenoise.c

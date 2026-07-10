@@ -411,10 +411,13 @@ This document outlines the planned features and release schedule for Kronos.
   set processed to list 1, 2, 3.filter(function with x: return x is greater than 2).map(function with x: return x times 2)
   ```
 
-- **Baseline Optimizations (Beta)** - Safe optimizations targeted for 1.0
-  - Bytecode optimization passes
-  - Constant folding
-  - Dead code elimination
+- ✅ **Baseline Optimizations (Beta)** - Safe compile-time optimizations
+  targeted for 1.0 (completed)
+  - Dedicated optimization pass framework integrated with bytecode emission
+  - Constant folding for literal arithmetic, comparisons, boolean operations,
+    unary operations, and string concatenation
+  - Dead code elimination after guaranteed `return`, `raise`, `break`, and
+    `continue` terminators across nested statement blocks
 
 ---
 

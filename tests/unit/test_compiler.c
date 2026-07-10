@@ -1,4 +1,5 @@
 #include "../../src/compiler/compiler.h"
+#include "../../src/compiler/optimizer.h"
 #include "../../src/frontend/parser.h"
 #include "../../src/frontend/tokenizer.h"
 #include "../framework/test_framework.h"
@@ -55,6 +56,88 @@ TEST(compile_binary_operation) {
   Bytecode *bytecode = compile(ast, &err);
   ASSERT_PTR_NULL(err);
   ASSERT_PTR_NOT_NULL(bytecode);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
+TEST(optimizer_folds_nested_constant_expression) {
+  AST *ast = parse_string("print 2 plus 3 times 4");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_arithmetic_opcode = false;
+  bool has_folded_value = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_ADD || bytecode->code[i] == OP_MUL) {
+      has_arithmetic_opcode = true;
+    }
+  }
+  for (size_t i = 0; i < bytecode->const_count; i++) {
+    KronosValue *value = bytecode->constants[i];
+    if (value && value->type == VAL_NUMBER && value->as.number == 14.0) {
+      has_folded_value = true;
+    }
+  }
+  ASSERT_FALSE(has_arithmetic_opcode);
+  ASSERT_TRUE(has_folded_value);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
+TEST(optimizer_preserves_division_by_zero_runtime_operation) {
+  AST *ast = parse_string("print 10 divided by 0");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_division = false;
+  for (size_t i = 0; i < bytecode->count; i++) {
+    if (bytecode->code[i] == OP_DIV) {
+      has_division = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(has_division);
+
+  bytecode_free(bytecode);
+  ast_free(ast);
+}
+
+TEST(optimizer_eliminates_statements_after_return) {
+  AST *ast = parse_string("function result:\n"
+                          "    return 1 plus 2\n"
+                          "    print 999999\n");
+  ASSERT_PTR_NOT_NULL(ast);
+
+  ASSERT_EQ(optimizer_reachable_count(ast->statements[0]->as.function.block,
+                                      ast->statements[0]->as.function.block_size),
+            1);
+  ASSERT_TRUE(optimizer_block_terminates(
+      ast->statements[0]->as.function.block,
+      ast->statements[0]->as.function.block_size));
+
+  const char *err = NULL;
+  Bytecode *bytecode = compile(ast, &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(bytecode);
+
+  bool has_dead_constant = false;
+  for (size_t i = 0; i < bytecode->const_count; i++) {
+    KronosValue *value = bytecode->constants[i];
+    if (value && value->type == VAL_NUMBER && value->as.number == 999999.0) {
+      has_dead_constant = true;
+    }
+  }
+  ASSERT_FALSE(has_dead_constant);
 
   bytecode_free(bytecode);
   ast_free(ast);
