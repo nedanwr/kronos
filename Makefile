@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
+CFLAGS = -D_GNU_SOURCE -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
 LDFLAGS = -lm
 
 # Coverage build settings (line + branch)
@@ -8,7 +8,7 @@ COVERAGE_INFO = $(COVERAGE_DIR)/lcov.info
 COVERAGE_FILTERED_INFO = $(COVERAGE_DIR)/lcov.filtered.info
 COVERAGE_SUMMARY = $(COVERAGE_DIR)/summary.txt
 COVERAGE_HTML_DIR = $(COVERAGE_DIR)/html
-COVERAGE_CFLAGS = -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
+COVERAGE_CFLAGS = -D_GNU_SOURCE -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
 COVERAGE_LDFLAGS = -lm --coverage
 # Set to 1 to include LSP tests in coverage runs.
 COVERAGE_INCLUDE_LSP ?= 0
