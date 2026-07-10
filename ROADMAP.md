@@ -403,7 +403,8 @@ This document outlines the planned features and release schedule for Kronos.
   - **JSON:** `parse_json()`, `to_json()`
   - **Modules in scope:** `math`, `string`, `os`, `json`, `time`, `collections`, `regex`
 
-- **Method Chaining (Beta)** - Fluent API support with parser/runtime hardening
+- ✅ **Method Chaining (Beta)** - Fluent API support with parser/runtime and
+  LSP hardening (completed)
 
   ```kronos
   set result to text.uppercase().trim().split(" ")
