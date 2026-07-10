@@ -1,0 +1,27 @@
+# Test: rand built-in returns values in [0, 1]
+# Expected: Pass
+
+import math
+
+set r1 to call math.rand
+set r2 to call math.rand
+set r3 to call rand
+
+print r1
+print r2
+print r3
+
+if r1 is less than 0:
+    raise "rand range guard failed: r1 below 0"
+if r1 is greater than 1:
+    raise "rand range guard failed: r1 above 1"
+
+if r2 is less than 0:
+    raise "rand range guard failed: r2 below 0"
+if r2 is greater than 1:
+    raise "rand range guard failed: r2 above 1"
+
+if r3 is less than 0:
+    raise "rand range guard failed: r3 below 0"
+if r3 is greater than 1:
+    raise "rand range guard failed: r3 above 1"

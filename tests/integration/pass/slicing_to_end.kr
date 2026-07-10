@@ -1,0 +1,23 @@
+# Test: Slicing with "to end"
+# Expected: Pass
+
+set text to "Kronos"
+set text_tail to text from 2 to end
+print text_tail
+set text_tail_len to call len with text_tail
+if text_tail_len is not equal 4:
+    raise "slice text tail length guard failed"
+
+set numbers to list 1, 2, 3, 4, 5
+set numbers_tail to numbers from 3 to end
+print numbers_tail
+set numbers_tail_len to call len with numbers_tail
+if numbers_tail_len is not equal 2:
+    raise "slice list tail length guard failed"
+
+set r to range 0 to 10
+set range_tail to r from 7 to end
+print range_tail
+set range_tail_len to call len with range_tail
+if range_tail_len is not equal 4:
+    raise "slice range tail length guard failed"

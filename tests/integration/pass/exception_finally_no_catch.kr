@@ -1,0 +1,14 @@
+# Test: try/finally without catch (no exception in try)
+# Expected: Pass
+
+let finalized to false
+
+try:
+    print "work"
+finally:
+    let finalized to true
+
+if finalized is not equal true:
+    raise "finally without catch guard failed"
+
+print "done"

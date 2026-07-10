@@ -114,6 +114,108 @@ static char *lsp_uri_to_path(const char *uri) {
   return decoded;
 }
 
+static char *lsp_normalize_path(const char *path) {
+  if (!path) {
+    return NULL;
+  }
+
+  size_t path_len = strlen(path);
+  if (path_len > SIZE_MAX - 2) {
+    return NULL;
+  }
+  if (path_len > (SIZE_MAX / sizeof(size_t)) - 1) {
+    return NULL;
+  }
+
+  bool is_absolute = path[0] == '/';
+  size_t max_segments = path_len + 1;
+  size_t *segment_starts = malloc(max_segments * sizeof(size_t));
+  size_t *segment_lengths = malloc(max_segments * sizeof(size_t));
+  if (!segment_starts || !segment_lengths) {
+    free(segment_starts);
+    free(segment_lengths);
+    return NULL;
+  }
+
+  size_t segment_count = 0;
+  size_t i = 0;
+  while (i < path_len) {
+    while (i < path_len && path[i] == '/') {
+      i++;
+    }
+    size_t segment_start = i;
+    while (i < path_len && path[i] != '/') {
+      i++;
+    }
+    size_t segment_len = i - segment_start;
+    if (segment_len == 0) {
+      continue;
+    }
+
+    if (segment_len == 1 && path[segment_start] == '.') {
+      continue;
+    }
+
+    if (segment_len == 2 && path[segment_start] == '.' &&
+        path[segment_start + 1] == '.') {
+      if (segment_count > 0 &&
+          !(segment_lengths[segment_count - 1] == 2 &&
+            path[segment_starts[segment_count - 1]] == '.' &&
+            path[segment_starts[segment_count - 1] + 1] == '.')) {
+        segment_count--;
+      } else if (!is_absolute) {
+        segment_starts[segment_count] = segment_start;
+        segment_lengths[segment_count] = segment_len;
+        segment_count++;
+      }
+      continue;
+    }
+
+    segment_starts[segment_count] = segment_start;
+    segment_lengths[segment_count] = segment_len;
+    segment_count++;
+  }
+
+  char *normalized = malloc(path_len + 2);
+  if (!normalized) {
+    free(segment_starts);
+    free(segment_lengths);
+    return NULL;
+  }
+
+  size_t out_len = 0;
+  if (is_absolute) {
+    normalized[out_len++] = '/';
+  }
+
+  for (size_t seg = 0; seg < segment_count; seg++) {
+    if (out_len > 0 && normalized[out_len - 1] != '/') {
+      normalized[out_len++] = '/';
+    }
+    memcpy(normalized + out_len, path + segment_starts[seg],
+           segment_lengths[seg]);
+    out_len += segment_lengths[seg];
+  }
+
+  if (out_len == 0) {
+    normalized[out_len++] = is_absolute ? '/' : '.';
+  }
+
+  normalized[out_len] = '\0';
+  free(segment_starts);
+  free(segment_lengths);
+  return normalized;
+}
+
+static char *lsp_normalize_owned_path(char *path) {
+  if (!path) {
+    return NULL;
+  }
+  char *normalized = lsp_normalize_path(path);
+  free(path);
+  return normalized;
+}
+
 static void lsp_module_cache_entry_clear_ast(LSPModuleCacheEntry *entry) {
   if (!entry || !entry->ast) {
     return;
@@ -270,7 +372,7 @@ static char *lsp_resolve_module_path(const char *base_path,
   }
 
   if (module_path[0] == '/') {
-    return strdup(module_path);
+    return lsp_normalize_path(module_path);
   }
 
   if ((module_path[0] == '.' && module_path[1] == '/') ||
@@ -287,14 +389,14 @@ static char *lsp_resolve_module_path(const char *base_path,
         }
         strncpy(resolved, base_path, dir_len);
         strcpy(resolved + dir_len, module_path);
-        return resolved;
+        return lsp_normalize_owned_path(resolved);
       }
     }
-    return strdup(module_path);
+    return lsp_normalize_path(module_path);
   }
 
   if (strchr(module_path, '/')) {
-    return strdup(module_path);
+    return lsp_normalize_path(module_path);
   }
 
   if (base_path && base_path[0] != '\0') {
@@ -308,11 +410,11 @@ static char *lsp_resolve_module_path(const char *base_path,
       }
       strncpy(resolved, base_path, dir_len);
       strcpy(resolved + dir_len, module_path);
-      return resolved;
+      return lsp_normalize_owned_path(resolved);
     }
   }
 
-  return strdup(module_path);
+  return lsp_normalize_path(module_path);
 }
 
 static bool lsp_import_stack_contains(const LSPImportStack *stack,
@@ -436,6 +538,9 @@ static LSPModuleLoadResult lsp_parse_ast_from_file(const char *file_path,
   }
 
   if (entry && entry->state == LSP_MODULE_CACHE_STATE_MISSING) {
+    if (!allow_disk_io) {
+      return LSP_MODULE_LOAD_PENDING;
+    }
     return LSP_MODULE_LOAD_MISSING;
   }
 

@@ -1,0 +1,16 @@
+# Test: try/catch/finally execution
+# Expected: Pass
+
+let cleaned_up to false
+
+try:
+    raise "boom"
+catch err:
+    print err
+finally:
+    let cleaned_up to true
+
+if cleaned_up is not equal true:
+    raise "finally guard failed"
+
+print "finally executed"

@@ -522,170 +522,244 @@ static void process_comprehension_symbols_recursive(ASTNode *node,
   }
 }
 
-static bool node_declares_loop_variable(ASTNode *node, const char *name) {
+static bool symbol_has_known_position(const Symbol *sym) {
+  return sym && sym->line > 0 && sym->column > 0;
+}
+
+static bool node_scope_contains_symbol(ASTNode *node, const Symbol *sym) {
+  if (!node || !symbol_has_known_position(sym)) {
+    return false;
+  }
+
+  NodePositionBounds bounds;
+  get_node_position_bounds(node, &bounds);
+  if (!bounds.has_position) {
+    return false;
+  }
+
+  return position_in_range(sym->line, sym->column, bounds.start_line,
+                           bounds.start_column, bounds.end_line,
+                           bounds.end_column);
+}
+
+static bool should_search_within_scope(ASTNode *node, const Symbol *target_sym) {
+  if (!target_sym || !symbol_has_known_position(target_sym)) {
+    return true;
+  }
+
+  return node_scope_contains_symbol(node, target_sym);
+}
+
+static bool loop_declaration_matches_symbol(ASTNode *node, const char *decl_name,
+                                            const char *target_name,
+                                            const Symbol *target_sym) {
+  if (!decl_name || !target_name || strcmp(decl_name, target_name) != 0) {
+    return false;
+  }
+
+  if (!target_sym || !symbol_has_known_position(target_sym)) {
+    return true;
+  }
+
+  size_t decl_line = 1;
+  size_t decl_col = 1;
+  get_node_position(node, &decl_line, &decl_col);
+  return decl_line == target_sym->line && decl_col == target_sym->column;
+}
+
+static bool node_declares_loop_variable(ASTNode *node, const char *name,
+                                        const Symbol *target_sym) {
   if (!node || !name) {
     return false;
   }
 
   switch (node->type) {
   case AST_FOR:
-    if (node->as.for_stmt.var &&
-        strcmp(node->as.for_stmt.var, name) == 0) {
+    if (loop_declaration_matches_symbol(node, node->as.for_stmt.var, name,
+                                        target_sym)) {
       return true;
     }
-    if (node_declares_loop_variable(node->as.for_stmt.iterable, name) ||
-        node_declares_loop_variable(node->as.for_stmt.end, name) ||
-        node_declares_loop_variable(node->as.for_stmt.step, name)) {
+    if (node_declares_loop_variable(node->as.for_stmt.iterable, name,
+                                    target_sym) ||
+        node_declares_loop_variable(node->as.for_stmt.end, name, target_sym) ||
+        node_declares_loop_variable(node->as.for_stmt.step, name, target_sym)) {
       return true;
     }
     for (size_t i = 0; i < node->as.for_stmt.block_size; i++) {
-      if (node_declares_loop_variable(node->as.for_stmt.block[i], name)) {
+      if (node_declares_loop_variable(node->as.for_stmt.block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_LIST_COMPREHENSION:
-    if (node->as.list_comprehension.var &&
-        strcmp(node->as.list_comprehension.var, name) == 0) {
+    if (!should_search_within_scope(node, target_sym)) {
+      return false;
+    }
+    if (loop_declaration_matches_symbol(node, node->as.list_comprehension.var,
+                                        name, target_sym)) {
       return true;
     }
-    return node_declares_loop_variable(node->as.list_comprehension.element_expr,
-                                       name) ||
+    return node_declares_loop_variable(
+               node->as.list_comprehension.element_expr, name, target_sym) ||
            node_declares_loop_variable(node->as.list_comprehension.iterable,
-                                       name) ||
+                                       name, target_sym) ||
            node_declares_loop_variable(node->as.list_comprehension.condition,
-                                       name);
+                                       name, target_sym);
   case AST_ASSIGN:
-    return node_declares_loop_variable(node->as.assign.value, name);
+    return node_declares_loop_variable(node->as.assign.value, name, target_sym);
   case AST_PRINT:
-    return node_declares_loop_variable(node->as.print.value, name);
+    return node_declares_loop_variable(node->as.print.value, name, target_sym);
   case AST_DEBUG:
     for (size_t i = 0; i < node->as.debug_stmt.value_count; i++) {
-      if (node_declares_loop_variable(node->as.debug_stmt.values[i], name)) {
+      if (node_declares_loop_variable(node->as.debug_stmt.values[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_BINOP:
-    return node_declares_loop_variable(node->as.binop.left, name) ||
-           node_declares_loop_variable(node->as.binop.right, name);
+    return node_declares_loop_variable(node->as.binop.left, name, target_sym) ||
+           node_declares_loop_variable(node->as.binop.right, name, target_sym);
   case AST_IF:
-    if (node_declares_loop_variable(node->as.if_stmt.condition, name)) {
+    if (node_declares_loop_variable(node->as.if_stmt.condition, name,
+                                    target_sym)) {
       return true;
     }
     for (size_t i = 0; i < node->as.if_stmt.block_size; i++) {
-      if (node_declares_loop_variable(node->as.if_stmt.block[i], name)) {
+      if (node_declares_loop_variable(node->as.if_stmt.block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     for (size_t i = 0; i < node->as.if_stmt.else_if_count; i++) {
       if (node_declares_loop_variable(node->as.if_stmt.else_if_conditions[i],
-                                      name)) {
+                                      name, target_sym)) {
         return true;
       }
       for (size_t j = 0; j < node->as.if_stmt.else_if_block_sizes[i]; j++) {
         if (node_declares_loop_variable(node->as.if_stmt.else_if_blocks[i][j],
-                                        name)) {
+                                        name, target_sym)) {
           return true;
         }
       }
     }
     for (size_t i = 0; i < node->as.if_stmt.else_block_size; i++) {
-      if (node_declares_loop_variable(node->as.if_stmt.else_block[i], name)) {
+      if (node_declares_loop_variable(node->as.if_stmt.else_block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_MATCH:
-    if (node_declares_loop_variable(node->as.match_stmt.value, name)) {
+    if (node_declares_loop_variable(node->as.match_stmt.value, name,
+                                    target_sym)) {
       return true;
     }
     for (size_t i = 0; i < node->as.match_stmt.case_count; i++) {
       if (node_declares_loop_variable(node->as.match_stmt.case_patterns[i],
-                                      name)) {
+                                      name, target_sym)) {
         return true;
       }
       for (size_t j = 0; j < node->as.match_stmt.case_block_sizes[i]; j++) {
         if (node_declares_loop_variable(node->as.match_stmt.case_blocks[i][j],
-                                        name)) {
+                                        name, target_sym)) {
           return true;
         }
       }
     }
     for (size_t i = 0; i < node->as.match_stmt.default_block_size; i++) {
       if (node_declares_loop_variable(node->as.match_stmt.default_block[i],
-                                      name)) {
+                                      name, target_sym)) {
         return true;
       }
     }
     return false;
   case AST_WHILE:
-    if (node_declares_loop_variable(node->as.while_stmt.condition, name)) {
+    if (node_declares_loop_variable(node->as.while_stmt.condition, name,
+                                    target_sym)) {
       return true;
     }
     for (size_t i = 0; i < node->as.while_stmt.block_size; i++) {
-      if (node_declares_loop_variable(node->as.while_stmt.block[i], name)) {
+      if (node_declares_loop_variable(node->as.while_stmt.block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_FUNCTION:
+    if (!should_search_within_scope(node, target_sym)) {
+      return false;
+    }
     for (size_t i = 0; i < node->as.function.block_size; i++) {
-      if (node_declares_loop_variable(node->as.function.block[i], name)) {
+      if (node_declares_loop_variable(node->as.function.block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_CALL:
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
-      if (node_declares_loop_variable(node->as.call.args[i], name)) {
+      if (node_declares_loop_variable(node->as.call.args[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_RETURN:
     for (size_t i = 0; i < node->as.return_stmt.value_count; i++) {
-      if (node_declares_loop_variable(node->as.return_stmt.values[i], name)) {
+      if (node_declares_loop_variable(node->as.return_stmt.values[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_LIST:
     for (size_t i = 0; i < node->as.list.element_count; i++) {
-      if (node_declares_loop_variable(node->as.list.elements[i], name)) {
+      if (node_declares_loop_variable(node->as.list.elements[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_RANGE:
-    return node_declares_loop_variable(node->as.range.start, name) ||
-           node_declares_loop_variable(node->as.range.end, name) ||
-           node_declares_loop_variable(node->as.range.step, name);
+    return node_declares_loop_variable(node->as.range.start, name, target_sym) ||
+           node_declares_loop_variable(node->as.range.end, name, target_sym) ||
+           node_declares_loop_variable(node->as.range.step, name, target_sym);
   case AST_MAP:
     for (size_t i = 0; i < node->as.map.entry_count; i++) {
-      if (node_declares_loop_variable(node->as.map.keys[i], name) ||
-          node_declares_loop_variable(node->as.map.values[i], name)) {
+      if (node_declares_loop_variable(node->as.map.keys[i], name, target_sym) ||
+          node_declares_loop_variable(node->as.map.values[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_INDEX:
-    return node_declares_loop_variable(node->as.index.list_expr, name) ||
-           node_declares_loop_variable(node->as.index.index, name);
+    return node_declares_loop_variable(node->as.index.list_expr, name,
+                                       target_sym) ||
+           node_declares_loop_variable(node->as.index.index, name, target_sym);
   case AST_SLICE:
-    return node_declares_loop_variable(node->as.slice.list_expr, name) ||
-           node_declares_loop_variable(node->as.slice.start, name) ||
-           node_declares_loop_variable(node->as.slice.end, name);
+    return node_declares_loop_variable(node->as.slice.list_expr, name,
+                                       target_sym) ||
+           node_declares_loop_variable(node->as.slice.start, name, target_sym) ||
+           node_declares_loop_variable(node->as.slice.end, name, target_sym);
   case AST_ASSIGN_INDEX:
-    return node_declares_loop_variable(node->as.assign_index.target, name) ||
-           node_declares_loop_variable(node->as.assign_index.index, name) ||
-           node_declares_loop_variable(node->as.assign_index.value, name);
+    return node_declares_loop_variable(node->as.assign_index.target, name,
+                                       target_sym) ||
+           node_declares_loop_variable(node->as.assign_index.index, name,
+                                       target_sym) ||
+           node_declares_loop_variable(node->as.assign_index.value, name,
+                                       target_sym);
   case AST_DELETE:
-    return node_declares_loop_variable(node->as.delete_stmt.target, name) ||
-           node_declares_loop_variable(node->as.delete_stmt.key, name);
+    return node_declares_loop_variable(node->as.delete_stmt.target, name,
+                                       target_sym) ||
+           node_declares_loop_variable(node->as.delete_stmt.key, name,
+                                       target_sym);
   case AST_TRY:
     for (size_t i = 0; i < node->as.try_stmt.try_block_size; i++) {
-      if (node_declares_loop_variable(node->as.try_stmt.try_block[i], name)) {
+      if (node_declares_loop_variable(node->as.try_stmt.try_block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
@@ -693,46 +767,56 @@ static bool node_declares_loop_variable(ASTNode *node, const char *name) {
       for (size_t j = 0; j < node->as.try_stmt.catch_blocks[i].catch_block_size;
            j++) {
         if (node_declares_loop_variable(
-                node->as.try_stmt.catch_blocks[i].catch_block[j], name)) {
+                node->as.try_stmt.catch_blocks[i].catch_block[j], name,
+                target_sym)) {
           return true;
         }
       }
     }
     for (size_t i = 0; i < node->as.try_stmt.finally_block_size; i++) {
       if (node_declares_loop_variable(node->as.try_stmt.finally_block[i],
-                                      name)) {
+                                      name, target_sym)) {
         return true;
       }
     }
     return false;
   case AST_RAISE:
-    return node_declares_loop_variable(node->as.raise_stmt.message, name);
+    return node_declares_loop_variable(node->as.raise_stmt.message, name,
+                                       target_sym);
   case AST_LAMBDA:
+    if (!should_search_within_scope(node, target_sym)) {
+      return false;
+    }
     if (node->as.lambda.is_single_line) {
-      return node_declares_loop_variable(node->as.lambda.body_expr, name);
+      return node_declares_loop_variable(node->as.lambda.body_expr, name,
+                                         target_sym);
     }
     for (size_t i = 0; i < node->as.lambda.block_size; i++) {
-      if (node_declares_loop_variable(node->as.lambda.block[i], name)) {
+      if (node_declares_loop_variable(node->as.lambda.block[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_FSTRING:
     for (size_t i = 0; i < node->as.fstring.part_count; i++) {
-      if (node_declares_loop_variable(node->as.fstring.parts[i], name)) {
+      if (node_declares_loop_variable(node->as.fstring.parts[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_TUPLE:
     for (size_t i = 0; i < node->as.tuple.element_count; i++) {
-      if (node_declares_loop_variable(node->as.tuple.elements[i], name)) {
+      if (node_declares_loop_variable(node->as.tuple.elements[i], name,
+                                      target_sym)) {
         return true;
       }
     }
     return false;
   case AST_UNPACK_ASSIGN:
-    return node_declares_loop_variable(node->as.unpack_assign.value, name);
+    return node_declares_loop_variable(node->as.unpack_assign.value, name,
+                                       target_sym);
   default:
     return false;
   }
@@ -2680,7 +2764,7 @@ bool is_loop_variable(Symbol *sym, AST *ast) {
     return false;
 
   for (size_t i = 0; i < ast->count; i++) {
-    if (node_declares_loop_variable(ast->statements[i], sym->name)) {
+    if (node_declares_loop_variable(ast->statements[i], sym->name, sym)) {
       return true;
     }
   }
