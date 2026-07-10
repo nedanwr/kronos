@@ -1,104 +1,75 @@
 # Test Coverage Analysis
 
-## Current Coverage Status (Updated)
+## Snapshot (2026-03-14)
 
-### ✅ Well Covered
+- Unit tests: **188** (run via `make test-unit` or `./scripts/run_tests.sh`)
+- Integration tests: **165** total
+  - Passing tests: **104** (`tests/integration/pass`)
+  - Expected-fail tests: **61** (`tests/integration/fail`)
+- LSP tests: **52** (`tests/lsp/test_lsp_features.c`, run via `make test-lsp`)
+- Memory checks: `./scripts/valgrind_docker.sh` passes across all integration tests
 
-- **Tokenizer**: Numbers, strings, keywords, operators, booleans, null, f-strings, error handling
-- **Parser**: All operators (arithmetic, comparison, logical), assignments, control flow (if, for, while), lists, ranges, function calls, returns
-- **Runtime**: Value creation, reference counting, equality, type checking, truthiness, lists, ranges
-- **Compiler**: Basic compilation of all major constructs including ranges
-- **VM**: Basic execution, variable management, functions, arithmetic, comparisons, range operations
-- **Integration Tests**: Comprehensive end-to-end coverage of all language features including ranges
+## Current Coverage Status
 
-### ⚠️ Partially Covered (Better tested via integration tests)
+### Well covered
 
-- **Complex VM operations**: For/while loops, break/continue (tested in integration tests)
-- **List operations**: Indexing, slicing, append (tested in integration tests)
-- **String operations**: Indexing, slicing, built-ins (tested in integration tests)
-- **Range operations**: Indexing, slicing, iteration, length (tested in integration tests)
-- **Error handling**: Many edge cases tested in integration tests
+- **Core language syntax and semantics**
+  - Variables: immutable, mutable, typed, reassignment rules
+  - Types: primitive, generic, union, alias/map-shape checks
+  - Operators: arithmetic, modulo, comparison, logical, unary negation
+  - Control flow: if/else-if/else, for/while, break/continue, match/case/default
+  - Functions: params, defaults, variadic params, named args, lambdas, local scope
+  - Multi-return/tuple unpacking and swap assignments
+  - Imports/modules: built-in modules and file-based modules
+  - Exceptions: raise, catch-all, typed catch, runtime-error catch, finally
 
-### ❌ Missing Coverage
+- **Data structure features**
+  - Strings: indexing, slicing, methods/functions, f-strings (including format specs)
+  - Lists: literals, indexing/slicing, assignment, iteration, comprehensions
+  - Maps: literals, set/get, deletion, key type behavior
+  - Ranges: construction, step, indexing, slicing, length, iteration
 
-#### Tokenizer
+- **Standard library and built-ins**
+  - Math built-ins (including `rand`)
+  - String functions
+  - Collection helpers (`len`, `reverse`, `sort`, `filter`, `map`)
+  - Type conversion helpers (`to_string`, `to_number`, `to_bool`)
+  - Regex helpers (`match`, `search`, `findall`)
+  - File/path I/O helpers (`read_file`, `write_file`, `read_lines`, `list_files`, etc.)
+  - All built-ins registered in `src/vm/vm_builtins_registry.c` are exercised by tests
 
-- [x] F-strings with expressions (basic test exists)
-- [ ] Comments (#) - Not critical, tested in integration
-- [ ] Indentation edge cases (mixed spaces/tabs) - Error case, tested in integration
-- [ ] Multi-line strings - Not currently supported
-- [ ] Escape sequences - Not currently supported
-- [ ] Negative numbers - Tested in integration
-- [ ] Edge cases in number parsing
+- **Unit-level engine coverage**
+  - Tokenizer: keywords/operators, multiline strings, escape sequences, UTF-8 identifiers, indentation recovery
+  - Parser: major AST forms including match, type alias, list comprehension, break/continue, imports, f-strings
+  - Runtime: value creation/equality/truthiness/type-checking, string interning, list/map/range operations
+  - Compiler: core statement/expression lowering paths
+  - VM: execution behavior for arithmetic/comparison/logical ops, loops, functions, comprehensions, type checks, stack-underflow safety tests
+  - GC: allocation tracking, object count/bytes accounting, cycle collection, cleanup behavior
 
-#### Parser
+### Error-path coverage
 
-- [x] All comparison operators (GT, LT, GTE, LTE, NEQ) - ✅ ADDED
-- [x] All arithmetic operators (SUB, MUL, DIV) - ✅ ADDED
-- [x] Logical operators (AND, OR, NOT) - ✅ ADDED
-- [x] For loops - ✅ ADDED
-- [x] While loops - ✅ ADDED
-- [ ] Break/Continue statements - Tested in integration
-- [ ] Else-if chains - Tested in integration
-- [ ] Nested control structures - Tested in integration
-- [x] List indexing (`list at 0`) - ✅ ADDED
-- [x] List slicing (`list from 1 to 3`) - ✅ ADDED
-- [x] Range literals (`range 1 to 10`) - ✅ ADDED
-- [ ] F-string parsing - Tested in integration
-- [ ] Import statements - Tested in integration
-- [x] Return statements - ✅ ADDED
-- [x] Function calls with various argument counts - ✅ ADDED
+- 61 expected-fail integration tests verify runtime and semantic error handling:
+  - Undefined symbols, type mismatches, invalid argument counts/types
+  - Division/modulo by zero
+  - Out-of-bounds and wrong-index-type errors
+  - Module loading/circular-import failures
+  - Regex/type-conversion/file-I/O failure paths
+  - Pattern matching and type-alias validation errors
 
-#### Runtime
+## Remaining Gaps and Risks
 
-- [ ] String interning
-- [ ] List operations (append, get, set, length)
-- [x] Range operations (creation, equality, type checking, printing) - ✅ ADDED
-- [ ] Function values
-- [ ] Floating point edge cases
-- [ ] Large numbers
-- [ ] Empty string edge cases
+- **Partially specified behavior:** `try/finally` now has explicit integration coverage for the non-throwing path (`tests/integration/pass/exception_finally_no_catch.kr`), but there is still no passing test that asserts finally-body execution when an exception is thrown without a catch.
 
-#### Compiler
+- **Coverage is reported but not enforced**
+  - `make coverage` produces line/branch summaries using lcov.
+  - CI now has an optional coverage-report job, but no minimum thresholds are enforced.
 
-- [x] All operators (SUB, MUL, DIV, all comparisons, logical) - ✅ Tested via parser tests
-- [x] For loops - ✅ Tested via parser tests
-- [x] While loops - ✅ Tested via parser tests
-- [ ] Break/Continue - Tested in integration
-- [ ] List operations - Tested in integration
-- [x] Range operations - ✅ Tested in integration
-- [ ] String operations - Tested in integration
-- [ ] F-strings - Tested in integration
+- **Local default runner excludes LSP**
+  - `./scripts/run_tests.sh` still focuses on unit + integration tests.
+  - CI now gates on LSP via `.github/workflows/test.yml` (`make test-lsp` job).
 
-#### VM
+## Recommended Next Steps
 
-- [x] All arithmetic operators (SUB, MUL, DIV) - ✅ Basic tests added
-- [x] All comparison operators (GT, LT, GTE, LTE, NEQ) - ✅ Basic tests added
-- [ ] Logical operators (AND, OR, NOT) - Tested in integration (complex syntax)
-- [ ] For loops - Tested in integration (requires proper indentation)
-- [ ] While loops - Tested in integration (requires proper indentation)
-- [ ] Break/Continue - Tested in integration
-- [x] List operations (indexing, slicing, append) - ✅ Basic test added
-- [x] Range operations (creation, indexing, slicing, iteration, length) - ✅ Tested in integration
-- [ ] String operations (indexing, slicing) - Tested in integration
-- [x] Local variables in functions - ✅ Tested in vm_execute_function
-- [ ] Type checking enforcement - Tested in integration
-- [ ] Error handling edge cases - Tested in integration
-- [ ] Stack overflow protection - Not critical for unit tests
-- [ ] Division by zero handling - Tested in integration
-
-#### Garbage Collector
-
-- [ ] No tests at all!
-- [ ] Cycle detection
-- [ ] Memory tracking
-- [ ] Cleanup
-
-## Recommendations
-
-1. **High Priority**: Add tests for all operators (arithmetic, comparison, logical)
-2. **High Priority**: Add tests for control flow (for, while, break, continue)
-3. **High Priority**: Add tests for list operations
-4. **Medium Priority**: Add GC tests
-5. **Medium Priority**: Add error handling edge cases
-6. **Low Priority**: Add edge case tests (large numbers, empty strings, etc.)
+1. Add a dedicated regression test for `try/finally` when the try block throws and no catch is present, and confirm intended semantics.
+2. Optionally extend `make coverage` runs with `COVERAGE_INCLUDE_LSP=1` to fold LSP execution paths into the same report.
+3. If desired, add coverage thresholds (line/branch minimums) to CI once baseline percentages stabilize.
