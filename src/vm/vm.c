@@ -4519,12 +4519,26 @@ static int handle_op_try_exit(KronosVM *vm) {
                     "OP_TRY_EXIT without matching OP_TRY_ENTER");
   }
 
-  // Pop exception handler
-  vm->exception_handler_count--;
+  // Compute jump target from current IP (which is after the offset bytes).
+  uint8_t *target_ip = vm->ip + finally_offset;
+  if (target_ip < vm->bytecode->code ||
+      target_ip >= vm->bytecode->code + vm->bytecode->count) {
+    return vm_errorf(vm, KRONOS_ERR_RUNTIME,
+                     "Try-exit jump target out of bounds (offset: %u, "
+                     "bytecode size: %zu)",
+                     finally_offset, vm->bytecode->count);
+  }
 
-  // If finally exists, jump to it
-  if (finally_offset > 0) {
-    vm->ip += finally_offset;
+  // Distinguish "jump to finally" from "skip handler block" by checking
+  // whether the target instruction is OP_FINALLY.
+  bool jumps_to_finally = (*target_ip == OP_FINALLY);
+  if (jumps_to_finally) {
+    // Preserve the handler until OP_FINALLY runs.
+    vm->ip = target_ip;
+  } else {
+    // No finally at target: normal try completion consumes the active handler.
+    vm->exception_handler_count--;
+    vm->ip = target_ip;
   }
 
   return 0;
@@ -4638,10 +4652,12 @@ static int handle_op_finally(KronosVM *vm) {
                     "OP_FINALLY without matching OP_TRY_ENTER");
   }
 
-  // Mark that finally block exists
+  // Mark finally metadata and consume the active try handler.
+  // OP_TRY_EXIT keeps the handler alive when jumping to finally.
   size_t idx = vm->exception_handler_count - 1;
   vm->exception_handlers[idx].has_finally = true;
   vm->exception_handlers[idx].finally_ip = vm->ip;
+  vm->exception_handler_count--;
 
   return 0;
 }
