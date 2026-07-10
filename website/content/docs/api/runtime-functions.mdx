@@ -1,0 +1,47 @@
+---
+title: Runtime, Time, and JSON
+description: Time, operating-system, and JSON standard-library functions
+---
+
+# Runtime, Time, and JSON
+
+## Time
+
+Import `time` to access date and timing functions.
+
+| Function | Description |
+| --- | --- |
+| `now()` | Current Unix timestamp in seconds |
+| `format_date(timestamp, format)` | Format local time using `strftime` directives |
+| `parse_date(text, format)` | Parse local time and return a Unix timestamp |
+| `sleep(seconds)` | Pause for a non-negative number of seconds |
+
+```kronos
+import time
+set timestamp to call time.now
+set date to call time.format_date with timestamp, "%Y-%m-%d"
+```
+
+## System
+
+Import `os` for process and environment access.
+
+| Function | Description |
+| --- | --- |
+| `args()` | List of script paths and process arguments |
+| `env(name)` | Environment value, or `null` when missing |
+| `exit(code)` | Stop execution and request an exit code from 0 to 255 |
+
+`exit` requests a clean interpreter halt and does not terminate embedding host processes directly.
+
+## JSON
+
+Import `json` to convert between JSON text and Kronos values.
+
+```kronos
+import json
+set data to call json.parse_json with "{\"name\":\"Ada\",\"active\":true}"
+set encoded to call json.to_json with data
+```
+
+JSON objects map to maps, arrays to lists, and JSON strings, numbers, booleans, and null map to their corresponding Kronos values. Serialization requires string map keys and rejects functions, channels, ranges, and non-finite numbers.

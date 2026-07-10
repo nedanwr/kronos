@@ -4,9 +4,9 @@
     "collection-functions",
     "file-io",
     "math-functions",
+    "runtime-functions",
     "regular-expressions",
     "string-functions",
     "type-conversion"
   ]
 }
-

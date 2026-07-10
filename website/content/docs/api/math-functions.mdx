@@ -172,3 +172,26 @@ for num in numbers:
 print f"Min: {min_val}, Max: {max_val}"
 ```
 
+## Transcendental Functions
+
+The `math` module includes trigonometric, logarithmic, exponential, and cube-root functions.
+
+| Function | Description |
+| --- | --- |
+| `sin(number)` | Sine of a value in radians |
+| `cos(number)` | Cosine of a value in radians |
+| `tan(number)` | Tangent of a value in radians |
+| `asin(number)` | Inverse sine; input must be between -1 and 1 |
+| `acos(number)` | Inverse cosine; input must be between -1 and 1 |
+| `atan(number)` | Inverse tangent |
+| `log(number)` | Natural logarithm of a positive number |
+| `log10(number)` | Base-10 logarithm of a positive number |
+| `exp(number)` | Euler's number raised to the supplied power |
+| `cbrt(number)` | Cube root |
+
+```kronos
+import math
+set wave to call math.sin with 1.5707963267948966
+set magnitude to call math.log10 with 1000
+set root to call math.cbrt with 27
+```
