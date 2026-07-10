@@ -1,11 +1,12 @@
-import { docs } from "fumadocs-mdx:collections/server";
+import { docs, meta } from "fumadocs-mdx:collections/server";
+import { toFumadocsSource } from "fumadocs-mdx/runtime/server";
 import { type InferPageType, loader } from "fumadocs-core/source";
 import { lucideIconsPlugin } from "fumadocs-core/source/lucide-icons";
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: "/docs",
-  source: docs.toFumadocsSource(),
+  source: toFumadocsSource(docs, meta),
   plugins: [lucideIconsPlugin()],
 });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Play,
   RotateCcw,
@@ -13,11 +14,23 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import Link from "next/link";
 
 import { Button } from "~/components/ui/button";
-import { highlightKronos } from "./_syntax-highlighter";
+import { highlightKronos } from "./-syntax-highlighter";
 import { getKronosRuntime, type KronosRuntime } from "~/lib/kronos-wasm";
+
+export const Route = createFileRoute("/playground")({
+  head: () => ({
+    meta: [
+      { title: "Kronos Playground" },
+      {
+        name: "description",
+        content: "Run Kronos programs directly in the browser.",
+      },
+    ],
+  }),
+  component: PlaygroundPage,
+});
 
 const examples = [
   {
@@ -119,7 +132,7 @@ for i in range 1 to 16:
   },
 ];
 
-export default function PlaygroundPage() {
+function PlaygroundPage() {
   const [code, setCode] = useState(examples[0].code);
   const [output, setOutput] = useState("");
   const [warnings, setWarnings] = useState("");
@@ -130,7 +143,6 @@ export default function PlaygroundPage() {
   const [wasmStatus, setWasmStatus] = useState<
     "loading" | "ready" | "error" | "unavailable"
   >("loading");
-  const [wasmError, setWasmError] = useState<string | null>(null);
   const runtimeRef = useRef<KronosRuntime | null>(null);
 
   // Memoized syntax highlighting
@@ -147,7 +159,6 @@ export default function PlaygroundPage() {
       } catch (error) {
         console.error("Failed to initialize Kronos WASM:", error);
         setWasmStatus("unavailable");
-        setWasmError("WASM module not available. Build with: make wasm");
       }
     };
 
@@ -258,7 +269,7 @@ export default function PlaygroundPage() {
           <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-4">
             <div className="flex items-center gap-4">
               <Link
-                href="/"
+                to="/"
                 className="flex items-center gap-2 text-lg font-semibold"
               >
                 <span className="text-[#F59E0B]">⏱</span>
@@ -272,7 +283,7 @@ export default function PlaygroundPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Link href="/docs">
+              <Link to="/docs/$" params={{ _splat: "" }}>
                 <Button
                   variant="ghost"
                   size="sm"

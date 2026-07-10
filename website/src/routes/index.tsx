@@ -6,12 +6,26 @@ import {
   ShieldCheck,
   Terminal,
 } from "lucide-react";
-import Link from "next/link";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { Navigation } from "~/components/navigation";
 import { Button } from "~/components/ui/button";
 import { CodeShowcase } from "~/components/code-showcase";
 import { Footer } from "~/components/footer";
+
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Kronos" },
+      {
+        name: "description",
+        content:
+          "A modern programming language with clean, English-like syntax.",
+      },
+    ],
+  }),
+  component: HomePage,
+});
 
 const features = [
   {
@@ -38,7 +52,7 @@ const features = [
   },
 ];
 
-export default function HomePage() {
+function HomePage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505]">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -58,7 +72,7 @@ export default function HomePage() {
                   <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 backdrop-blur-sm">
                     <span className="h-2 w-2 rounded-full bg-[#F59E0B]" />
                     <span className="text-sm text-[#E5E5E5]">
-                      v0.4.5 — Now in public beta
+                      v0.5.x — Now in public beta
                     </span>
                   </div>
 
@@ -73,7 +87,7 @@ export default function HomePage() {
                   </p>
 
                   <div className="flex flex-col justify-center gap-4 sm:flex-row lg:justify-start">
-                    <Link href="/docs/getting-started">
+                    <Link to="/docs/$" params={{ _splat: "getting-started" }}>
                       <Button
                         size="lg"
                         className="group relative overflow-hidden border border-[#F59E0B]/50 bg-[rgba(245,158,11,0.15)] text-[#F59E0B] font-semibold backdrop-blur-sm transition-all hover:border-[#F59E0B] hover:bg-[rgba(245,158,11,0.25)] hover:text-[#FBBF24] hover:shadow-lg hover:shadow-[#F59E0B]/30"
@@ -84,7 +98,7 @@ export default function HomePage() {
                         </span>
                       </Button>
                     </Link>
-                    <Link href="/docs">
+                    <Link to="/docs/$" params={{ _splat: "" }}>
                       <Button
                         size="lg"
                         variant="outline"
