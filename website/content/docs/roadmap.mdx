@@ -477,9 +477,15 @@ set processed to numbers
 </Accordion>
 
 <Accordion title="Baseline Optimizations (Beta)">
-- Bytecode optimization passes
-- Constant folding
-- Dead code elimination
+✅ Completed — the compiler now applies conservative optimization passes while
+emitting bytecode.
+
+- Folds literal arithmetic, comparisons, boolean and unary operations, and
+  string concatenation into constant-pool values
+- Removes unreachable statements after guaranteed `return`, `raise`, `break`,
+  and `continue` terminators
+- Preserves runtime errors by leaving potentially failing expressions, such as
+  division by zero, unfurled
 </Accordion>
 </Accordions>
 
