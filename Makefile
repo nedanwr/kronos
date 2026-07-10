@@ -131,8 +131,9 @@ clean:
 	rm -f $(OBJ) $(DEP) $(TARGET) kronos-lsp
 	rm -f src/core/*.o src/core/*.d src/frontend/*.o src/frontend/*.d
 	rm -f src/compiler/*.o src/compiler/*.d src/vm/*.o src/vm/*.d src/lsp/*.o src/lsp/*.d
-	rm -f $(TEST_OBJ) $(TEST_DEP) $(TEST_TARGET)
+	rm -f $(TEST_OBJ) $(TEST_DEP) $(TEST_TARGET) $(TEST_LSP_OBJ) $(TEST_LSP_TARGET)
 	rm -f tests/framework/*.o tests/framework/*.d tests/unit/*.o tests/unit/*.d
+	rm -f tests/lsp/*.o tests/lsp/*.d
 
 run: $(TARGET)
 	./$(TARGET)
