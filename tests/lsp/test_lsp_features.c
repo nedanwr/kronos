@@ -660,6 +660,26 @@ TEST(lsp_completion_includes_filter_and_map_utilities) {
   free(response);
 }
 
+TEST(lsp_completion_includes_core_stdlib_0_6_functions) {
+  const char *code = "set value to 1\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000); // 100ms
+  char *diag = lsp_read_diagnostics_with_message(NULL, 4);
+  free(diag);
+
+  char *response = lsp_completion(g_ctx, 0, 0);
+  ASSERT_PTR_NOT_NULL(response);
+  ASSERT_TRUE(lsp_is_valid_json(response));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"sin\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"find\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"zip\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"now\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"args\""));
+  ASSERT_TRUE(lsp_response_contains(response, "\"label\":\"parse_json\""));
+  free(response);
+}
+
 TEST(lsp_completion_includes_pattern_matching_keywords) {
   const char *code = "set value to 1\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));

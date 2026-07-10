@@ -366,6 +366,118 @@ TEST(vm_builtin_map_requires_list_argument) {
   vm_free(vm);
 }
 
+TEST(vm_core_stdlib_math_and_string_modules) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "import math\n"
+      "import string\n"
+      "set sine to call math.sin with 0\n"
+      "set cube to call math.cbrt with 27\n"
+      "set found to call string.find with \"banana\", \"na\"\n"
+      "set last to call string.rfind with \"banana\", \"na\"\n"
+      "set occurrences to call string.count with \"banana\", \"na\"\n"
+      "set heading to call string.title with \"hello world\"\n");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "sine")->as.number, 0.0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "cube")->as.number, 3.0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "found")->as.number, 2.0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "last")->as.number, 4.0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "occurrences")->as.number, 2.0);
+  ASSERT_TRUE(strcmp(vm_get_global(vm, "heading")->as.string.data,
+                     "Hello World") == 0);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_core_stdlib_collections_module) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "import collections\n"
+      "set pairs to call collections.zip with [1, 2, 3], [\"a\", \"b\"]\n"
+      "set indexed to call collections.enumerate with [10, 20]\n"
+      "set total to call collections.sum with [1, 2, 3, 4]\n"
+      "set has_value to call collections.any with [false, 0, \"yes\"]\n"
+      "set all_values to call collections.all with [true, 1, \"yes\"]\n");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  KronosValue *pairs = vm_get_global(vm, "pairs");
+  KronosValue *indexed = vm_get_global(vm, "indexed");
+  ASSERT_INT_EQ(pairs->type, VAL_LIST);
+  ASSERT_EQ(pairs->as.list.count, 2);
+  ASSERT_INT_EQ(pairs->as.list.items[0]->type, VAL_TUPLE);
+  ASSERT_DOUBLE_EQ(pairs->as.list.items[0]->as.tuple.items[0]->as.number, 1.0);
+  ASSERT_EQ(indexed->as.list.count, 2);
+  ASSERT_DOUBLE_EQ(indexed->as.list.items[1]->as.tuple.items[0]->as.number,
+                   1.0);
+  ASSERT_DOUBLE_EQ(vm_get_global(vm, "total")->as.number, 10.0);
+  ASSERT_TRUE(vm_get_global(vm, "has_value")->as.boolean);
+  ASSERT_TRUE(vm_get_global(vm, "all_values")->as.boolean);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_core_stdlib_json_module_round_trip) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "import json\n"
+      "set parsed to call json.parse_json with \"{\\\"name\\\":\\\"Ada\\\",\\\"scores\\\":[3,5],\\\"active\\\":true}\"\n"
+      "set name to parsed at \"name\"\n"
+      "set scores to parsed at \"scores\"\n"
+      "set encoded to call json.to_json with parsed\n");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  ASSERT_TRUE(strcmp(vm_get_global(vm, "name")->as.string.data, "Ada") == 0);
+  ASSERT_EQ(vm_get_global(vm, "scores")->as.list.count, 2);
+  KronosValue *encoded = vm_get_global(vm, "encoded");
+  ASSERT_INT_EQ(encoded->type, VAL_STRING);
+  ASSERT_TRUE(strstr(encoded->as.string.data, "\"name\":\"Ada\"") != NULL);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_core_stdlib_time_and_system_modules) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  char *arguments[] = {"program.kr", "first"};
+  ASSERT_INT_EQ(vm_set_args(vm, 2, arguments), 0);
+  Bytecode *bytecode = compile_string(
+      "import time\n"
+      "import os\n"
+      "set timestamp to call time.parse_date with \"2026-07-10\", \"%Y-%m-%d\"\n"
+      "set formatted to call time.format_date with timestamp, \"%Y-%m-%d\"\n"
+      "set process_args to call os.args\n"
+      "set missing_env to call os.env with \"KRONOS_TEST_MISSING_ENV_12345\"\n"
+      "call time.sleep with 0\n");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  ASSERT_TRUE(strcmp(vm_get_global(vm, "formatted")->as.string.data,
+                     "2026-07-10") == 0);
+  ASSERT_EQ(vm_get_global(vm, "process_args")->as.list.count, 2);
+  ASSERT_INT_EQ(vm_get_global(vm, "missing_env")->type, VAL_NIL);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_core_stdlib_exit_requests_clean_halt) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "import os\n"
+      "call os.exit with 7\n"
+      "set unreachable to true\n");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  ASSERT_TRUE(vm->exit_requested);
+  ASSERT_INT_EQ(vm->exit_code, 7);
+  ASSERT_PTR_NULL(vm_get_global(vm, "unreachable"));
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_builtin_filter_callback_arity_error) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);
