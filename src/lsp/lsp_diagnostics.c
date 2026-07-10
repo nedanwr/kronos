@@ -2426,6 +2426,64 @@ static void check_expression_recursive(ASTNode *node, const char *text,
 
   // Check function calls recursively
   if (node->type == AST_CALL) {
+    if (node->as.call.is_method) {
+      const char *name = node->as.call.name;
+      int expected = get_builtin_arg_count(name);
+      const char *message = NULL;
+      char message_buffer[LSP_ERROR_MSG_SIZE];
+
+      if (expected >= 0 && node->as.call.arg_count != (size_t)expected) {
+        size_t explicit_expected = expected > 0 ? (size_t)expected - 1 : 0;
+        size_t explicit_actual =
+            node->as.call.arg_count > 0 ? node->as.call.arg_count - 1 : 0;
+        snprintf(message_buffer, sizeof(message_buffer),
+                 "Method '%s' expects %zu argument%s, got %zu", name,
+                 explicit_expected, explicit_expected == 1 ? "" : "s",
+                 explicit_actual);
+        message = message_buffer;
+      } else if (node->as.call.arg_count > 0) {
+        ExprType receiver_type =
+            infer_type_with_ast(node->as.call.args[0], symbols, ast);
+        bool requires_list =
+            strcmp(name, "reverse") == 0 || strcmp(name, "sort") == 0 ||
+            strcmp(name, "filter") == 0 || strcmp(name, "map") == 0;
+        bool requires_string =
+            strcmp(name, "uppercase") == 0 || strcmp(name, "lowercase") == 0 ||
+            strcmp(name, "trim") == 0 || strcmp(name, "split") == 0 ||
+            strcmp(name, "contains") == 0 ||
+            strcmp(name, "starts_with") == 0 ||
+            strcmp(name, "ends_with") == 0 || strcmp(name, "replace") == 0;
+
+        if (requires_list && receiver_type != TYPE_LIST &&
+            receiver_type != TYPE_UNKNOWN) {
+          snprintf(message_buffer, sizeof(message_buffer),
+                   "Function '%s' requires a list argument", name);
+          message = message_buffer;
+        } else if (requires_string && receiver_type != TYPE_STRING &&
+                   receiver_type != TYPE_UNKNOWN) {
+          snprintf(message_buffer, sizeof(message_buffer),
+                   "Function '%s' requires a string argument", name);
+          message = message_buffer;
+        }
+      }
+
+      if (message) {
+        char escaped[LSP_ERROR_MSG_SIZE];
+        json_escape(message, escaped, sizeof(escaped));
+        size_t line = node->line > 0 ? node->line - 1 : 0;
+        size_t col = node->column > 0 ? node->column - 1 : 0;
+        size_t needed = strlen(escaped) + strlen(name) + 200;
+        SAFE_DIAGNOSTICS_WRITE(
+            diagnostics, capacity, pos, remaining, needed,
+            "%s{\"range\":{\"start\":{\"line\":%zu,\"character\":%zu},"
+            "\"end\":{\"line\":%zu,\"character\":%zu}},"
+            "\"severity\":1,\"message\":\"%s\"}",
+            *has_diagnostics ? "," : "", line, col, line,
+            col + strlen(name) + 1, escaped);
+        *has_diagnostics = true;
+      }
+    }
+
     for (size_t i = 0; i < node->as.call.arg_count; i++) {
       check_expression_recursive(node->as.call.args[i], text, symbols, ast,
                                  diagnostics, pos, remaining, has_diagnostics,
