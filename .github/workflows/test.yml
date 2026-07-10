@@ -101,6 +101,50 @@ jobs:
           ./kronos examples/functions.kr
           echo "✓ Example files run successfully"
 
+  lsp-tests:
+    name: LSP Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make gperf
+
+      - name: Build and run LSP tests
+        run: |
+          make clean && make test-lsp
+          echo "✓ LSP tests passed"
+
+  coverage-report:
+    name: Coverage Report (Optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make gperf lcov
+
+      - name: Generate line/branch coverage report
+        run: |
+          make coverage
+          echo "✓ Coverage report generated"
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: error
+
   lint-and-format:
     name: Code Quality
     runs-on: ubuntu-latest
