@@ -130,7 +130,6 @@ static bool can_start_identifier(const char *line, size_t col, size_t len) {
  * Identifiers can continue with:
  * - ASCII letters and digits (a-z, A-Z, 0-9)
  * - Underscore (_)
- * - Dot (.) for module.function syntax
  * - Valid UTF-8 sequences (Unicode letters, digits, etc.)
  *
  * @param line The line buffer
@@ -144,8 +143,9 @@ static bool can_continue_identifier(const char *line, size_t col, size_t len) {
 
   unsigned char byte = (unsigned char)line[col];
 
-  // ASCII alphanumeric, underscore, and dot
-  if (isalnum(byte) || byte == '_' || byte == '.')
+  // ASCII alphanumeric and underscore. Dots are separate tokens so the parser
+  // can distinguish qualified function names from postfix method calls.
+  if (isalnum(byte) || byte == '_')
     return true;
 
   // Check for valid UTF-8 multi-byte sequence
@@ -181,8 +181,9 @@ static const char *token_type_names[] = {
     "TIMES",
     "DIVIDED", "BY",       "MOD",      "DELETE",   "TRY",      "CATCH",
     "FINALLY", "RAISE",    "MATCH",    "CASE",     "DEFAULT",  "NAME",
-    "COLON",   "COMMA",    "ELLIPSIS", "LPAREN",   "RPAREN",   "LBRACKET",
-    "RBRACKET", "LANGLE",  "RANGLE",   "NEWLINE", "INDENT",   "EOF"};
+    "COLON",    "COMMA",    "ELLIPSIS", "DOT",     "LPAREN", "RPAREN",
+    "LBRACKET", "RBRACKET", "LANGLE",   "RANGLE",  "NEWLINE", "INDENT",
+    "EOF"};
 
 // Compile-time check to ensure array matches enum count
 // This will cause a compilation error if they don't match
@@ -199,6 +200,7 @@ static void tokenizer_report_error(TokenizeError **out_err, const char *message,
 static const char TOKEN_TEXT_COLON[] = ":";
 static const char TOKEN_TEXT_COMMA[] = ",";
 static const char TOKEN_TEXT_ELLIPSIS[] = "...";
+static const char TOKEN_TEXT_DOT[] = ".";
 static const char TOKEN_TEXT_EQUALS[] = "=";
 static const char TOKEN_TEXT_MINUS[] = "minus";
 static const char TOKEN_TEXT_LPAREN[] = "(";
@@ -222,7 +224,8 @@ static bool is_static_token_text(const char *text) {
   return text == TOKEN_TEXT_COLON || text == TOKEN_TEXT_COMMA ||
          text == TOKEN_TEXT_ELLIPSIS || text == TOKEN_TEXT_EQUALS ||
          text == TOKEN_TEXT_MINUS || text == TOKEN_TEXT_NEWLINE ||
-         text == TOKEN_TEXT_LPAREN || text == TOKEN_TEXT_RPAREN ||
+         text == TOKEN_TEXT_DOT || text == TOKEN_TEXT_LPAREN ||
+         text == TOKEN_TEXT_RPAREN ||
          text == TOKEN_TEXT_LBRACKET || text == TOKEN_TEXT_RBRACKET ||
          text == TOKEN_TEXT_LANGLE || text == TOKEN_TEXT_RANGLE;
 }
@@ -667,8 +670,8 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
     }
 
     // Tokenize identifiers and keywords
-    // Identifiers can contain letters, digits, underscores, and dots
-    // (dots are allowed for module.function syntax like math.sqrt)
+    // Identifiers can contain letters, digits, and underscores. Dots are
+    // emitted separately for qualified names and method chaining.
     // Supports UTF-8 Unicode characters in identifiers
     if (can_start_identifier(line, col, len)) {
       size_t start = col;
@@ -751,6 +754,16 @@ static bool tokenize_line(TokenArray *arr, const char *line, int indent,
         return false;
       }
       col += 3;
+      continue;
+    }
+
+    if (line[col] == '.') {
+      size_t token_col = indent + col + 1;
+      Token tok = {TOK_DOT, TOKEN_TEXT_DOT, 1, 0, line_number, token_col};
+      if (!token_array_add(arr, tok, out_err, line_number, token_col)) {
+        return false;
+      }
+      col++;
       continue;
     }
 

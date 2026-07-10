@@ -206,6 +206,7 @@ struct ASTNode {
       ASTNode **args;
       char **arg_names;    // Parallel array: NULL for positional, name for named args
       size_t arg_count;
+      bool is_method;      // Receiver was supplied with postfix dot syntax
     } call;
 
     // Return statement: return expr [, expr2, expr3, ...]

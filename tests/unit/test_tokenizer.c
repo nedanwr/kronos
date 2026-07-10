@@ -83,6 +83,29 @@ TEST(tokenize_float_number) {
   token_array_free(tokens);
 }
 
+TEST(tokenize_method_chain_dots_separately) {
+  TokenizeError *err = NULL;
+  TokenArray *tokens = tokenize("text.uppercase().trim()", &err);
+  ASSERT_PTR_NULL(err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  size_t i = 0;
+  while (i < tokens->count && tokens->tokens[i].type == TOK_INDENT) {
+    i++;
+  }
+  ASSERT_INT_EQ(tokens->tokens[i + 0].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 0].text, "text");
+  ASSERT_INT_EQ(tokens->tokens[i + 1].type, TOK_DOT);
+  ASSERT_INT_EQ(tokens->tokens[i + 2].type, TOK_NAME);
+  ASSERT_STR_EQ(tokens->tokens[i + 2].text, "uppercase");
+  ASSERT_INT_EQ(tokens->tokens[i + 3].type, TOK_LPAREN);
+  ASSERT_INT_EQ(tokens->tokens[i + 4].type, TOK_RPAREN);
+  ASSERT_INT_EQ(tokens->tokens[i + 5].type, TOK_DOT);
+  ASSERT_INT_EQ(tokens->tokens[i + 6].type, TOK_NAME);
+
+  token_array_free(tokens);
+}
+
 /**
  * @brief Test tokenization of negative integer literals
  *

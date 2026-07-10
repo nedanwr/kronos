@@ -67,6 +67,7 @@ typedef enum {
   TOK_COLON,
   TOK_COMMA,
   TOK_ELLIPSIS,  // ... for variadic parameters
+  TOK_DOT,       // . for postfix method calls
   TOK_LPAREN,
   TOK_RPAREN,
   TOK_LBRACKET,

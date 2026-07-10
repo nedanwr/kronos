@@ -1,0 +1,15 @@
+# Method chaining across strings, lists, callbacks, literals, and line breaks.
+set text to "  alpha beta gamma  "
+set words to text.uppercase().trim().split(" ")
+print words
+
+set processed to [1, 2, 3, 4]
+    .filter(function with x: return x is greater than 2)
+    .map(function with x: return x times 10)
+print processed
+
+set literal_result to ("  kronos  ").trim().capitalize()
+print literal_result
+
+set roadmap_form to list 1, 2, 3, 4.filter(function with x: return x is greater than 2).map(function with x: return x times 2)
+print roadmap_form

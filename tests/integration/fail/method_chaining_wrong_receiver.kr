@@ -1,0 +1,2 @@
+# Method syntax must retain the built-in's receiver type validation.
+set invalid to "not a list".map(function with x: return x)
