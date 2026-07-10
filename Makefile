@@ -1,5 +1,8 @@
 CC = gcc
-CFLAGS = -D_GNU_SOURCE -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
+# Expose POSIX/GNU prototypes such as realpath, strdup, strtok_r, fdopen,
+# fileno, kill, and usleep when building with -std=c11 on Linux.
+FEATURE_CFLAGS = -D_GNU_SOURCE
+CFLAGS = $(FEATURE_CFLAGS) -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
 LDFLAGS = -lm
 
 # Coverage build settings (line + branch)
@@ -8,7 +11,7 @@ COVERAGE_INFO = $(COVERAGE_DIR)/lcov.info
 COVERAGE_FILTERED_INFO = $(COVERAGE_DIR)/lcov.filtered.info
 COVERAGE_SUMMARY = $(COVERAGE_DIR)/summary.txt
 COVERAGE_HTML_DIR = $(COVERAGE_DIR)/html
-COVERAGE_CFLAGS = -D_GNU_SOURCE -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
+COVERAGE_CFLAGS = $(FEATURE_CFLAGS) -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
 COVERAGE_LDFLAGS = -lm --coverage
 # Set to 1 to include LSP tests in coverage runs.
 COVERAGE_INCLUDE_LSP ?= 0
