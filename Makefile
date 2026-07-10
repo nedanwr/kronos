@@ -2,6 +2,17 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -O2 -g -Iinclude -Isrc -MMD -MP
 LDFLAGS = -lm
 
+# Coverage build settings (line + branch)
+COVERAGE_DIR = coverage
+COVERAGE_INFO = $(COVERAGE_DIR)/lcov.info
+COVERAGE_FILTERED_INFO = $(COVERAGE_DIR)/lcov.filtered.info
+COVERAGE_SUMMARY = $(COVERAGE_DIR)/summary.txt
+COVERAGE_HTML_DIR = $(COVERAGE_DIR)/html
+COVERAGE_CFLAGS = -Wall -Wextra -std=c11 -O0 -g --coverage -Iinclude -Isrc -MMD -MP
+COVERAGE_LDFLAGS = -lm --coverage
+# Set to 1 to include LSP tests in coverage runs.
+COVERAGE_INCLUDE_LSP ?= 0
+
 # Source files
 CORE_SRC = src/core/runtime.c src/core/gc.c
 FRONTEND_SRC = src/frontend/tokenizer.c src/frontend/keywords_hash.c src/frontend/parser.c
@@ -37,7 +48,7 @@ LSP_DEP = $(LSP_SERVER_OBJ:.o=.d)
 # Output binary
 TARGET = kronos
 
-.PHONY: all clean run test test-unit test-lsp install lsp
+.PHONY: all clean run test test-unit test-lsp install lsp coverage coverage-html coverage-clean
 
 all: $(TARGET)
 
@@ -166,6 +177,56 @@ tests/lsp/%.o: tests/lsp/%.c
 # Install target (optional)
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
+
+# ============================================================================
+# Coverage Targets (gcov/lcov)
+# ============================================================================
+
+coverage: coverage-clean
+	@command -v lcov >/dev/null 2>&1 || { \
+		echo "Error: lcov not found. Install lcov to run coverage."; \
+		exit 1; \
+	}
+	@mkdir -p $(COVERAGE_DIR)
+	$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" clean
+	$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" $(TARGET) test-unit
+	./tests/unit/kronos_unit_tests
+	@echo "Running passing integration tests for coverage..."
+	@for test_file in tests/integration/pass/*.kr; do \
+		if [ -f "$$test_file" ]; then \
+			./kronos "$$test_file" >/dev/null 2>&1 || exit 1; \
+		fi; \
+	done
+	@echo "Running expected-fail integration tests for coverage..."
+	@for test_file in tests/integration/fail/*.kr; do \
+		if [ -f "$$test_file" ]; then \
+			./kronos "$$test_file" >/dev/null 2>&1 && { \
+				echo "Expected failure but test passed: $$test_file"; \
+				exit 1; \
+			} || true; \
+		fi; \
+	done
+	@if [ "$(COVERAGE_INCLUDE_LSP)" = "1" ]; then \
+		echo "Running LSP tests for coverage..."; \
+		$(MAKE) CFLAGS="$(COVERAGE_CFLAGS)" LDFLAGS="$(COVERAGE_LDFLAGS)" test-lsp; \
+	fi
+	lcov --capture --directory . --output-file $(COVERAGE_INFO) --rc lcov_branch_coverage=1
+	lcov --remove $(COVERAGE_INFO) '/usr/*' 'tests/*' 'website/*' 'vscode-extension/*' 'wasm/*' \
+		--output-file $(COVERAGE_FILTERED_INFO) --rc lcov_branch_coverage=1
+	lcov --summary $(COVERAGE_FILTERED_INFO) --rc lcov_branch_coverage=1 | tee $(COVERAGE_SUMMARY)
+	@echo "Coverage summary written to $(COVERAGE_SUMMARY)"
+
+coverage-html: coverage
+	@command -v genhtml >/dev/null 2>&1 || { \
+		echo "Error: genhtml not found. Install lcov to generate HTML reports."; \
+		exit 1; \
+	}
+	genhtml $(COVERAGE_FILTERED_INFO) --output-directory $(COVERAGE_HTML_DIR) --branch-coverage
+	@echo "Coverage HTML report: $(COVERAGE_HTML_DIR)/index.html"
+
+coverage-clean:
+	rm -rf $(COVERAGE_DIR)
+	find . -type f \( -name '*.gcda' -o -name '*.gcno' \) -delete
 
 # ============================================================================
 # WebAssembly (WASM) Build Target
