@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [0.6.0] - 2026-07-11
+
+### Added
+
+- **Method Chaining** - Added fluent postfix method calls across the parser,
+  runtime, and LSP, including chained string and collection operations.
+- **Baseline Compiler Optimizations** - Added a conservative optimization pass
+  framework with literal constant folding and dead code elimination after
+  guaranteed control-flow terminators.
+- **Optimizer Coverage** - Added bytecode-level unit tests, an end-to-end
+  integration program, and LSP diagnostics coverage for optimized code.
+
 ## [0.4.5] - 2026-01-05
 
 ### Added
