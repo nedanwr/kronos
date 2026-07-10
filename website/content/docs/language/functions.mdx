@@ -32,6 +32,38 @@ set greeting to call greet with "Alice"
 print greeting  # Prints: Hello, Alice!
 ```
 
+## Method Chaining
+
+Use postfix method syntax when the value on the left should be the first
+argument to a function. These two expressions are equivalent:
+
+```kronos
+set upper to text.uppercase()
+set upper to call uppercase with text
+```
+
+Additional arguments go inside parentheses, and each returned value can feed
+the next call:
+
+```kronos
+set words to text.uppercase().trim().split(" ")
+
+set processed to numbers
+    .filter(function with x: return x is greater than 2)
+    .map(function with x: return x times 2)
+```
+
+Chains work with variables, literals, parenthesized expressions, bracketed list
+literals, and the unbracketed `list` form:
+
+```kronos
+set title to ("  kronos  ").trim().capitalize()
+set doubled to list 1, 2, 3.filter(function with x: return x is greater than 1).map(function with x: return x times 2)
+```
+
+Method calls retain the called function's argument-count and type validation.
+Use the traditional `call name with ...` syntax for named arguments.
+
 ## Default Parameter Values
 
 Functions can have parameters with default values. Parameters with defaults are optional when calling the function:
@@ -363,4 +395,3 @@ function get_grade with score:
 
 print call get_grade with 85  # Prints: B
 ```
-

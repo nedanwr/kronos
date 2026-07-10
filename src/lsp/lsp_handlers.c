@@ -70,7 +70,7 @@ void handle_initialize(const char *id) {
       "\"definitionProvider\":true,"
       "\"hoverProvider\":true,"
       "\"documentSymbolProvider\":true,"
-      "\"signatureHelpProvider\":{\"triggerCharacters\":[\",\",\" \"],\"retriggerCharacters\":[\",\"]},"
+      "\"signatureHelpProvider\":{\"triggerCharacters\":[\"(\",\",\",\" \"],\"retriggerCharacters\":[\",\"]},"
       "\"inlayHintProvider\":true,"
       "\"callHierarchyProvider\":true,"
       "\"foldingRangeProvider\":true,"
@@ -1159,6 +1159,119 @@ static bool parse_call_context(const char *line, size_t line_len, size_t cursor_
   return true;
 }
 
+static bool parse_method_context(const char *line, size_t line_len,
+                                 size_t cursor_col, char *func_name,
+                                 size_t func_name_size, size_t *active_param) {
+  if (!line || !func_name || func_name_size == 0 || !active_param) {
+    return false;
+  }
+
+  size_t limit = cursor_col < line_len ? cursor_col : line_len;
+  size_t best_args_start = SIZE_MAX;
+  size_t best_name_start = 0;
+  size_t best_name_len = 0;
+  bool in_string = false;
+  char quote = '\0';
+
+  for (size_t i = 0; i < limit; i++) {
+    char c = line[i];
+    if (in_string) {
+      if (c == quote && (i == 0 || line[i - 1] != '\\')) {
+        in_string = false;
+      }
+      continue;
+    }
+    if (c == '"' || c == '\'') {
+      in_string = true;
+      quote = c;
+      continue;
+    }
+    if (c != '.') {
+      continue;
+    }
+
+    size_t name_start = i + 1;
+    if (name_start >= limit || !is_identifier_start_char(line[name_start])) {
+      continue;
+    }
+    size_t j = name_start + 1;
+    while (j < limit && is_identifier_char(line[j])) {
+      j++;
+    }
+    while (j < limit && isspace((unsigned char)line[j])) {
+      j++;
+    }
+    if (j >= limit || line[j] != '(') {
+      continue;
+    }
+
+    // Only retain an invocation whose opening parenthesis is still active at
+    // the cursor. This also selects the innermost call in a chain.
+    int depth = 1;
+    bool nested_string = false;
+    char nested_quote = '\0';
+    for (size_t k = j + 1; k < limit; k++) {
+      char nested = line[k];
+      if (nested_string) {
+        if (nested == nested_quote && line[k - 1] != '\\') {
+          nested_string = false;
+        }
+      } else if (nested == '"' || nested == '\'') {
+        nested_string = true;
+        nested_quote = nested;
+      } else if (nested == '(') {
+        depth++;
+      } else if (nested == ')') {
+        depth--;
+      }
+    }
+    if (depth > 0) {
+      best_args_start = j + 1;
+      best_name_start = name_start;
+      best_name_len = j - name_start;
+    }
+  }
+
+  if (best_args_start == SIZE_MAX || best_name_len == 0) {
+    return false;
+  }
+  size_t copy_len =
+      best_name_len < func_name_size - 1 ? best_name_len : func_name_size - 1;
+  memcpy(func_name, line + best_name_start, copy_len);
+  func_name[copy_len] = '\0';
+
+  size_t commas = 0;
+  int depth = 0;
+  int bracket_depth = 0;
+  in_string = false;
+  quote = '\0';
+  for (size_t i = best_args_start; i < limit; i++) {
+    char c = line[i];
+    if (in_string) {
+      if (c == quote && line[i - 1] != '\\') {
+        in_string = false;
+      }
+      continue;
+    }
+    if (c == '"' || c == '\'') {
+      in_string = true;
+      quote = c;
+    } else if (c == '(') {
+      depth++;
+    } else if (c == ')' && depth > 0) {
+      depth--;
+    } else if (c == '[') {
+      bracket_depth++;
+    } else if (c == ']' && bracket_depth > 0) {
+      bracket_depth--;
+    } else if (c == ',' && depth == 0 && bracket_depth == 0) {
+      commas++;
+    }
+  }
+  *active_param = commas;
+  return true;
+}
+
 static size_t split_arguments(const char *line, size_t line_len, size_t args_start,
                               ArgSegment *segments, size_t max_segments) {
   if (!line || args_start >= line_len || !segments || max_segments == 0) {
@@ -1542,10 +1655,16 @@ void handle_signature_help(const char *id, const char *body) {
 
   char function_name[128];
   size_t active_param = 0;
+  bool method_context = false;
   if (!parse_call_context(line_start, line_len, character, function_name,
                           sizeof(function_name), &active_param)) {
-    send_response(id, "null");
-    return;
+    method_context =
+        parse_method_context(line_start, line_len, character, function_name,
+                             sizeof(function_name), &active_param);
+    if (!method_context) {
+      send_response(id, "null");
+      return;
+    }
   }
 
   Symbol *function_sym = find_function_symbol(strip_module_prefix(function_name));
@@ -1574,8 +1693,11 @@ void handle_signature_help(const char *id, const char *body) {
     size_t pos = 0;
     pos += (size_t)snprintf(label + pos, sizeof(label) - pos, "%s(",
                             function_sym->name);
-    for (size_t i = 0; i < function_sym->param_count && pos < sizeof(label); i++) {
-      if (i > 0) {
+    size_t first_param =
+        method_context && function_sym->param_count > 0 ? 1 : 0;
+    for (size_t i = first_param;
+         i < function_sym->param_count && pos < sizeof(label); i++) {
+      if (i > first_param) {
         pos += (size_t)snprintf(label + pos, sizeof(label) - pos, ", ");
       }
       const char *pname =
@@ -1603,7 +1725,7 @@ void handle_signature_help(const char *id, const char *body) {
                         "\"parameters\":[");
     }
 
-    for (size_t i = 0; ok && i < function_sym->param_count; i++) {
+    for (size_t i = first_param; ok && i < function_sym->param_count; i++) {
       const char *pname =
           function_sym->param_names && function_sym->param_names[i]
               ? function_sym->param_names[i]
@@ -1611,13 +1733,15 @@ void handle_signature_help(const char *id, const char *body) {
       char escaped_param[256];
       json_escape(pname, escaped_param, sizeof(escaped_param));
       ok = append_jsonf(&json, &capacity, &len, "%s{\"label\":\"%s\"}",
-                        i == 0 ? "" : ",", escaped_param);
+                        i == first_param ? "" : ",", escaped_param);
     }
   } else if (builtin) {
     char label[512];
     size_t pos = (size_t)snprintf(label, sizeof(label), "%s(", function_name);
-    for (size_t i = 0; i < builtin->param_count && pos < sizeof(label); i++) {
-      if (i > 0) {
+    size_t first_param = method_context && builtin->param_count > 0 ? 1 : 0;
+    for (size_t i = first_param;
+         i < builtin->param_count && pos < sizeof(label); i++) {
+      if (i > first_param) {
         pos += (size_t)snprintf(label + pos, sizeof(label) - pos, ", ");
       }
       if (builtin->variadic && i == builtin->param_count - 1) {
@@ -1639,17 +1763,20 @@ void handle_signature_help(const char *id, const char *body) {
                       "%s\",\"documentation\":\"%s\",\"parameters\":[",
                       escaped_label, escaped_doc);
 
-    for (size_t i = 0; ok && i < builtin->param_count; i++) {
+    for (size_t i = first_param; ok && i < builtin->param_count; i++) {
       char escaped_param[256];
       json_escape(builtin->params[i], escaped_param, sizeof(escaped_param));
       ok = append_jsonf(&json, &capacity, &len, "%s{\"label\":\"%s\"}",
-                        i == 0 ? "" : ",", escaped_param);
+                        i == first_param ? "" : ",", escaped_param);
     }
   } else {
     int builtin_count = get_builtin_arg_count(function_name);
     size_t generic_count = builtin_count < 0 ? 1 : (size_t)builtin_count;
     if (builtin_count == -2) {
       generic_count = 1;
+    }
+    if (method_context && generic_count > 0) {
+      generic_count--;
     }
 
     char label[256];
@@ -1686,9 +1813,15 @@ void handle_signature_help(const char *id, const char *body) {
   bool variadic = false;
   if (function_sym) {
     param_count = function_sym->param_count;
+    if (method_context && param_count > 0) {
+      param_count--;
+    }
     variadic = function_sym->has_variadic;
   } else if (builtin) {
     param_count = builtin->param_count;
+    if (method_context && param_count > 0) {
+      param_count--;
+    }
     variadic = builtin->variadic;
   } else {
     int builtin_count = get_builtin_arg_count(function_name);
@@ -1697,6 +1830,9 @@ void handle_signature_help(const char *id, const char *body) {
       variadic = true;
     } else if (builtin_count > 0) {
       param_count = (size_t)builtin_count;
+    }
+    if (method_context && param_count > 0) {
+      param_count--;
     }
   }
 

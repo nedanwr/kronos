@@ -302,6 +302,77 @@ TEST(vm_builtin_map_basic) {
   vm_free(vm);
 }
 
+TEST(vm_method_chaining_string_and_collection_results) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+
+  Bytecode *bytecode = compile_string(
+      "set text to \"  alpha beta gamma  \"\n"
+      "set words to text.uppercase().trim().split(\" \")\n"
+      "set processed to [1, 2, 3, 4]"
+      ".filter(function with x: return x is greater than 2)"
+      ".map(function with x: return x times 10)\n"
+      "set multiline to text\n"
+      "    .trim()\n"
+      "    .uppercase()");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+
+  KronosValue *words = vm_get_global(vm, "words");
+  ASSERT_PTR_NOT_NULL(words);
+  ASSERT_INT_EQ(words->type, VAL_LIST);
+  ASSERT_EQ(words->as.list.count, 3);
+  ASSERT_TRUE(strcmp(words->as.list.items[0]->as.string.data, "ALPHA") == 0);
+  ASSERT_TRUE(strcmp(words->as.list.items[2]->as.string.data, "GAMMA") == 0);
+
+  KronosValue *processed = vm_get_global(vm, "processed");
+  ASSERT_PTR_NOT_NULL(processed);
+  ASSERT_INT_EQ(processed->type, VAL_LIST);
+  ASSERT_EQ(processed->as.list.count, 2);
+  ASSERT_DOUBLE_EQ(processed->as.list.items[0]->as.number, 30.0);
+  ASSERT_DOUBLE_EQ(processed->as.list.items[1]->as.number, 40.0);
+
+  KronosValue *multiline = vm_get_global(vm, "multiline");
+  ASSERT_PTR_NOT_NULL(multiline);
+  ASSERT_TRUE(strcmp(multiline->as.string.data, "ALPHA BETA GAMMA") == 0);
+
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_method_chaining_unbracketed_list_literal) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "set processed to list 1, 2, 3, 4"
+      ".filter(function with x: return x is greater than 2)"
+      ".map(function with x: return x times 2)");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_INT_EQ(vm_execute(vm, bytecode), 0);
+  KronosValue *processed = vm_get_global(vm, "processed");
+  ASSERT_PTR_NOT_NULL(processed);
+  ASSERT_INT_EQ(processed->type, VAL_LIST);
+  ASSERT_EQ(processed->as.list.count, 2);
+  ASSERT_DOUBLE_EQ(processed->as.list.items[0]->as.number, 6.0);
+  ASSERT_DOUBLE_EQ(processed->as.list.items[1]->as.number, 8.0);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
+TEST(vm_method_call_preserves_builtin_type_errors) {
+  KronosVM *vm = vm_new();
+  ASSERT_PTR_NOT_NULL(vm);
+  Bytecode *bytecode = compile_string(
+      "set bad to \"not a list\".map(function with x: return x)");
+  ASSERT_PTR_NOT_NULL(bytecode);
+  ASSERT_NE(vm_execute(vm, bytecode), 0);
+  ASSERT_PTR_NOT_NULL(vm->last_error_message);
+  ASSERT_TRUE(strstr(vm->last_error_message,
+                     "Function 'map' requires a list argument") != NULL);
+  bytecode_free(bytecode);
+  vm_free(vm);
+}
+
 TEST(vm_execute_list_comprehension_range) {
   KronosVM *vm = vm_new();
   ASSERT_PTR_NOT_NULL(vm);

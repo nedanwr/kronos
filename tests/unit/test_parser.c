@@ -563,6 +563,66 @@ TEST(parse_function_call) {
   token_array_free(tokens);
 }
 
+TEST(parse_method_chain_desugars_receiver_arguments) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens =
+      tokenize("set result to text.uppercase().trim().split(\" \")", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ASSERT_PTR_NOT_NULL(tokens);
+
+  ParseError *parse_err = NULL;
+  AST *ast = parse(tokens, &parse_err);
+  ASSERT_PTR_NULL(parse_err);
+  ASSERT_PTR_NOT_NULL(ast);
+
+  ASTNode *split = ast->statements[0]->as.assign.value;
+  ASSERT_INT_EQ(split->type, AST_CALL);
+  ASSERT_STR_EQ(split->as.call.name, "split");
+  ASSERT_INT_EQ(split->as.call.arg_count, 2);
+  ASSERT_INT_EQ(split->as.call.args[1]->type, AST_STRING);
+
+  ASTNode *trim = split->as.call.args[0];
+  ASSERT_INT_EQ(trim->type, AST_CALL);
+  ASSERT_STR_EQ(trim->as.call.name, "trim");
+  ASSERT_INT_EQ(trim->as.call.arg_count, 1);
+
+  ASTNode *uppercase = trim->as.call.args[0];
+  ASSERT_INT_EQ(uppercase->type, AST_CALL);
+  ASSERT_STR_EQ(uppercase->as.call.name, "uppercase");
+  ASSERT_INT_EQ(uppercase->as.call.arg_count, 1);
+  ASSERT_INT_EQ(uppercase->as.call.args[0]->type, AST_VAR);
+  ASSERT_STR_EQ(uppercase->as.call.args[0]->as.var_name, "text");
+
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_qualified_call_with_separate_dots) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("call math.sqrt with 16", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  AST *ast = parse(tokens, NULL);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_STR_EQ(ast->statements[0]->as.call.name, "math.sqrt");
+  ast_free(ast);
+  token_array_free(tokens);
+}
+
+TEST(parse_method_chain_reports_missing_parenthesis) {
+  TokenizeError *tok_err = NULL;
+  TokenArray *tokens = tokenize("set result to text.trim", &tok_err);
+  ASSERT_PTR_NULL(tok_err);
+  ParseError *parse_err = NULL;
+  AST *ast = parse(tokens, &parse_err);
+  ASSERT_PTR_NOT_NULL(ast);
+  ASSERT_INT_EQ(ast->count, 0);
+  ASSERT_PTR_NOT_NULL(parse_err);
+  ASSERT_TRUE(strstr(parse_err->message, "LPAREN") != NULL);
+  ast_free(ast);
+  parse_error_free(parse_err);
+  token_array_free(tokens);
+}
+
 TEST(parse_return_statement) {
   TokenizeError *tok_err = NULL;
   TokenArray *tokens = tokenize("return 42", &tok_err);

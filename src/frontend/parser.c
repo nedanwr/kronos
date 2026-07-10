@@ -561,6 +561,7 @@ static bool call_parse_arguments(Parser *p, ASTNode ***args, char ***arg_names,
                                  size_t *arg_count, size_t *arg_capacity);
 static void call_cleanup_arguments(ASTNode **args, char **arg_names,
                                    size_t arg_count);
+static ASTNode *parse_method_call(Parser *p, ASTNode *receiver);
 static ASTNode *parse_primary(Parser *p);
 static ASTNode *parse_fstring(Parser *p);
 
@@ -1294,6 +1295,29 @@ static ASTNode *parse_list_literal(Parser *p) {
   ast_node_set_position(node, list_tok);
   node->as.list.elements = elements;
   node->as.list.element_count = element_count;
+
+  // Unbracketed list literals have no closing delimiter, so a postfix chain
+  // after the final element is initially parsed as part of that element.
+  // Kronos defines that form as a method on the completed list; a bracketed
+  // list can be used when a chained expression is intended as its last item.
+  if (element_count > 0) {
+    ASTNode *chain = elements[element_count - 1];
+    if (chain && chain->type == AST_CALL && chain->as.call.is_method) {
+      ASTNode *innermost = chain;
+      while (innermost->as.call.arg_count > 0 &&
+             innermost->as.call.args[0] &&
+             innermost->as.call.args[0]->type == AST_CALL &&
+             innermost->as.call.args[0]->as.call.is_method) {
+        innermost = innermost->as.call.args[0];
+      }
+      if (innermost->as.call.arg_count > 0 &&
+          innermost->as.call.args[0]) {
+        elements[element_count - 1] = innermost->as.call.args[0];
+        innermost->as.call.args[0] = node;
+        return chain;
+      }
+    }
+  }
   return node;
 }
 
@@ -1878,14 +1902,36 @@ static ASTNode *parse_primary(Parser *p) {
     return NULL;
   }
 
-  // Handle postfix operations: at, from ... to
+  // Handle postfix operations: method calls, indexing, and slicing.
   while (true) {
     Token *tok = peek(p, 0);
     if (!tok) {
       break;
     }
 
-    if (tok->type == TOK_AT) {
+    // A chain may continue on an indented following line:
+    //   value
+    //       .trim()
+    if (tok->type == TOK_NEWLINE) {
+      size_t offset = 1;
+      Token *next = peek(p, offset);
+      if (next && next->type == TOK_INDENT) {
+        next = peek(p, ++offset);
+      }
+      if (next && next->type == TOK_DOT) {
+        while (offset-- > 0) {
+          consume_any(p);
+        }
+        tok = peek(p, 0);
+      }
+    }
+
+    if (tok && tok->type == TOK_DOT) {
+      expr = parse_method_call(p, expr);
+      if (!expr) {
+        return NULL;
+      }
+    } else if (tok->type == TOK_AT) {
       // Indexing: expr at index
       consume_any(p); // consume 'at'
       ASTNode *index = parse_expression(p);
@@ -1955,6 +2001,115 @@ static ASTNode *parse_primary(Parser *p) {
   }
 
   return expr;
+}
+
+/** Parse `.name(arg, ...)`, desugaring it to `call name with receiver, ...`. */
+static ASTNode *parse_method_call(Parser *p, ASTNode *receiver) {
+  Token *dot = consume(p, TOK_DOT);
+  if (!dot) {
+    ast_node_free(receiver);
+    return NULL;
+  }
+
+  Token *name = peek(p, 0);
+  // `map` is a keyword in literal position but also a collection method.
+  if (!name || (name->type != TOK_NAME && name->type != TOK_MAP &&
+                name->type != TOK_MATCH)) {
+    parser_set_error(p, "Expected method name after '.'");
+    ast_node_free(receiver);
+    return NULL;
+  }
+  consume_any(p);
+
+  if (!consume(p, TOK_LPAREN)) {
+    ast_node_free(receiver);
+    return NULL;
+  }
+
+  size_t capacity = INITIAL_ARRAY_CAPACITY;
+  size_t count = 1;
+  ASTNode **args = malloc(sizeof(ASTNode *) * capacity);
+  char **arg_names = calloc(capacity, sizeof(char *));
+  if (!args || !arg_names) {
+    free(args);
+    free(arg_names);
+    ast_node_free(receiver);
+    parser_set_error(p, "Failed to allocate method call arguments");
+    return NULL;
+  }
+  args[0] = receiver;
+
+  if (!peek(p, 0) || peek(p, 0)->type != TOK_RPAREN) {
+    while (true) {
+      ASTNode *arg = parse_expression(p);
+      if (!arg) {
+        call_cleanup_arguments(args, arg_names, count);
+        return NULL;
+      }
+      if (count >= capacity) {
+        if (capacity > SIZE_MAX / 2 ||
+            capacity * 2 > SIZE_MAX / sizeof(ASTNode *)) {
+          ast_node_free(arg);
+          call_cleanup_arguments(args, arg_names, count);
+          parser_set_error(p, "Method call has too many arguments");
+          return NULL;
+        }
+        size_t new_capacity = capacity * 2;
+        ASTNode **new_args = realloc(args, sizeof(ASTNode *) * new_capacity);
+        if (!new_args) {
+          ast_node_free(arg);
+          call_cleanup_arguments(args, arg_names, count);
+          parser_set_error(p, "Failed to grow method call arguments");
+          return NULL;
+        }
+        args = new_args;
+        char **new_names = realloc(arg_names, sizeof(char *) * new_capacity);
+        if (!new_names) {
+          ast_node_free(arg);
+          call_cleanup_arguments(args, arg_names, count);
+          parser_set_error(p, "Failed to grow method call argument names");
+          return NULL;
+        }
+        arg_names = new_names;
+        memset(arg_names + capacity, 0,
+               sizeof(char *) * (new_capacity - capacity));
+        capacity = new_capacity;
+      }
+      args[count++] = arg;
+
+      if (!peek(p, 0) || peek(p, 0)->type != TOK_COMMA) {
+        break;
+      }
+      consume_any(p);
+      if (peek(p, 0) && peek(p, 0)->type == TOK_RPAREN) {
+        break; // Allow a trailing comma.
+      }
+    }
+  }
+
+  if (!consume(p, TOK_RPAREN)) {
+    call_cleanup_arguments(args, arg_names, count);
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_new_checked(AST_CALL);
+  if (!node) {
+    call_cleanup_arguments(args, arg_names, count);
+    return NULL;
+  }
+  ast_node_set_position(node, dot);
+  node->indent = -1;
+  node->as.call.name = strdup(name->text);
+  if (!node->as.call.name) {
+    call_cleanup_arguments(args, arg_names, count);
+    free(node);
+    return NULL;
+  }
+  node->as.call.args = args;
+  node->as.call.arg_names = arg_names;
+  node->as.call.arg_count = count;
+  node->as.call.is_method = true;
+  return node;
 }
 
 /**
@@ -4835,11 +4990,46 @@ static ASTNode *parse_call(Parser *p, int indent) {
   }
 
   Token *name = peek(p, 0);
-  if (!name || (name->type != TOK_NAME && name->type != TOK_MAP)) {
+  if (!name || (name->type != TOK_NAME && name->type != TOK_MAP &&
+                name->type != TOK_MATCH)) {
     parser_set_error(p, "Expected function name after 'call'");
     return NULL;
   }
   consume_any(p);
+
+  // Preserve legacy qualified calls (`call math.sqrt with 9`) now that dots
+  // are tokenized separately for postfix method syntax.
+  size_t qualified_len = strlen(name->text);
+  char *qualified_name = strdup(name->text);
+  if (!qualified_name) {
+    return NULL;
+  }
+  while (peek(p, 0) && peek(p, 0)->type == TOK_DOT) {
+    consume_any(p);
+    Token *part = peek(p, 0);
+    if (!part || (part->type != TOK_NAME && part->type != TOK_MAP &&
+                  part->type != TOK_MATCH)) {
+      free(qualified_name);
+      parser_set_error(p, "Expected function name after '.'");
+      return NULL;
+    }
+    consume_any(p);
+    size_t part_len = strlen(part->text);
+    if (qualified_len > SIZE_MAX - part_len - 2) {
+      free(qualified_name);
+      parser_set_error(p, "Qualified function name is too long");
+      return NULL;
+    }
+    char *grown = realloc(qualified_name, qualified_len + part_len + 2);
+    if (!grown) {
+      free(qualified_name);
+      return NULL;
+    }
+    qualified_name = grown;
+    qualified_name[qualified_len++] = '.';
+    memcpy(qualified_name + qualified_len, part->text, part_len + 1);
+    qualified_len += part_len;
+  }
 
   // Parse arguments (including named arguments)
   size_t arg_capacity = 0;
@@ -4847,6 +5037,7 @@ static ASTNode *parse_call(Parser *p, int indent) {
   ASTNode **args = NULL;
   char **arg_names = NULL;
   if (!call_parse_arguments(p, &args, &arg_names, &arg_count, &arg_capacity)) {
+    free(qualified_name);
     return NULL;
   }
 
@@ -4854,6 +5045,7 @@ static ASTNode *parse_call(Parser *p, int indent) {
   if (indent >= 0) {
     if (!consume(p, TOK_NEWLINE)) {
       call_cleanup_arguments(args, arg_names, arg_count);
+      free(qualified_name);
       return NULL;
     }
   }
@@ -4861,20 +5053,16 @@ static ASTNode *parse_call(Parser *p, int indent) {
   ASTNode *node = ast_node_new_checked(AST_CALL);
   if (!node) {
     call_cleanup_arguments(args, arg_names, arg_count);
+    free(qualified_name);
     return NULL;
   }
   ast_node_set_position(node, start_tok);
   node->indent = indent;
-  node->as.call.name = strdup(name->text);
-  if (!node->as.call.name) {
-    // Free args and arg_names
-    call_cleanup_arguments(args, arg_names, arg_count);
-    free(node);
-    return NULL;
-  }
+  node->as.call.name = qualified_name;
   node->as.call.args = args;
   node->as.call.arg_names = arg_names;
   node->as.call.arg_count = arg_count;
+  node->as.call.is_method = false;
 
   return node;
 }

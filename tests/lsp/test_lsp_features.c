@@ -660,6 +660,42 @@ TEST(lsp_completion_includes_filter_and_map_utilities) {
   free(response);
 }
 
+TEST(lsp_method_chaining_completion_signature_hover_and_diagnostics) {
+  const char *code = "set text to \"hello\"\n"
+                     "set parts to text.split(\",\")\n"
+                     "set bad to \"not a list\".map(function with x: return x)\n";
+  ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));
+
+  usleep(100000);
+  char *diag =
+      lsp_read_diagnostics_with_message("requires a list argument", 6);
+  ASSERT_PTR_NOT_NULL(diag);
+  ASSERT_TRUE(lsp_is_valid_json(diag));
+  ASSERT_TRUE(lsp_response_contains(
+      diag, "Function 'map' requires a list argument"));
+  free(diag);
+
+  char *completion = lsp_completion(g_ctx, 1, 18);
+  ASSERT_PTR_NOT_NULL(completion);
+  ASSERT_TRUE(lsp_is_valid_json(completion));
+  ASSERT_TRUE(lsp_response_contains(completion, "\"label\":\"split\""));
+  ASSERT_TRUE(lsp_response_contains(completion, "\"label\":\"filter\""));
+  free(completion);
+
+  char *signature = lsp_signature_help(g_ctx, 1, 27);
+  ASSERT_PTR_NOT_NULL(signature);
+  ASSERT_TRUE(lsp_is_valid_json(signature));
+  ASSERT_TRUE(lsp_response_contains(signature, "split(delimiter)"));
+  ASSERT_FALSE(lsp_response_contains(signature, "split(text, delimiter)"));
+  free(signature);
+
+  char *hover = lsp_hover(g_ctx, 1, 20);
+  ASSERT_PTR_NOT_NULL(hover);
+  ASSERT_TRUE(lsp_is_valid_json(hover));
+  ASSERT_TRUE(lsp_response_contains(hover, "**method** split(...)"));
+  free(hover);
+}
+
 TEST(lsp_completion_includes_core_stdlib_0_6_functions) {
   const char *code = "set value to 1\n";
   ASSERT_TRUE(lsp_did_open(g_ctx, "file:///test.kr", code));

@@ -167,6 +167,16 @@ call sort with numbers          # Sort list
 call to_number with "42"        # Parse number
 ```
 
+## Method Chaining
+
+```kronos
+set words to text.uppercase().trim().split(" ")
+set sorted to numbers.filter(function with x: return x is greater than 0).sort()
+```
+
+The receiver becomes the function's first argument; explicit arguments belong
+inside `(...)`. A chain may continue on an indented following line.
+
 ## Running Programs
 
 ```bash

@@ -15,6 +15,31 @@ extern DocumentState *g_doc;
 #define LSP_HOVER_MAX_MARKDOWN_SIZE (64 * 1024)
 #define LSP_HOVER_MAX_JSON_SIZE (128 * 1024)
 
+static const char *method_description(const char *name) {
+  static const struct {
+    const char *name;
+    const char *description;
+  } methods[] = {
+      {"uppercase", "Convert the receiver string to uppercase."},
+      {"lowercase", "Convert the receiver string to lowercase."},
+      {"trim", "Remove leading and trailing whitespace from the receiver."},
+      {"split", "Split the receiver string using a delimiter."},
+      {"capitalize", "Uppercase the first character of the receiver string."},
+      {"title", "Capitalize each word in the receiver string."},
+      {"filter", "Keep receiver-list items accepted by a callback."},
+      {"map", "Transform each receiver-list item with a callback."},
+      {"reverse", "Reverse the receiver list."},
+      {"sort", "Sort the receiver list."},
+      {"len", "Return the length of the receiver."},
+  };
+  for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
+    if (strcmp(methods[i].name, name) == 0) {
+      return methods[i].description;
+    }
+  }
+  return NULL;
+}
+
 static bool hover_appendf(char **buffer, size_t *length, size_t *capacity,
                           size_t max_length, const char *fmt, ...) {
   if (!buffer || !length || !capacity || !fmt) {
@@ -180,6 +205,22 @@ void handle_hover(const char *id, const char *body) {
         free(module_name);
         free(word);
         send_response(id, "null"); // Could enhance this later
+        return;
+      }
+
+      const char *method_doc = method_description(func_name);
+      if (method_doc) {
+        char hover_text[512];
+        snprintf(hover_text, sizeof(hover_text),
+                 "**method** %s(...)\n\n%s\n\n"
+                 "The expression before the dot is passed as the first argument.",
+                 func_name, method_doc);
+        bool sent = send_markdown_hover_response(id, hover_text);
+        free(module_name);
+        free(word);
+        if (!sent) {
+          send_response(id, "null");
+        }
         return;
       }
 
